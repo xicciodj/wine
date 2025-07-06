@@ -177,9 +177,21 @@ struct hid_parser_state
 
 static BOOL array_reserve( struct hid_value_caps **array, DWORD *array_size, DWORD index )
 {
-    if (index < *array_size) return TRUE;
-    if ((*array_size = *array_size ? (*array_size * 3 / 2) : 32) <= index) return FALSE;
-    if (!(*array = realloc( *array, *array_size * sizeof(**array) ))) return FALSE;
+    DWORD new_size = *array_size;
+    
+    if (index < new_size) return TRUE;
+    
+    // Calculate sufficient size
+    if (!new_size) new_size = 32;
+    while (new_size <= index) 
+        new_size = new_size * 3 / 2;
+    
+    // Actually resize
+    struct hid_value_caps *new_array = realloc(*array, new_size * sizeof(**array));
+    if (!new_array) return FALSE;
+    
+    *array = new_array;
+    *array_size = new_size;
     return TRUE;
 }
 
