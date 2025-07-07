@@ -61,26 +61,25 @@ static VkResult (*pvkCreateXlibSurfaceKHR)(VkInstance, const VkXlibSurfaceCreate
 static VkBool32 (*pvkGetPhysicalDeviceXlibPresentationSupportKHR)(VkPhysicalDevice, uint32_t, Display *, VisualID);
 
 static const struct vulkan_driver_funcs x11drv_vulkan_driver_funcs;
+static const struct client_surface_funcs x11drv_vulkan_surface_funcs;
 
 struct x11drv_vulkan_surface
 {
+    struct client_surface client;
     Window window;
     RECT rect;
 
-    BOOL offscreen;
     HDC hdc_src;
     HDC hdc_dst;
 };
 
-static void vulkan_surface_destroy( HWND hwnd, struct x11drv_vulkan_surface *surface )
+static struct x11drv_vulkan_surface *impl_from_client_surface( struct client_surface *client )
 {
-    destroy_client_window( hwnd, surface->window );
-    if (surface->hdc_dst) NtGdiDeleteObjectApp( surface->hdc_dst );
-    if (surface->hdc_src) NtGdiDeleteObjectApp( surface->hdc_src );
-    free( surface );
+    return CONTAINING_RECORD( client, struct x11drv_vulkan_surface, client );
 }
 
-static VkResult X11DRV_vulkan_surface_create( HWND hwnd, const struct vulkan_instance *instance, VkSurfaceKHR *handle, void **private )
+static VkResult X11DRV_vulkan_surface_create( HWND hwnd, const struct vulkan_instance *instance, VkSurfaceKHR *handle,
+                                              struct client_surface **client )
 {
     VkXlibSurfaceCreateInfoKHR info =
     {
@@ -89,9 +88,9 @@ static VkResult X11DRV_vulkan_surface_create( HWND hwnd, const struct vulkan_ins
     };
     struct x11drv_vulkan_surface *surface;
 
-    TRACE( "%p %p %p %p\n", hwnd, instance, handle, private );
+    TRACE( "%p %p %p %p\n", hwnd, instance, handle, client );
 
-    if (!(surface = calloc(1, sizeof(*surface))))
+    if (!(surface = client_surface_create( sizeof(*surface), &x11drv_vulkan_surface_funcs, hwnd )))
     {
         ERR("Failed to allocate vulkan surface for hwnd=%p\n", hwnd);
         return VK_ERROR_OUT_OF_HOST_MEMORY;
@@ -99,7 +98,7 @@ static VkResult X11DRV_vulkan_surface_create( HWND hwnd, const struct vulkan_ins
     if (!(surface->window = create_client_window( hwnd, &default_visual, default_colormap )))
     {
         ERR("Failed to allocate client window for hwnd=%p\n", hwnd);
-        free( surface );
+        client_surface_release( &surface->client );
         return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
     NtUserGetClientRect( hwnd, &surface->rect, NtUserGetDpiForWindow( hwnd ) );
@@ -108,32 +107,36 @@ static VkResult X11DRV_vulkan_surface_create( HWND hwnd, const struct vulkan_ins
     if (pvkCreateXlibSurfaceKHR( instance->host.instance, &info, NULL /* allocator */, handle ))
     {
         ERR("Failed to create Xlib surface\n");
-        vulkan_surface_destroy( hwnd, surface );
+        client_surface_release( &surface->client );
         return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
 
-    *private = (void *)surface;
+    *client = &surface->client;
 
-    TRACE("Created surface 0x%s, private %p\n", wine_dbgstr_longlong(*handle), *private);
+    TRACE( "Created surface 0x%s, client %p\n", wine_dbgstr_longlong( *handle ), *client );
     return VK_SUCCESS;
 }
 
-static void X11DRV_vulkan_surface_destroy( HWND hwnd, void *private )
+static void x11drv_vulkan_surface_destroy( struct client_surface *client )
 {
-    struct x11drv_vulkan_surface *surface = private;
+    struct x11drv_vulkan_surface *surface = impl_from_client_surface( client );
+    HWND hwnd = client->hwnd;
 
-    TRACE( "%p %p\n", hwnd, private );
+    TRACE( "%s\n", debugstr_client_surface( client ) );
 
-    vulkan_surface_destroy( hwnd, surface );
+    if (surface->window) destroy_client_window( hwnd, surface->window );
+    if (surface->hdc_dst) NtGdiDeleteObjectApp( surface->hdc_dst );
+    if (surface->hdc_src) NtGdiDeleteObjectApp( surface->hdc_src );
 }
 
-static void X11DRV_vulkan_surface_detach( HWND hwnd, void *private )
+static void x11drv_vulkan_surface_detach( struct client_surface *client )
 {
-    struct x11drv_vulkan_surface *surface = private;
+    struct x11drv_vulkan_surface *surface = impl_from_client_surface( client );
     Window client_window = surface->window;
     struct x11drv_win_data *data;
+    HWND hwnd = client->hwnd;
 
-    TRACE( "%p %p\n", hwnd, private );
+    TRACE( "%s\n", debugstr_client_surface( client ) );
 
     if ((data = get_win_data( hwnd )))
     {
@@ -161,7 +164,7 @@ static void vulkan_surface_update_offscreen( HWND hwnd, struct x11drv_vulkan_sur
     BOOL offscreen = needs_offscreen_rendering( hwnd );
     struct x11drv_win_data *data;
 
-    if (offscreen == surface->offscreen)
+    if (InterlockedExchange(&surface->client.offscreen, offscreen) == offscreen)
     {
         if (!offscreen && (data = get_win_data( hwnd )))
         {
@@ -170,9 +173,8 @@ static void vulkan_surface_update_offscreen( HWND hwnd, struct x11drv_vulkan_sur
         }
         return;
     }
-    surface->offscreen = offscreen;
 
-    if (!surface->offscreen)
+    if (!offscreen)
     {
 #ifdef SONAME_LIBXCOMPOSITE
         if (usexcomposite) pXCompositeUnredirectWindow( gdi_display, surface->window, CompositeRedirectManual );
@@ -202,37 +204,36 @@ static void vulkan_surface_update_offscreen( HWND hwnd, struct x11drv_vulkan_sur
 
     if ((data = get_win_data( hwnd )))
     {
-        if (surface->offscreen) detach_client_window( data, surface->window );
+        if (offscreen) detach_client_window( data, surface->window );
         else attach_client_window( data, surface->window );
         release_win_data( data );
     }
 }
 
-static void X11DRV_vulkan_surface_update( HWND hwnd, void *private )
+static void x11drv_vulkan_surface_update( struct client_surface *client )
 {
-    struct x11drv_vulkan_surface *surface = private;
+    struct x11drv_vulkan_surface *surface = impl_from_client_surface( client );
+    HWND hwnd = client->hwnd;
 
-    TRACE( "%p %p\n", hwnd, private );
+    TRACE( "%s\n", debugstr_client_surface( client ) );
 
     vulkan_surface_update_size( hwnd, surface );
     vulkan_surface_update_offscreen( hwnd, surface );
 }
 
-static void X11DRV_vulkan_surface_presented( HWND hwnd, void *private, VkResult result )
+static void X11DRV_vulkan_surface_present( struct client_surface *client, HDC hdc )
 {
-    struct x11drv_vulkan_surface *surface = private;
-    HWND toplevel = NtUserGetAncestor( hwnd, GA_ROOT );
+    struct x11drv_vulkan_surface *surface = impl_from_client_surface( client );
+    HWND hwnd = client->hwnd, toplevel = NtUserGetAncestor( hwnd, GA_ROOT );
     struct x11drv_win_data *data;
     RECT rect_dst, rect;
     Drawable window;
     HRGN region;
-    HDC hdc;
 
     vulkan_surface_update_size( hwnd, surface );
     vulkan_surface_update_offscreen( hwnd, surface );
 
-    if (!surface->offscreen) return;
-    if (!(hdc = NtUserGetDCEx( hwnd, 0, DCX_CACHE | DCX_USESTYLE ))) return;
+    if (!hdc) return;
     window = X11DRV_get_whole_window( toplevel );
     region = get_dc_monitor_region( hwnd, hdc );
 
@@ -254,7 +255,6 @@ static void X11DRV_vulkan_surface_presented( HWND hwnd, void *private, VkResult 
                      surface->hdc_src, 0, 0, surface->rect.right, surface->rect.bottom, SRCCOPY, 0 );
 
     if (region) NtGdiDeleteObjectApp( region );
-    if (hdc) NtUserReleaseDC( hwnd, hdc );
 }
 
 static VkBool32 X11DRV_vkGetPhysicalDeviceWin32PresentationSupportKHR(VkPhysicalDevice phys_dev,
@@ -271,14 +271,17 @@ static const char *X11DRV_get_host_surface_extension(void)
     return "VK_KHR_xlib_surface";
 }
 
+static const struct client_surface_funcs x11drv_vulkan_surface_funcs =
+{
+    .destroy = x11drv_vulkan_surface_destroy,
+    .detach = x11drv_vulkan_surface_detach,
+    .update = x11drv_vulkan_surface_update,
+    .present = X11DRV_vulkan_surface_present,
+};
+
 static const struct vulkan_driver_funcs x11drv_vulkan_driver_funcs =
 {
     .p_vulkan_surface_create = X11DRV_vulkan_surface_create,
-    .p_vulkan_surface_destroy = X11DRV_vulkan_surface_destroy,
-    .p_vulkan_surface_detach = X11DRV_vulkan_surface_detach,
-    .p_vulkan_surface_update = X11DRV_vulkan_surface_update,
-    .p_vulkan_surface_presented = X11DRV_vulkan_surface_presented,
-
     .p_vkGetPhysicalDeviceWin32PresentationSupportKHR = X11DRV_vkGetPhysicalDeviceWin32PresentationSupportKHR,
     .p_get_host_surface_extension = X11DRV_get_host_surface_extension,
 };

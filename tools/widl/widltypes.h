@@ -365,7 +365,7 @@ struct _expr_t {
     double dval;
     const char *sval;
     const expr_t *ext;
-    decl_spec_t tref;
+    var_t *var;
   } u;
   const expr_t *ext2;
   int is_const;
@@ -403,6 +403,7 @@ struct iface_details
   struct _type_t *inherit;
   struct _type_t *disp_inherit;
   struct _type_t *async_iface;
+  struct _type_t *runtime_class;
   typeref_list_t *requires;
 };
 
