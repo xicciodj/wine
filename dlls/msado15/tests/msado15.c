@@ -789,6 +789,11 @@ static void test_Fields(void)
 {
     _Recordset *recordset;
     ISupportErrorInfo *errorinfo;
+    Field20 *field20;
+    _ADO *ado;
+    Fields20 *fields20;
+    Fields15 *fields15;
+    _Collection *collection;
     unsigned char prec, scale;
     Fields *fields;
     Field *field, *field2;
@@ -808,6 +813,17 @@ static void test_Fields(void)
 
     hr = _Recordset_get_Fields( recordset, &fields );
     ok( hr == S_OK, "got %08lx\n", hr );
+
+    hr = Fields_QueryInterface( fields, &IID_Fields20, (void **)&fields20 );
+    ok( hr == S_OK, "got %08lx\n", hr );
+    Fields20_Release( fields20 );
+
+    hr = Fields_QueryInterface( fields, &IID_Fields15, (void **)&fields15 );
+    ok( hr == S_OK, "got %08lx\n", hr );
+    Fields15_Release( fields15 );
+
+    hr = Fields_QueryInterface( fields, &IID__Collection, (void **)&collection );
+    ok( hr == E_NOINTERFACE, "got %08lx\n", hr );
 
     /* Fields object supports ISupportErrorInfo */
     errorinfo = NULL;
@@ -858,6 +874,14 @@ static void test_Fields(void)
     hr = Field_QueryInterface( field, &IID_ISupportErrorInfo, (void **)&errorinfo );
     ok( hr == S_OK, "got %08lx\n", hr );
     if (errorinfo) ISupportErrorInfo_Release( errorinfo );
+
+    hr = Field_QueryInterface( field, &IID_Field20, (void **)&field20 );
+    ok( hr == S_OK, "got %08lx\n", hr );
+    Field20_Release( field20 );
+
+    hr = Field_QueryInterface( field, &IID__ADO, (void **)&ado );
+    ok( hr == S_OK, "got %08lx\n", hr );
+    _ADO_Release( ado );
 
     /* verify values set with _Append */
     hr = Field_get_Name( field, &name );
@@ -1177,6 +1201,8 @@ static void test_Connection(void)
     ISupportErrorInfo *errorinfo;
     IConnectionPointContainer *pointcontainer;
     ADOConnectionConstruction15 *construct;
+    Connection15 *conn15;
+    _ADO *ado;
     LONG state, timeout;
     BSTR str, str2, str3;
     ConnectModeEnum mode;
@@ -1184,6 +1210,14 @@ static void test_Connection(void)
 
     hr = CoCreateInstance(&CLSID_Connection, NULL, CLSCTX_INPROC_SERVER, &IID__Connection, (void**)&connection);
     ok( hr == S_OK, "got %08lx\n", hr );
+
+    hr = _Connection_QueryInterface(connection, &IID_Connection15, (void**)&conn15);
+    ok(hr == S_OK, "Unexpected IRunnableObject interface\n");
+    Connection15_Release(conn15);
+
+    hr = _Connection_QueryInterface(connection, &IID__ADO, (void**)&ado);
+    ok(hr == S_OK, "Unexpected IRunnableObject interface\n");
+    _ADO_Release(ado);
 
     hr = _Connection_QueryInterface(connection, &IID_IRunnableObject, (void**)&runtime);
     ok(hr == E_NOINTERFACE, "Unexpected IRunnableObject interface\n");
