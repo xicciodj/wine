@@ -553,6 +553,10 @@ static HRESULT WINAPI HTMLDOMNode_insertBefore(IHTMLDOMNode *iface, IHTMLDOMNode
 
     TRACE("(%p)->(%p %s %p)\n", This, newChild, debugstr_variant(&refChild), node);
 
+    *node = NULL;
+    if(!newChild)
+        return E_INVALIDARG;
+
     new_child = get_node_obj(newChild);
     if(!new_child) {
         ERR("invalid newChild\n");
@@ -619,6 +623,10 @@ static HRESULT WINAPI HTMLDOMNode_removeChild(IHTMLDOMNode *iface, IHTMLDOMNode 
 
     TRACE("(%p)->(%p %p)\n", This, oldChild, node);
 
+    *node = NULL;
+    if(!oldChild)
+        return E_INVALIDARG;
+
     node_obj = get_node_obj(oldChild);
     if(!node_obj)
         return E_FAIL;
@@ -650,6 +658,10 @@ static HRESULT WINAPI HTMLDOMNode_replaceChild(IHTMLDOMNode *iface, IHTMLDOMNode
     HRESULT hres;
 
     TRACE("(%p)->(%p %p %p)\n", This, newChild, oldChild, node);
+
+    *node = NULL;
+    if(!newChild || !oldChild)
+        return E_INVALIDARG;
 
     node_new = get_node_obj(newChild);
     if(!node_new)
@@ -736,6 +748,10 @@ static HRESULT WINAPI HTMLDOMNode_appendChild(IHTMLDOMNode *iface, IHTMLDOMNode 
     HRESULT hres;
 
     TRACE("(%p)->(%p %p)\n", This, newChild, node);
+
+    *node = NULL;
+    if(!newChild)
+        return E_INVALIDARG;
 
     node_obj = get_node_obj(newChild);
     if(!node_obj)
