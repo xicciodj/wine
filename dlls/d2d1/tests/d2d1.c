@@ -15913,6 +15913,137 @@ static void test_no_target(BOOL d3d11)
     release_test_context(&ctx);
 }
 
+static void test_mesh(BOOL d3d11)
+{
+    ID2D1TessellationSink *sink, *sink2;
+    struct d2d1_test_context ctx;
+    D2D1_TRIANGLE triangles[2];
+    ID2D1RenderTarget *rt;
+    ID2D1Factory *factory;
+    ID2D1Mesh *mesh;
+    HRESULT hr;
+
+    if (!init_test_context(&ctx, d3d11))
+        return;
+
+    rt = ctx.rt;
+    hr = ID2D1RenderTarget_CreateMesh(rt, &mesh);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+
+    check_interface(mesh, &IID_IUnknown, TRUE);
+    check_interface(mesh, &IID_ID2D1Resource, TRUE);
+    check_interface(mesh, &IID_ID2D1Mesh, TRUE);
+    check_interface(mesh, &IID_ID2D1TessellationSink, FALSE);
+
+    ID2D1Mesh_GetFactory(mesh, &factory);
+    ok(ctx.factory == factory, "Unexpected factory.\n");
+    ID2D1Factory_Release(factory);
+
+    hr = ID2D1Mesh_Open(mesh, &sink);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+
+    check_interface(sink, &IID_IUnknown, TRUE);
+    check_interface(sink, &IID_ID2D1TessellationSink, TRUE);
+    check_interface(sink, &IID_ID2D1Mesh, FALSE);
+
+    sink2 = (void *)0xdeadbeef;
+    hr = ID2D1Mesh_Open(mesh, &sink2);
+    ok(hr == D2DERR_WRONG_STATE, "Got unexpected hr %#lx.\n", hr);
+    ok(!sink2, "Unexpected pointer %p.\n", sink2);
+
+    /* Close empty sink */
+    hr = ID2D1TessellationSink_Close(sink);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+
+    hr = ID2D1TessellationSink_Close(sink);
+    ok(hr == D2DERR_WRONG_STATE, "Got unexpected hr %#lx.\n", hr);
+
+    ID2D1TessellationSink_Release(sink);
+
+    hr = ID2D1Mesh_Open(mesh, &sink);
+    ok(hr == D2DERR_WRONG_STATE, "Got unexpected hr %#lx.\n", hr);
+
+    ID2D1Mesh_Release(mesh);
+
+    /* Add some triangles */
+    hr = ID2D1RenderTarget_CreateMesh(rt, &mesh);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+
+    hr = ID2D1Mesh_Open(mesh, &sink);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+
+    set_point(&triangles[0].point1, 0.0f, 0.0f);
+    set_point(&triangles[0].point2, 10.0f, 20.0f);
+    set_point(&triangles[0].point3, 40.0f, -20.0f);
+    set_point(&triangles[1].point1, -100.0f, 0.0f);
+    set_point(&triangles[1].point2, 30.0f, 200.0f);
+    set_point(&triangles[1].point3, 50.0f, -200.0f);
+    ID2D1TessellationSink_AddTriangles(sink, triangles, 2);
+    hr = ID2D1TessellationSink_Close(sink);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+
+    ID2D1TessellationSink_Release(sink);
+
+    ID2D1Mesh_Release(mesh);
+
+    release_test_context(&ctx);
+}
+
+static void test_geometry_realization(BOOL d3d11)
+{
+    ID2D1GeometryRealization *realization, *realization2;
+    ID2D1RectangleGeometry *rectangle_geometry;
+    ID2D1DeviceContext1 *device_context;
+    struct d2d1_test_context ctx;
+    ID2D1SolidColorBrush *brush;
+    D2D1_COLOR_F color;
+    D2D1_RECT_F rect;
+    HRESULT hr;
+
+    if (!init_test_context(&ctx, d3d11))
+        return;
+
+    if (!ctx.factory2)
+    {
+        skip("Geometry realizations are not supported.\n");
+        release_test_context(&ctx);
+        return;
+    }
+
+    hr = ID2D1DeviceContext_QueryInterface(ctx.context, &IID_ID2D1DeviceContext1, (void **)&device_context);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+
+    set_rect(&rect, -1.0f, -1.0f, 1.0f, 1.0f);
+    hr = ID2D1Factory_CreateRectangleGeometry(ctx.factory, &rect, &rectangle_geometry);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+
+    hr = ID2D1DeviceContext1_CreateFilledGeometryRealization(device_context,
+            (ID2D1Geometry *)rectangle_geometry, 10.0f, &realization);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+
+    hr = ID2D1DeviceContext1_CreateStrokedGeometryRealization(device_context,
+            (ID2D1Geometry *)rectangle_geometry, 0.0f, 2.0f, NULL, &realization2);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+    ID2D1RectangleGeometry_Release(rectangle_geometry);
+
+    set_color(&color, 0.0f, 0.0f, 0.0f, 0.0f);
+    hr = ID2D1DeviceContext1_CreateSolidColorBrush(device_context, &color, NULL, &brush);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+
+    ID2D1DeviceContext1_BeginDraw(device_context);
+    ID2D1DeviceContext1_DrawGeometryRealization(device_context, realization, (ID2D1Brush *)brush);
+    ID2D1DeviceContext1_DrawGeometryRealization(device_context, realization2, (ID2D1Brush *)brush);
+    hr = ID2D1DeviceContext1_EndDraw(device_context, NULL, NULL);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+
+    ID2D1SolidColorBrush_Release(brush);
+
+    ID2D1GeometryRealization_Release(realization);
+    ID2D1GeometryRealization_Release(realization2);
+    ID2D1DeviceContext1_Release(device_context);
+    release_test_context(&ctx);
+}
+
 START_TEST(d2d1)
 {
     HMODULE d2d1_dll = GetModuleHandleA("d2d1.dll");
@@ -16012,6 +16143,8 @@ START_TEST(d2d1)
     queue_test(test_effect_blob_property);
     queue_test(test_get_dxgi_device);
     queue_test(test_no_target);
+    queue_test(test_mesh);
+    queue_test(test_geometry_realization);
 
     run_queued_tests();
 }
