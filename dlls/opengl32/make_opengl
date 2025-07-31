@@ -432,6 +432,17 @@ sub generate_unix_thunk($$$)
     return $ret;
 }
 
+sub generate_wrapper_declaration($$)
+{
+    my ($name, $func) = @_;
+    my $ret = "extern " . get_func_ret( $func, 0 );
+    my $decl_args = get_func_args( $func, 1, 0, "" );
+    $ret .= " wrap_$name( TEB *teb";
+    $ret .= " ,$decl_args" unless $decl_args eq "void";
+    $ret .= ");\n";
+    return $ret;
+}
+
 sub generate_win_thunk($$)
 {
     my ($name, $func) = @_;
@@ -1275,18 +1286,38 @@ close OUT;
 #
 open OUT, ">unix_thunks.h" or die "cannot create unix_thunks.h";
 print OUT "/* Automatically generated from http://www.opengl.org/registry files; DO NOT EDIT! */\n\n";
-print OUT "#ifdef _WIN64\n\n";
+
+foreach (sort keys %wgl_functions)
+{
+    next if !needs_wrapper( $_, $wgl_functions{$_} );
+    print OUT generate_wrapper_declaration($_, $wgl_functions{$_});
+}
+foreach (sort keys %norm_functions)
+{
+    next if !needs_wrapper( $_, $norm_functions{$_} );
+    print OUT generate_wrapper_declaration($_, $norm_functions{$_});
+}
+foreach (sort keys %ext_functions)
+{
+    next if $_ =~ /^egl/; # unix-side only API
+    next if !needs_wrapper( $_, $ext_functions{$_} );
+    print OUT generate_wrapper_declaration($_, $ext_functions{$_});
+}
+
+print OUT "\n";
 
 foreach (sort keys %wgl_functions)
 {
     next if defined $manual_win_functions{$_};
     next unless defined $manual_wow64_thunks{$_};
+    print OUT "extern NTSTATUS wgl_$_( void *args );\n";
     print OUT "extern NTSTATUS wow64_wgl_$_( void *args );\n";
 }
 foreach (sort keys %norm_functions)
 {
     next if defined $manual_win_functions{$_};
     next unless defined $manual_wow64_thunks{$_};
+    print OUT "extern NTSTATUS gl_$_( void *args );\n";
     print OUT "extern NTSTATUS wow64_gl_$_( void *args );\n";
 }
 foreach (sort keys %ext_functions)
@@ -1298,7 +1329,6 @@ foreach (sort keys %ext_functions)
     print OUT "extern NTSTATUS wow64_ext_$_( void *args );\n";
 }
 
-print OUT "\n#endif\n";
 close OUT;
 
 #
