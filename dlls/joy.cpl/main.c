@@ -449,6 +449,12 @@ static void display_cpl_sheets( HWND parent )
             .pszTemplate = MAKEINTRESOURCEW( IDD_TEST_XI ),
             .pfnDlgProc = test_xi_dialog_proc,
         },
+        {
+            .dwSize = sizeof(PROPSHEETPAGEW),
+            .hInstance = hcpl,
+            .pszTemplate = MAKEINTRESOURCEW( IDD_TEST_WGI ),
+            .pfnDlgProc = test_wgi_dialog_proc,
+        },
     };
     PROPSHEETHEADERW header =
     {
@@ -512,15 +518,47 @@ static void register_window_class(void)
         .lpfnWndProc = &test_di_buttons_window_proc,
         .lpszClassName = L"JoyCplDInputButtons",
     };
+    WNDCLASSW wgi_axes_class =
+    {
+        .hInstance = hcpl,
+        .lpfnWndProc = &test_wgi_axes_window_proc,
+        .lpszClassName = L"JoyCplWGIAxes",
+    };
+    WNDCLASSW wgi_povs_class =
+    {
+        .hInstance = hcpl,
+        .lpfnWndProc = &test_wgi_povs_window_proc,
+        .lpszClassName = L"JoyCplWGIPOVs",
+    };
+    WNDCLASSW wgi_buttons_class =
+    {
+        .hInstance = hcpl,
+        .lpfnWndProc = &test_wgi_buttons_window_proc,
+        .lpszClassName = L"JoyCplWGIButtons",
+    };
+    WNDCLASSW wgi_gamepad_class =
+    {
+        .hInstance = hcpl,
+        .lpfnWndProc = &test_wgi_gamepad_window_proc,
+        .lpszClassName = L"JoyCplWGIGamepad",
+    };
 
     RegisterClassW( &xi_class );
     RegisterClassW( &di_axes_class );
     RegisterClassW( &di_povs_class );
     RegisterClassW( &di_buttons_class );
+    RegisterClassW( &wgi_axes_class );
+    RegisterClassW( &wgi_povs_class );
+    RegisterClassW( &wgi_buttons_class );
+    RegisterClassW( &wgi_gamepad_class );
 }
 
 static void unregister_window_class(void)
 {
+    UnregisterClassW( L"JoyCplWGIAxes", hcpl );
+    UnregisterClassW( L"JoyCplWGIPovs", hcpl );
+    UnregisterClassW( L"JoyCplWGIButtons", hcpl );
+    UnregisterClassW( L"JoyCplWGIGamepad", hcpl );
     UnregisterClassW( L"JoyCplDInputAxes", hcpl );
     UnregisterClassW( L"JoyCplDInputPOVs", hcpl );
     UnregisterClassW( L"JoyCplDInputButtons", hcpl );
