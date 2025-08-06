@@ -32,18 +32,18 @@ static NTSTATUS wgl_wglCopyContext( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wgl_wglCreateContext( void *args )
+static NTSTATUS wgl_wglCreateContext( void *args )
 {
     struct wglCreateContext_params *params = args;
     const struct opengl_funcs *funcs = get_dc_funcs( params->hDc );
     if (!funcs || !funcs->p_wglCreateContext) return STATUS_NOT_IMPLEMENTED;
     pthread_mutex_lock( &wgl_lock );
-    params->ret = (HGLRC)wrap_wglCreateContext( params->teb, params->hDc );
+    params->ret = wrap_wglCreateContext( params->teb, params->hDc );
     pthread_mutex_unlock( &wgl_lock );
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wgl_wglDeleteContext( void *args )
+static NTSTATUS wgl_wglDeleteContext( void *args )
 {
     struct wglDeleteContext_params *params = args;
     pthread_mutex_lock( &wgl_lock );
@@ -68,7 +68,7 @@ NTSTATUS wgl_wglGetProcAddress( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wgl_wglMakeCurrent( void *args )
+static NTSTATUS wgl_wglMakeCurrent( void *args )
 {
     struct wglMakeCurrent_params *params = args;
     pthread_mutex_lock( &wgl_lock );
@@ -26658,13 +26658,13 @@ static NTSTATUS ext_wglChoosePixelFormatARB( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS ext_wglCreateContextAttribsARB( void *args )
+static NTSTATUS ext_wglCreateContextAttribsARB( void *args )
 {
     struct wglCreateContextAttribsARB_params *params = args;
     const struct opengl_funcs *funcs = get_dc_funcs( params->hDC );
     if (!funcs || !funcs->p_wglCreateContextAttribsARB) return STATUS_NOT_IMPLEMENTED;
     pthread_mutex_lock( &wgl_lock );
-    params->ret = (HGLRC)wrap_wglCreateContextAttribsARB( params->teb, params->hDC, params->hShareContext, params->attribList );
+    params->ret = wrap_wglCreateContextAttribsARB( params->teb, params->hDC, params->hShareContext, params->attribList );
     pthread_mutex_unlock( &wgl_lock );
     return STATUS_SUCCESS;
 }
@@ -26675,7 +26675,7 @@ NTSTATUS ext_wglCreatePbufferARB( void *args )
     const struct opengl_funcs *funcs = get_dc_funcs( params->hDC );
     if (!funcs || !funcs->p_wglCreatePbufferARB) return STATUS_NOT_IMPLEMENTED;
     pthread_mutex_lock( &wgl_lock );
-    params->ret = (HPBUFFERARB)wrap_wglCreatePbufferARB( params->teb, params->hDC, params->iPixelFormat, params->iWidth, params->iHeight, params->piAttribList );
+    params->ret = wrap_wglCreatePbufferARB( params->teb, params->hDC, params->iPixelFormat, params->iWidth, params->iHeight, params->piAttribList );
     pthread_mutex_unlock( &wgl_lock );
     return STATUS_SUCCESS;
 }
@@ -26694,14 +26694,6 @@ static NTSTATUS ext_wglFreeMemoryNV( void *args )
     struct wglFreeMemoryNV_params *params = args;
     const struct opengl_funcs *funcs = params->teb->glTable;
     funcs->p_wglFreeMemoryNV( params->pointer );
-    return STATUS_SUCCESS;
-}
-
-static NTSTATUS ext_wglGetCurrentReadDCARB( void *args )
-{
-    struct wglGetCurrentReadDCARB_params *params = args;
-    const struct opengl_funcs *funcs = params->teb->glTable;
-    params->ret = funcs->p_wglGetCurrentReadDCARB();
     return STATUS_SUCCESS;
 }
 
@@ -26757,7 +26749,7 @@ static NTSTATUS ext_wglGetSwapIntervalEXT( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS ext_wglMakeContextCurrentARB( void *args )
+static NTSTATUS ext_wglMakeContextCurrentARB( void *args )
 {
     struct wglMakeContextCurrentARB_params *params = args;
     pthread_mutex_lock( &wgl_lock );
@@ -29880,7 +29872,6 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     ext_wglCreatePbufferARB,
     ext_wglDestroyPbufferARB,
     ext_wglFreeMemoryNV,
-    ext_wglGetCurrentReadDCARB,
     ext_wglGetExtensionsStringARB,
     ext_wglGetExtensionsStringEXT,
     ext_wglGetPbufferDCARB,
@@ -29927,6 +29918,38 @@ static NTSTATUS wow64_wgl_wglCopyContext( void *args )
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS wow64_wgl_wglCreateContext( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 hDc;
+        PTR32 ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    const struct opengl_funcs *funcs = get_dc_funcs( ULongToPtr(params->hDc) );
+    if (!funcs || !funcs->p_wglCreateContext) return STATUS_NOT_IMPLEMENTED;
+    pthread_mutex_lock( &wgl_lock );
+    params->ret = (UINT_PTR)wrap_wglCreateContext( teb, ULongToPtr(params->hDc) );
+    pthread_mutex_unlock( &wgl_lock );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_wgl_wglDeleteContext( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 oldContext;
+        BOOL ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    pthread_mutex_lock( &wgl_lock );
+    params->ret = wrap_wglDeleteContext( teb, ULongToPtr(params->oldContext) );
+    pthread_mutex_unlock( &wgl_lock );
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS wow64_wgl_wglGetPixelFormat( void *args )
 {
     struct
@@ -29938,6 +29961,22 @@ static NTSTATUS wow64_wgl_wglGetPixelFormat( void *args )
     const struct opengl_funcs *funcs = get_dc_funcs( ULongToPtr(params->hdc) );
     if (!funcs || !funcs->p_wglGetPixelFormat) return STATUS_NOT_IMPLEMENTED;
     params->ret = funcs->p_wglGetPixelFormat( ULongToPtr(params->hdc) );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_wgl_wglMakeCurrent( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 hDc;
+        PTR32 newContext;
+        BOOL ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    pthread_mutex_lock( &wgl_lock );
+    params->ret = wrap_wglMakeCurrent( teb, ULongToPtr(params->hDc), ULongToPtr(params->newContext) );
+    pthread_mutex_unlock( &wgl_lock );
     return STATUS_SUCCESS;
 }
 
@@ -78183,6 +78222,25 @@ static NTSTATUS wow64_ext_wglChoosePixelFormatARB( void *args )
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS wow64_ext_wglCreateContextAttribsARB( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 hDC;
+        PTR32 hShareContext;
+        PTR32 attribList;
+        PTR32 ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    const struct opengl_funcs *funcs = get_dc_funcs( ULongToPtr(params->hDC) );
+    if (!funcs || !funcs->p_wglCreateContextAttribsARB) return STATUS_NOT_IMPLEMENTED;
+    pthread_mutex_lock( &wgl_lock );
+    params->ret = (UINT_PTR)wrap_wglCreateContextAttribsARB( teb, ULongToPtr(params->hDC), ULongToPtr(params->hShareContext), ULongToPtr(params->attribList) );
+    pthread_mutex_unlock( &wgl_lock );
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS wow64_ext_wglDestroyPbufferARB( void *args )
 {
     struct
@@ -78209,17 +78267,6 @@ static NTSTATUS wow64_ext_wglFreeMemoryNV( void *args )
     const struct opengl_funcs *funcs = teb->glTable;
     funcs->p_wglFreeMemoryNV( ULongToPtr(params->pointer) );
     return STATUS_SUCCESS;
-}
-
-static NTSTATUS wow64_ext_wglGetCurrentReadDCARB( void *args )
-{
-    struct
-    {
-        PTR32 teb;
-        PTR32 ret;
-    } *params = args;
-    FIXME( "params %p stub!\n", params );
-    return STATUS_NOT_IMPLEMENTED;
 }
 
 static NTSTATUS wow64_ext_wglGetPixelFormatAttribfvARB( void *args )
@@ -78270,6 +78317,23 @@ static NTSTATUS wow64_ext_wglGetSwapIntervalEXT( void *args )
     TEB *teb = get_teb64( params->teb );
     const struct opengl_funcs *funcs = teb->glTable;
     params->ret = funcs->p_wglGetSwapIntervalEXT();
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_ext_wglMakeContextCurrentARB( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 hDrawDC;
+        PTR32 hReadDC;
+        PTR32 hglrc;
+        BOOL ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    pthread_mutex_lock( &wgl_lock );
+    params->ret = wrap_wglMakeContextCurrentARB( teb, ULongToPtr(params->hDrawDC), ULongToPtr(params->hReadDC), ULongToPtr(params->hglrc) );
+    pthread_mutex_unlock( &wgl_lock );
     return STATUS_SUCCESS;
 }
 
@@ -81427,7 +81491,6 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     wow64_ext_wglCreatePbufferARB,
     wow64_ext_wglDestroyPbufferARB,
     wow64_ext_wglFreeMemoryNV,
-    wow64_ext_wglGetCurrentReadDCARB,
     wow64_ext_wglGetExtensionsStringARB,
     wow64_ext_wglGetExtensionsStringEXT,
     wow64_ext_wglGetPbufferDCARB,
@@ -93708,11 +93771,6 @@ static void null_wglFreeMemoryNV( void *pointer )
 {
     ERR( "unsupported\n" );
 }
-static HDC null_wglGetCurrentReadDCARB(void)
-{
-    ERR( "unsupported\n" );
-    return 0;
-}
 static const char * null_wglGetExtensionsStringARB( HDC hdc )
 {
     ERR( "unsupported\n" );
@@ -96823,7 +96881,6 @@ struct opengl_funcs null_opengl_funcs =
     .p_wglCreatePbufferARB = null_wglCreatePbufferARB,
     .p_wglDestroyPbufferARB = null_wglDestroyPbufferARB,
     .p_wglFreeMemoryNV = null_wglFreeMemoryNV,
-    .p_wglGetCurrentReadDCARB = null_wglGetCurrentReadDCARB,
     .p_wglGetExtensionsStringARB = null_wglGetExtensionsStringARB,
     .p_wglGetExtensionsStringEXT = null_wglGetExtensionsStringEXT,
     .p_wglGetPbufferDCARB = null_wglGetPbufferDCARB,

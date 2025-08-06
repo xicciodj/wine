@@ -158,6 +158,7 @@ my %manual_win_functions =
      "wglDescribePixelFormat" => 1,
      "wglGetCurrentContext" => 1,
      "wglGetCurrentDC" => 1,
+     "wglGetCurrentReadDCARB" => 1,
      "wglGetDefaultProcAddress" => 1,
      "wglGetLayerPaletteEntries" => 1,
      "wglRealizeLayerPalette" => 1,
@@ -184,7 +185,6 @@ my %manual_win_thunks =
      "glUnmapNamedBuffer" => 1,
      "glUnmapNamedBufferEXT" => 1,
      "wglChoosePixelFormatARB" => 1,
-     "wglGetCurrentReadDCARB" => 1,
      "wglGetExtensionsStringARB" => 1,
      "wglGetExtensionsStringEXT" => 1,
      "wglGetPixelFormat" => 1,
@@ -238,17 +238,12 @@ my %manual_wow64_thunks =
      "glUnmapNamedBuffer" => 1,
      "glUnmapNamedBufferEXT" => 1,
      "glWaitSync" => 1,
-     "wglCreateContext" => 1,
-     "wglCreateContextAttribsARB" => 1,
      "wglCreatePbufferARB" => 1,
-     "wglDeleteContext" => 1,
      "wglGetExtensionsStringARB" => 1,
      "wglGetExtensionsStringEXT" => 1,
      "wglGetPbufferDCARB" => 1,
      "wglGetProcAddress" => 1,
      "wglGetProcAddress" => 1,
-     "wglMakeContextCurrentARB" => 1,
-     "wglMakeCurrent" => 1,
      "wglQueryCurrentRendererStringWINE" => 1,
      "wglQueryRendererStringWINE" => 1,
     );
@@ -447,7 +442,7 @@ sub generate_unix_thunk($$$$)
             $ret .= "        $ptype ret;\n";
         }
         $ret .= "    } *params = args;\n";
-        if ($need_manual_thunk || get_wow64_arg_type( $func->[0] ) =~ /PTR32/)
+        if ($need_manual_thunk || $func->[0]->textContent() =~ /(GLsync|PROC|GLintptr|\*)/)
         {
             $ret .= "    FIXME( \"params %p stub!\\n\", params );\n";
             $ret .= "    return STATUS_NOT_IMPLEMENTED;\n";
@@ -492,7 +487,6 @@ sub generate_unix_thunk($$$$)
         $ret .= "params->ret = ";
         $ret .= "(UINT_PTR)" if $is_wow64 && get_wow64_arg_type( $func->[0] ) =~ /PTR32/;
     }
-    $ret .= "($func_ret)" if defined $remap_types{$func_ret};
     $call_args =~ s/,$/ /;
     if ($need_wrap)
     {
@@ -500,6 +494,7 @@ sub generate_unix_thunk($$$$)
     }
     else
     {
+        $ret .= "($func_ret)" if defined $remap_types{$func_ret};
         $ret .= "funcs->p_$name($call_args);\n";
     }
     $ret .= "    pthread_mutex_unlock( &wgl_lock );\n" if $need_lock;
