@@ -1694,202 +1694,63 @@ NTSTATUS wow64_ext_wglQueryRendererStringWINE( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wow64_ext_glClientWaitSync( void *args )
+GLenum wow64_glClientWaitSync( TEB *teb, GLsync sync, GLbitfield flags, GLuint64 timeout )
 {
+    const struct opengl_funcs *funcs = teb->glTable;
     struct wgl_handle *handle;
-    struct
-    {
-        PTR32 teb;
-        PTR32 sync;
-        GLbitfield flags;
-        GLuint64 timeout;
-        GLenum ret;
-    } *params32 = args;
-    NTSTATUS status;
 
-    pthread_mutex_lock( &wgl_lock );
-
-    if (!(handle = get_handle_ptr( ULongToPtr(params32->sync) )))
-        status = STATUS_INVALID_HANDLE;
-    else
-    {
-        struct glClientWaitSync_params params =
-        {
-            .teb = get_teb64(params32->teb),
-            .sync = handle->u.sync,
-            .flags = params32->flags,
-            .timeout = params32->timeout,
-        };
-        status = ext_glClientWaitSync( &params );
-        params32->ret = params.ret;
-    }
-
-    pthread_mutex_unlock( &wgl_lock );
-    return status;
+    if (!(handle = get_handle_ptr( sync ))) return GL_INVALID_VALUE;
+    return funcs->p_glClientWaitSync( handle->u.sync, flags, timeout );
 }
 
-NTSTATUS wow64_ext_glDeleteSync( void *args )
+void wow64_glDeleteSync( TEB *teb, GLsync sync )
 {
+    const struct opengl_funcs *funcs = teb->glTable;
     struct wgl_handle *handle;
-    struct
-    {
-        PTR32 teb;
-        PTR32 sync;
-    } *params32 = args;
-    NTSTATUS status;
 
-    pthread_mutex_lock( &wgl_lock );
-
-    if (!(handle = get_handle_ptr( ULongToPtr(params32->sync) )))
-        status = STATUS_INVALID_HANDLE;
-    else
+    if ((handle = get_handle_ptr( sync )))
     {
-        struct glDeleteSync_params params =
-        {
-            .teb = get_teb64(params32->teb),
-            .sync = handle->u.sync,
-        };
-        status = ext_glDeleteSync( &params );
+        funcs->p_glDeleteSync( handle->u.sync );
         free_handle_ptr( handle );
     }
-
-    pthread_mutex_unlock( &wgl_lock );
-    return status;
 }
 
-NTSTATUS wow64_ext_glFenceSync( void *args )
+GLsync wow64_glFenceSync( TEB *teb, GLenum condition, GLbitfield flags )
 {
-    struct
-    {
-        PTR32 teb;
-        GLenum condition;
-        GLbitfield flags;
-        PTR32 ret;
-    } *params32 = args;
-    struct glFenceSync_params params =
-    {
-        .teb = get_teb64(params32->teb),
-        .condition = params32->condition,
-        .flags = params32->flags,
-    };
-    NTSTATUS status;
+    const struct opengl_funcs *funcs = teb->glTable;
+    GLsync sync, handle;
 
-    if ((status = ext_glFenceSync( &params ))) return status;
+    if (!(sync = funcs->p_glFenceSync( condition, flags ))) return NULL;
 
     pthread_mutex_lock( &wgl_lock );
-
-    if (!(params32->ret = (UINT_PTR)alloc_handle( HANDLE_GLSYNC, NULL, params.ret )))
-    {
-        struct glDeleteSync_params delete_params =
-        {
-            .teb = params.teb,
-            .sync = params.ret,
-        };
-
-        ext_glDeleteSync( &delete_params );
-        status = STATUS_NO_MEMORY;
-    }
-
+    if (!(handle = alloc_handle( HANDLE_GLSYNC, NULL, sync ))) funcs->p_glDeleteSync( sync );
     pthread_mutex_unlock( &wgl_lock );
-    return status;
+    return handle;
 }
 
-NTSTATUS wow64_ext_glGetSynciv( void *args )
+void wow64_glGetSynciv( TEB *teb, GLsync sync, GLenum pname, GLsizei count, GLsizei *length, GLint *values )
 {
+    const struct opengl_funcs *funcs = teb->glTable;
     struct wgl_handle *handle;
-    struct
-    {
-        PTR32 teb;
-        PTR32 sync;
-        GLenum pname;
-        GLsizei count;
-        PTR32 length;
-        PTR32 values;
-    } *params32 = args;
-    NTSTATUS status;
 
-    pthread_mutex_lock( &wgl_lock );
-
-    if (!(handle = get_handle_ptr( ULongToPtr(params32->sync) )))
-        status = STATUS_INVALID_HANDLE;
-    else
-    {
-        struct glGetSynciv_params params =
-        {
-            .teb = get_teb64(params32->teb),
-            .sync = handle->u.sync,
-            .pname = params32->pname,
-            .count = params32->count,
-            .length = ULongToPtr(params32->length),
-            .values = ULongToPtr(params32->values),
-        };
-        status = ext_glGetSynciv( &params );
-    }
-
-    pthread_mutex_unlock( &wgl_lock );
-    return status;
+    if ((handle = get_handle_ptr( sync ))) funcs->p_glGetSynciv( handle->u.sync, pname, count, length, values );
 }
 
-NTSTATUS wow64_ext_glIsSync( void *args )
+GLboolean wow64_glIsSync( TEB *teb, GLsync sync )
 {
+    const struct opengl_funcs *funcs = teb->glTable;
     struct wgl_handle *handle;
-    struct
-    {
-        PTR32 teb;
-        PTR32 sync;
-        GLboolean ret;
-    } *params32 = args;
-    NTSTATUS status;
 
-    pthread_mutex_lock( &wgl_lock );
-
-    if (!(handle = get_handle_ptr( ULongToPtr(params32->sync) )))
-        status = STATUS_INVALID_HANDLE;
-    else
-    {
-        struct glIsSync_params params =
-        {
-            .teb = get_teb64(params32->teb),
-            .sync = handle->u.sync,
-        };
-        status = ext_glIsSync( &params );
-        params32->ret = params.ret;
-    }
-
-    pthread_mutex_unlock( &wgl_lock );
-    return status;
+    if (!(handle = get_handle_ptr( sync ))) return FALSE;
+    return funcs->p_glIsSync( handle->u.sync );
 }
 
-NTSTATUS wow64_ext_glWaitSync( void *args )
+void wow64_glWaitSync( TEB *teb, GLsync sync, GLbitfield flags, GLuint64 timeout )
 {
+    const struct opengl_funcs *funcs = teb->glTable;
     struct wgl_handle *handle;
-    struct
-    {
-        PTR32 teb;
-        PTR32 sync;
-        GLbitfield flags;
-        GLuint64 timeout;
-    } *params32 = args;
-    NTSTATUS status;
 
-    pthread_mutex_lock( &wgl_lock );
-
-    if (!(handle = get_handle_ptr( ULongToPtr(params32->sync) )))
-        status = STATUS_INVALID_HANDLE;
-    else
-    {
-        struct glWaitSync_params params =
-        {
-            .teb = get_teb64(params32->teb),
-            .sync = handle->u.sync,
-            .flags = params32->flags,
-            .timeout = params32->timeout,
-        };
-        status = ext_glWaitSync( &params );
-    }
-
-    pthread_mutex_unlock( &wgl_lock );
-    return status;
+    if ((handle = get_handle_ptr( sync ))) funcs->p_glWaitSync( handle->u.sync, flags, timeout );
 }
 
 static GLint get_buffer_param( TEB *teb, GLenum target, GLenum param )

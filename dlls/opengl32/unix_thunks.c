@@ -4669,7 +4669,7 @@ static NTSTATUS ext_glClientWaitSemaphoreui64NVX( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS ext_glClientWaitSync( void *args )
+static NTSTATUS ext_glClientWaitSync( void *args )
 {
     struct glClientWaitSync_params *params = args;
     const struct opengl_funcs *funcs = params->teb->glTable;
@@ -6493,7 +6493,7 @@ static NTSTATUS ext_glDeleteStatesNV( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS ext_glDeleteSync( void *args )
+static NTSTATUS ext_glDeleteSync( void *args )
 {
     struct glDeleteSync_params *params = args;
     const struct opengl_funcs *funcs = params->teb->glTable;
@@ -7528,7 +7528,7 @@ static NTSTATUS ext_glFeedbackBufferxOES( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS ext_glFenceSync( void *args )
+static NTSTATUS ext_glFenceSync( void *args )
 {
     struct glFenceSync_params *params = args;
     const struct opengl_funcs *funcs = params->teb->glTable;
@@ -10799,7 +10799,7 @@ static NTSTATUS ext_glGetSubroutineUniformLocation( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS ext_glGetSynciv( void *args )
+static NTSTATUS ext_glGetSynciv( void *args )
 {
     struct glGetSynciv_params *params = args;
     const struct opengl_funcs *funcs = params->teb->glTable;
@@ -12593,7 +12593,7 @@ static NTSTATUS ext_glIsStateNV( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS ext_glIsSync( void *args )
+static NTSTATUS ext_glIsSync( void *args )
 {
     struct glIsSync_params *params = args;
     const struct opengl_funcs *funcs = params->teb->glTable;
@@ -26002,7 +26002,7 @@ static NTSTATUS ext_glWaitSemaphoreui64NVX( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS ext_glWaitSync( void *args )
+static NTSTATUS ext_glWaitSync( void *args )
 {
     struct glWaitSync_params *params = args;
     const struct opengl_funcs *funcs = params->teb->glTable;
@@ -38000,6 +38000,24 @@ static NTSTATUS wow64_ext_glClientWaitSemaphoreui64NVX( void *args )
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS wow64_ext_glClientWaitSync( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 sync;
+        GLbitfield flags;
+        GLuint64 timeout;
+        GLenum ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    pthread_mutex_lock( &wgl_lock );
+    params->ret = wow64_glClientWaitSync( teb, ULongToPtr(params->sync), params->flags, params->timeout );
+    pthread_mutex_unlock( &wgl_lock );
+    set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS wow64_ext_glClipControl( void *args )
 {
     struct
@@ -41564,6 +41582,21 @@ static NTSTATUS wow64_ext_glDeleteStatesNV( void *args )
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS wow64_ext_glDeleteSync( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 sync;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    pthread_mutex_lock( &wgl_lock );
+    wow64_glDeleteSync( teb, ULongToPtr(params->sync) );
+    pthread_mutex_unlock( &wgl_lock );
+    set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS wow64_ext_glDeleteTexturesEXT( void *args )
 {
     struct
@@ -43346,6 +43379,21 @@ static NTSTATUS wow64_ext_glFeedbackBufferxOES( void *args )
     TEB *teb = get_teb64( params->teb );
     const struct opengl_funcs *funcs = teb->glTable;
     funcs->p_glFeedbackBufferxOES( params->n, params->type, ULongToPtr(params->buffer) );
+    set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_ext_glFenceSync( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        GLenum condition;
+        GLbitfield flags;
+        PTR32 ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    params->ret = (UINT_PTR)wow64_glFenceSync( teb, params->condition, params->flags );
     set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
@@ -49440,6 +49488,24 @@ static NTSTATUS wow64_ext_glGetSubroutineUniformLocation( void *args )
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS wow64_ext_glGetSynciv( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 sync;
+        GLenum pname;
+        GLsizei count;
+        PTR32 length;
+        PTR32 values;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    pthread_mutex_lock( &wgl_lock );
+    wow64_glGetSynciv( teb, ULongToPtr(params->sync), params->pname, params->count, ULongToPtr(params->length), ULongToPtr(params->values) );
+    pthread_mutex_unlock( &wgl_lock );
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS wow64_ext_glGetTexBumpParameterfvATI( void *args )
 {
     struct
@@ -52793,6 +52859,21 @@ static NTSTATUS wow64_ext_glIsStateNV( void *args )
     TEB *teb = get_teb64( params->teb );
     const struct opengl_funcs *funcs = teb->glTable;
     params->ret = funcs->p_glIsStateNV( params->state );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_ext_glIsSync( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 sync;
+        GLboolean ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    pthread_mutex_lock( &wgl_lock );
+    params->ret = wow64_glIsSync( teb, ULongToPtr(params->sync) );
+    pthread_mutex_unlock( &wgl_lock );
     return STATUS_SUCCESS;
 }
 
@@ -77133,6 +77214,23 @@ static NTSTATUS wow64_ext_glWaitSemaphoreui64NVX( void *args )
     TEB *teb = get_teb64( params->teb );
     const struct opengl_funcs *funcs = teb->glTable;
     funcs->p_glWaitSemaphoreui64NVX( params->waitGpu, params->fenceObjectCount, ULongToPtr(params->semaphoreArray), ULongToPtr(params->fenceValueArray) );
+    set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_ext_glWaitSync( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 sync;
+        GLbitfield flags;
+        GLuint64 timeout;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    pthread_mutex_lock( &wgl_lock );
+    wow64_glWaitSync( teb, ULongToPtr(params->sync), params->flags, params->timeout );
+    pthread_mutex_unlock( &wgl_lock );
     set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }

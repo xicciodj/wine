@@ -2,9 +2,7 @@
 
 extern BOOL wrap_wglCopyContext( TEB *teb , HGLRC hglrcSrc, HGLRC hglrcDst, UINT mask );
 extern HGLRC wrap_wglCreateContext( TEB *teb , HDC hDc );
-extern HGLRC wrap_wglCreateLayerContext( TEB *teb , HDC hDc, int level );
 extern BOOL wrap_wglDeleteContext( TEB *teb , HGLRC oldContext );
-extern HGLRC wrap_wglGetCurrentContext( TEB *teb);
 extern PROC wrap_wglGetProcAddress( TEB *teb , LPCSTR lpszProc );
 extern BOOL wrap_wglMakeCurrent( TEB *teb , HDC hDc, HGLRC newContext );
 extern BOOL wrap_wglShareLists( TEB *teb , HGLRC hrcSrvShare, HGLRC hrcSrvSource );
@@ -32,16 +30,19 @@ extern int wrap_wglReleasePbufferDCARB( TEB *teb , HPBUFFERARB hPbuffer, HDC hDC
 extern BOOL wrap_wglReleaseTexImageARB( TEB *teb , HPBUFFERARB hPbuffer, int iBuffer );
 extern BOOL wrap_wglSetPbufferAttribARB( TEB *teb , HPBUFFERARB hPbuffer, const int *piAttribList );
 
+#ifdef _WIN64
+extern GLenum wow64_glClientWaitSync( TEB *teb , GLsync sync, GLbitfield flags, GLuint64 timeout );
+extern void wow64_glDeleteSync( TEB *teb , GLsync sync );
+extern GLsync wow64_glFenceSync( TEB *teb , GLenum condition, GLbitfield flags );
+extern void wow64_glGetSynciv( TEB *teb , GLsync sync, GLenum pname, GLsizei count, GLsizei *length, GLint *values );
+extern GLboolean wow64_glIsSync( TEB *teb , GLsync sync );
+extern void wow64_glWaitSync( TEB *teb , GLsync sync, GLbitfield flags, GLuint64 timeout );
+#endif
+
 extern NTSTATUS wgl_wglGetProcAddress( void *args );
 extern NTSTATUS wow64_wgl_wglGetProcAddress( void *args );
 extern NTSTATUS gl_glGetString( void *args );
 extern NTSTATUS wow64_gl_glGetString( void *args );
-extern NTSTATUS ext_glClientWaitSync( void *args );
-extern NTSTATUS wow64_ext_glClientWaitSync( void *args );
-extern NTSTATUS ext_glDeleteSync( void *args );
-extern NTSTATUS wow64_ext_glDeleteSync( void *args );
-extern NTSTATUS ext_glFenceSync( void *args );
-extern NTSTATUS wow64_ext_glFenceSync( void *args );
 extern NTSTATUS ext_glGetBufferPointerv( void *args );
 extern NTSTATUS wow64_ext_glGetBufferPointerv( void *args );
 extern NTSTATUS ext_glGetBufferPointervARB( void *args );
@@ -52,10 +53,6 @@ extern NTSTATUS ext_glGetNamedBufferPointervEXT( void *args );
 extern NTSTATUS wow64_ext_glGetNamedBufferPointervEXT( void *args );
 extern NTSTATUS ext_glGetStringi( void *args );
 extern NTSTATUS wow64_ext_glGetStringi( void *args );
-extern NTSTATUS ext_glGetSynciv( void *args );
-extern NTSTATUS wow64_ext_glGetSynciv( void *args );
-extern NTSTATUS ext_glIsSync( void *args );
-extern NTSTATUS wow64_ext_glIsSync( void *args );
 extern NTSTATUS ext_glMapBuffer( void *args );
 extern NTSTATUS wow64_ext_glMapBuffer( void *args );
 extern NTSTATUS ext_glMapBufferARB( void *args );
@@ -80,8 +77,6 @@ extern NTSTATUS ext_glUnmapNamedBuffer( void *args );
 extern NTSTATUS wow64_ext_glUnmapNamedBuffer( void *args );
 extern NTSTATUS ext_glUnmapNamedBufferEXT( void *args );
 extern NTSTATUS wow64_ext_glUnmapNamedBufferEXT( void *args );
-extern NTSTATUS ext_glWaitSync( void *args );
-extern NTSTATUS wow64_ext_glWaitSync( void *args );
 extern NTSTATUS ext_wglCreatePbufferARB( void *args );
 extern NTSTATUS wow64_ext_wglCreatePbufferARB( void *args );
 extern NTSTATUS ext_wglGetExtensionsStringARB( void *args );

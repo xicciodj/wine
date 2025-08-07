@@ -27,6 +27,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(dxcore);
 
+static struct dxcore_adapter_factory *dxcore_adapter_factory;
+
 struct dxcore_adapter
 {
     IDXCoreAdapter IDXCoreAdapter_iface;
@@ -100,24 +102,57 @@ static BOOL STDMETHODCALLTYPE dxcore_adapter_IsPropertySupported(IDXCoreAdapter 
     return FALSE;
 }
 
+static HRESULT dxcore_adapter_get_property_size(struct dxcore_adapter *adapter,
+        DXCoreAdapterProperty property, size_t *size)
+{
+    static const size_t property_sizes[] =
+    {
+        [InstanceLuid] = sizeof(LUID),
+        [HardwareID] = sizeof(DXCoreHardwareID),
+        [IsHardware] = sizeof(BYTE),
+    };
+
+    switch (property)
+    {
+        case InstanceLuid:
+        case HardwareID:
+        case IsHardware:
+            *size = property_sizes[property];
+            return S_OK;
+
+        default:
+            FIXME("Property %u not implemented.\n", property);
+            return DXGI_ERROR_INVALID_CALL;
+    }
+}
+
 static HRESULT STDMETHODCALLTYPE dxcore_adapter_GetProperty(IDXCoreAdapter *iface, DXCoreAdapterProperty property,
         size_t buffer_size, void *buffer)
 {
     struct dxcore_adapter *adapter = impl_from_IDXCoreAdapter(iface);
+    size_t size;
+    HRESULT hr;
 
     TRACE("iface %p, property %u, buffer_size %Iu, buffer %p\n", iface, property, buffer_size, buffer);
 
     if (!buffer)
         return E_POINTER;
 
+    if (FAILED(hr = dxcore_adapter_get_property_size(adapter, property, &size)))
+        return hr;
+
+    if (buffer_size < size)
+        return E_INVALIDARG;
+
     switch (property)
     {
+        case InstanceLuid:
+            *(LUID *)buffer = adapter->identifier.adapter_luid;
+            break;
+
         case HardwareID:
         {
             struct DXCoreHardwareID *hardware_id = buffer;
-
-            if (buffer_size != sizeof(DXCoreHardwareID))
-                return E_INVALIDARG;
 
             hardware_id->vendorID = adapter->identifier.vendor_id;
             hardware_id->deviceID = adapter->identifier.device_id;
@@ -125,11 +160,14 @@ static HRESULT STDMETHODCALLTYPE dxcore_adapter_GetProperty(IDXCoreAdapter *ifac
             hardware_id->revision = adapter->identifier.revision;
             break;
         }
+
+        case IsHardware:
+            FIXME("Returning all adapters as Hardware.\n");
+            *(BYTE *)buffer = 1;
+            break;
+
         default:
-        {
-            FIXME("property %u not implemented.\n", property);
-            return DXGI_ERROR_INVALID_CALL;
-        }
+            break;
     }
 
     return S_OK;
@@ -138,8 +176,14 @@ static HRESULT STDMETHODCALLTYPE dxcore_adapter_GetProperty(IDXCoreAdapter *ifac
 static HRESULT STDMETHODCALLTYPE dxcore_adapter_GetPropertySize(IDXCoreAdapter *iface, DXCoreAdapterProperty property,
         size_t *buffer_size)
 {
-    FIXME("iface %p, property %u, buffer_size %p stub!\n", iface, property, buffer_size);
-    return E_NOTIMPL;
+    struct dxcore_adapter *adapter = impl_from_IDXCoreAdapter(iface);
+
+    TRACE("iface %p, property %u, buffer_size %p.\n", iface, property, buffer_size);
+
+    if (!buffer_size)
+        return E_POINTER;
+
+    return dxcore_adapter_get_property_size(adapter, property, buffer_size);
 }
 
 static BOOL STDMETHODCALLTYPE dxcore_adapter_IsQueryStateSupported(IDXCoreAdapter *iface, DXCoreAdapterState property)
@@ -378,9 +422,29 @@ static ULONG STDMETHODCALLTYPE dxcore_adapter_factory_Release(IDXCoreAdapterFact
     TRACE("%p decreasing refcount to %lu.\n", iface, refcount);
 
     if (!refcount)
+    {
         free(factory);
+        dxcore_adapter_factory = NULL;
+    }
 
     return refcount;
+}
+
+static HRESULT dxcore_adapter_create(const struct wined3d_adapter_identifier *adapter_id,
+        struct dxcore_adapter **ret_adapter)
+{
+    struct dxcore_adapter *adapter;
+
+    if (!(adapter = calloc(1, sizeof(*adapter))))
+        return E_OUTOFMEMORY;
+
+    adapter->IDXCoreAdapter_iface.lpVtbl = &dxcore_adapter_vtbl;
+    adapter->refcount = 1;
+    adapter->identifier = *adapter_id;
+
+    TRACE("Created adapter %p.\n", adapter);
+    *ret_adapter = adapter;
+    return S_OK;
 }
 
 static HRESULT get_adapters(struct dxcore_adapter_list *list)
@@ -402,26 +466,13 @@ static HRESULT get_adapters(struct dxcore_adapter_list *list)
 
     for (UINT i = 0; i < list->adapter_count; i++)
     {
-        struct dxcore_adapter *dxcore_adapter = calloc(1, sizeof(*dxcore_adapter));
-        const struct wined3d_adapter *wined3d_adapter;
+        struct wined3d_adapter_identifier adapter_id = {0};
 
-        if (!dxcore_adapter)
-        {
-            hr = E_OUTOFMEMORY;
+        if (FAILED(hr = wined3d_adapter_get_identifier(wined3d_get_adapter(wined3d, i), 0, &adapter_id)))
             goto done;
-        }
 
-        wined3d_adapter = wined3d_get_adapter(wined3d, i);
-        if (FAILED(hr = wined3d_adapter_get_identifier(wined3d_adapter, 0, &dxcore_adapter->identifier)))
-        {
-            free(dxcore_adapter);
+        if (FAILED(hr = dxcore_adapter_create(&adapter_id, &list->adapters[i])))
             goto done;
-        }
-
-        dxcore_adapter->IDXCoreAdapter_iface.lpVtbl = &dxcore_adapter_vtbl;
-        dxcore_adapter->refcount = 1;
-
-        list->adapters[i] = dxcore_adapter;
     }
 
 done:
@@ -466,8 +517,38 @@ static HRESULT STDMETHODCALLTYPE dxcore_adapter_factory_CreateAdapterList(IDXCor
 static HRESULT STDMETHODCALLTYPE dxcore_adapter_factory_GetAdapterByLuid(IDXCoreAdapterFactory *iface, REFLUID adapter_luid,
         REFIID riid, void **out)
 {
-    FIXME("iface %p, adapter_luid %p, riid %s, out %p stub!\n", iface, adapter_luid, debugstr_guid(riid), out);
-    return E_NOTIMPL;
+    struct dxcore_adapter *adapter;
+    struct wined3d *wined3d;
+    uint32_t count;
+    HRESULT hr;
+
+    TRACE("iface %p, adapter_luid %p, riid %s, out %p.\n", iface, adapter_luid, debugstr_guid(riid), out);
+
+    if (!(wined3d = wined3d_create(0)))
+        return E_FAIL;
+
+    count = wined3d_get_adapter_count(wined3d);
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        struct wined3d_adapter_identifier adapter_id = {0};
+
+        wined3d_adapter_get_identifier(wined3d_get_adapter(wined3d, i), 0, &adapter_id);
+
+        if (!memcmp(adapter_luid, &adapter_id.adapter_luid, sizeof(LUID)))
+        {
+            wined3d_decref(wined3d);
+
+            if (FAILED(hr = dxcore_adapter_create(&adapter_id, &adapter)))
+                return hr;
+
+            hr = IDXCoreAdapter_QueryInterface(&adapter->IDXCoreAdapter_iface, riid, out);
+            IDXCoreAdapter_Release(&adapter->IDXCoreAdapter_iface);
+            return hr;
+        }
+    }
+
+    wined3d_decref(wined3d);
+    return E_INVALIDARG;
 }
 
 static BOOL STDMETHODCALLTYPE dxcore_adapter_factory_IsNotificationTypeSupported(IDXCoreAdapterFactory *iface, DXCoreNotificationType type)
@@ -506,25 +587,23 @@ static const struct IDXCoreAdapterFactoryVtbl dxcore_adapter_factory_vtbl =
 
 HRESULT STDMETHODCALLTYPE DXCoreCreateAdapterFactory(REFIID riid, void **out)
 {
-    static struct dxcore_adapter_factory *factory = NULL;
-
     TRACE("riid %s, out %p\n", debugstr_guid(riid), out);
 
     if (!out)
         return E_POINTER;
 
-    if (!factory)
+    if (!dxcore_adapter_factory)
     {
-        if (!(factory = calloc(1, sizeof(*factory))))
+        if (!(dxcore_adapter_factory = calloc(1, sizeof(*dxcore_adapter_factory))))
         {
             *out = NULL;
             return E_OUTOFMEMORY;
         }
 
-        factory->IDXCoreAdapterFactory_iface.lpVtbl = &dxcore_adapter_factory_vtbl;
-        factory->refcount = 0;
+        dxcore_adapter_factory->IDXCoreAdapterFactory_iface.lpVtbl = &dxcore_adapter_factory_vtbl;
+        dxcore_adapter_factory->refcount = 0;
     }
 
     TRACE("created IDXCoreAdapterFactory %p.\n", *out);
-    return IDXCoreAdapterFactory_QueryInterface(&factory->IDXCoreAdapterFactory_iface, riid, out);
+    return IDXCoreAdapterFactory_QueryInterface(&dxcore_adapter_factory->IDXCoreAdapterFactory_iface, riid, out);
 }
