@@ -31,6 +31,7 @@ extern BOOL wrap_wglReleaseTexImageARB( TEB *teb , HPBUFFERARB hPbuffer, int iBu
 extern BOOL wrap_wglSetPbufferAttribARB( TEB *teb , HPBUFFERARB hPbuffer, const int *piAttribList );
 
 #ifdef _WIN64
+typedef ULONG PTR32;
 extern GLenum wow64_glClientWaitSync( TEB *teb , GLsync sync, GLbitfield flags, GLuint64 timeout );
 extern void wow64_glDeleteSync( TEB *teb , GLsync sync );
 extern GLsync wow64_glFenceSync( TEB *teb , GLenum condition, GLbitfield flags );
@@ -41,8 +42,6 @@ extern void wow64_glWaitSync( TEB *teb , GLsync sync, GLbitfield flags, GLuint64
 
 extern NTSTATUS wgl_wglGetProcAddress( void *args );
 extern NTSTATUS wow64_wgl_wglGetProcAddress( void *args );
-extern NTSTATUS gl_glGetString( void *args );
-extern NTSTATUS wow64_gl_glGetString( void *args );
 extern NTSTATUS ext_glGetBufferPointerv( void *args );
 extern NTSTATUS wow64_ext_glGetBufferPointerv( void *args );
 extern NTSTATUS ext_glGetBufferPointervARB( void *args );
@@ -51,8 +50,6 @@ extern NTSTATUS ext_glGetNamedBufferPointerv( void *args );
 extern NTSTATUS wow64_ext_glGetNamedBufferPointerv( void *args );
 extern NTSTATUS ext_glGetNamedBufferPointervEXT( void *args );
 extern NTSTATUS wow64_ext_glGetNamedBufferPointervEXT( void *args );
-extern NTSTATUS ext_glGetStringi( void *args );
-extern NTSTATUS wow64_ext_glGetStringi( void *args );
 extern NTSTATUS ext_glMapBuffer( void *args );
 extern NTSTATUS wow64_ext_glMapBuffer( void *args );
 extern NTSTATUS ext_glMapBufferARB( void *args );
@@ -79,13 +76,5 @@ extern NTSTATUS ext_glUnmapNamedBufferEXT( void *args );
 extern NTSTATUS wow64_ext_glUnmapNamedBufferEXT( void *args );
 extern NTSTATUS ext_wglCreatePbufferARB( void *args );
 extern NTSTATUS wow64_ext_wglCreatePbufferARB( void *args );
-extern NTSTATUS ext_wglGetExtensionsStringARB( void *args );
-extern NTSTATUS wow64_ext_wglGetExtensionsStringARB( void *args );
-extern NTSTATUS ext_wglGetExtensionsStringEXT( void *args );
-extern NTSTATUS wow64_ext_wglGetExtensionsStringEXT( void *args );
 extern NTSTATUS ext_wglGetPbufferDCARB( void *args );
 extern NTSTATUS wow64_ext_wglGetPbufferDCARB( void *args );
-extern NTSTATUS ext_wglQueryCurrentRendererStringWINE( void *args );
-extern NTSTATUS wow64_ext_wglQueryCurrentRendererStringWINE( void *args );
-extern NTSTATUS ext_wglQueryRendererStringWINE( void *args );
-extern NTSTATUS wow64_ext_wglQueryRendererStringWINE( void *args );

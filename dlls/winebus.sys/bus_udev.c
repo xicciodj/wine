@@ -80,12 +80,6 @@
 # include "hidusage.h"
 #endif
 
-#ifdef WORDS_BIGENDIAN
-#define LE_DWORD(x) RtlUlongByteSwap(x)
-#else
-#define LE_DWORD(x) (x)
-#endif
-
 #include "unix_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(hid);
@@ -195,12 +189,15 @@ struct lnxev_device
 {
     struct base_device base;
 
+    LONG abs_min[ABS_CNT];
+    LONG abs_max[ABS_CNT];
     BYTE abs_map[ABS_CNT];
     BYTE rel_map[REL_CNT];
     BYTE hat_map[8];
     BYTE button_map[KEY_CNT];
     int hat_count;
     int button_count;
+    BOOL is_gamepad;
 
     int haptic_effect_id;
     int effect_ids[256];
@@ -509,46 +506,94 @@ static const USAGE_AND_PAGE *what_am_I(struct udev_device *dev, int fd)
     return &Unknown;
 }
 
+static void set_abs_axis_value(struct unix_device *iface, int code, int value)
+{
+    struct lnxev_device *impl = lnxev_impl_from_unix_device(iface);
+
+    if (code < ABS_HAT0X || code > ABS_HAT3Y)
+    {
+        LONG min = impl->abs_min[code], range = impl->abs_max[code] - impl->abs_min[code];
+        if (!(code = impl->abs_map[code])) return;
+
+        if (impl->is_gamepad)
+        {
+            double scale = (code == 5 || code == 6 ? 32767.0 : 65535.0) / range;
+            value = (value - min) * scale - (code == 5 || code == 6 ? 0 : 32768);
+        }
+
+        hid_device_set_abs_axis(iface, code - 1, value);
+    }
+    else if ((code - ABS_HAT0X) % 2)
+    {
+        if (!(code = impl->hat_map[code - ABS_HAT0X])) return;
+        if (impl->is_gamepad)
+        {
+            hid_device_set_button(iface, 11, value < 0);
+            hid_device_set_button(iface, 12, value > 0);
+        }
+        hid_device_set_hatswitch_y(iface, code - 1, value);
+    }
+    else
+    {
+        if (!(code = impl->hat_map[code - ABS_HAT0X])) return;
+        if (impl->is_gamepad)
+        {
+            hid_device_set_button(iface, 13, value < 0);
+            hid_device_set_button(iface, 14, value > 0);
+        }
+        hid_device_set_hatswitch_x(iface, code - 1, value);
+    }
+}
+
 static NTSTATUS build_report_descriptor(struct unix_device *iface, struct udev_device *dev, struct lnxev_info *info)
 {
     struct input_absinfo abs_info[ABS_CNT];
     struct ff_effect effect;
     USHORT count = 0;
     USAGE usages[16];
-    INT i, axis;
+    int i;
     struct lnxev_device *impl = lnxev_impl_from_unix_device(iface);
     const USAGE_AND_PAGE device_usage = *what_am_I(dev, impl->base.device_fd);
 
     if (!hid_device_begin_report_descriptor(iface, &device_usage))
         return STATUS_NO_MEMORY;
 
-    if (!hid_device_begin_input_report(iface, &device_usage))
-        return STATUS_NO_MEMORY;
-
-    for (i = 0; i < ABS_CNT; i++)
+    if (impl->is_gamepad)
     {
-        USAGE_AND_PAGE usage = absolute_usages[i];
-        if (!impl->abs_map[i]) continue;
-        ioctl(impl->base.device_fd, EVIOCGABS(i), abs_info + i);
-        if (!hid_device_add_axes(iface, 1, usage.UsagePage, &usage.Usage, FALSE,
-                                 LE_DWORD(abs_info[i].minimum), LE_DWORD(abs_info[i].maximum)))
+        if (!hid_device_add_gamepad(iface))
             return STATUS_NO_MEMORY;
     }
-
-    for (i = 0; i < REL_CNT; i++)
+    else
     {
-        USAGE_AND_PAGE usage = relative_usages[i];
-        if (!impl->rel_map[i]) continue;
-        if (!hid_device_add_axes(iface, 1, usage.UsagePage, &usage.Usage, TRUE,
-                                 INT32_MIN, INT32_MAX))
+        if (!hid_device_begin_input_report(iface, &device_usage))
+            return STATUS_NO_MEMORY;
+
+        for (i = 0; i < ABS_CNT; i++)
+        {
+            LONG min = impl->abs_min[i], max = impl->abs_max[i];
+            USAGE_AND_PAGE usage = absolute_usages[i];
+            if (!impl->abs_map[i]) continue;
+            ioctl(impl->base.device_fd, EVIOCGABS(i), abs_info + i);
+            if (!hid_device_add_axes(iface, 1, usage.UsagePage, &usage.Usage, FALSE,
+                                     min, max))
+                return STATUS_NO_MEMORY;
+        }
+
+        for (i = 0; i < REL_CNT; i++)
+        {
+            USAGE_AND_PAGE usage = relative_usages[i];
+            if (!impl->rel_map[i]) continue;
+            if (!hid_device_add_axes(iface, 1, usage.UsagePage, &usage.Usage, TRUE,
+                                     INT32_MIN, INT32_MAX))
+                return STATUS_NO_MEMORY;
+        }
+
+        if (impl->hat_count && !hid_device_add_hatswitch(iface, impl->hat_count)) return STATUS_NO_MEMORY;
+        if (impl->button_count && !hid_device_add_buttons(iface, HID_USAGE_PAGE_BUTTON, 1, impl->button_count)) return STATUS_NO_MEMORY;
+
+        if (!hid_device_end_input_report(iface))
             return STATUS_NO_MEMORY;
     }
-
-    if (impl->hat_count && !hid_device_add_hatswitch(iface, impl->hat_count)) return STATUS_NO_MEMORY;
-    if (impl->button_count && !hid_device_add_buttons(iface, HID_USAGE_PAGE_BUTTON, 1, impl->button_count)) return STATUS_NO_MEMORY;
-
-    if (!hid_device_end_input_report(iface))
-        return STATUS_NO_MEMORY;
 
     impl->haptic_effect_id = -1;
     for (i = 0; i < ARRAY_SIZE(impl->effect_ids); ++i) impl->effect_ids[i] = -1;
@@ -597,22 +642,7 @@ static NTSTATUS build_report_descriptor(struct unix_device *iface, struct udev_d
         USAGE_AND_PAGE usage = absolute_usages[i];
         if (!usage.UsagePage || !usage.Usage) continue;
         if (!test_bit(info->abs, i)) continue;
-
-        if (i < ABS_HAT0X || i > ABS_HAT3Y)
-        {
-            if (!(axis = impl->abs_map[i])) continue;
-            hid_device_set_abs_axis(iface, axis - 1, abs_info[i].value);
-        }
-        else if ((i - ABS_HAT0X) % 2)
-        {
-            if (!(axis = impl->hat_map[i - ABS_HAT0X])) continue;
-            hid_device_set_hatswitch_y(iface, axis - 1, abs_info[i].value);
-        }
-        else
-        {
-            if (!(axis = impl->hat_map[i - ABS_HAT0X])) continue;
-            hid_device_set_hatswitch_x(iface, axis - 1, abs_info[i].value);
-        }
+        set_abs_axis_value(iface, i, abs_info[i].value);
     }
 
     return STATUS_SUCCESS;
@@ -623,7 +653,7 @@ static BOOL set_report_from_event(struct unix_device *iface, struct input_event 
     struct hid_effect_state *effect_state = &iface->hid_physical.effect_state;
     struct lnxev_device *impl = lnxev_impl_from_unix_device(iface);
     ULONG effect_flags = InterlockedOr(&impl->effect_flags, 0);
-    unsigned int i, axis, button;
+    unsigned int i, button;
 
     switch (ie->type)
     {
@@ -642,24 +672,17 @@ static BOOL set_report_from_event(struct unix_device *iface, struct input_event 
 #endif
     case EV_KEY:
         if (!(button = impl->button_map[ie->code])) return FALSE;
+        if (impl->is_gamepad && !impl->hat_count)
+        {
+            if (button == 12) hid_device_set_hatswitch_y(iface, 0, -1);
+            if (button == 13) hid_device_set_hatswitch_y(iface, 0, +1);
+            if (button == 14) hid_device_set_hatswitch_x(iface, 0, -1);
+            if (button == 15) hid_device_set_hatswitch_x(iface, 0, +1);
+        }
         hid_device_set_button(iface, button - 1, ie->value);
         return FALSE;
     case EV_ABS:
-        if (ie->code < ABS_HAT0X || ie->code > ABS_HAT3Y)
-        {
-            if (!(axis = impl->abs_map[ie->code])) return FALSE;
-            hid_device_set_abs_axis(iface, axis - 1, ie->value);
-        }
-        else if ((ie->code - ABS_HAT0X) % 2)
-        {
-            if (!(axis = impl->hat_map[ie->code - ABS_HAT0X])) return FALSE;
-            hid_device_set_hatswitch_y(iface, axis - 1, ie->value);
-        }
-        else
-        {
-            if (!(axis = impl->hat_map[ie->code - ABS_HAT0X])) return FALSE;
-            hid_device_set_hatswitch_x(iface, axis - 1, ie->value);
-        }
+        set_abs_axis_value(iface, ie->code, ie->value);
         return FALSE;
     case EV_REL:
         hid_device_set_rel_axis(iface, impl->rel_map[ie->code], ie->value);
@@ -1204,9 +1227,13 @@ static NTSTATUS lnxev_device_create(struct udev_device *dev, int fd, const char 
     for (int i = 0; i < ABS_CNT; i++)
     {
         USAGE_AND_PAGE usage = absolute_usages[i];
+        struct input_absinfo abs;
         if (!usage.UsagePage || !usage.Usage) continue;
         if (!test_bit(info.abs, i)) continue;
+        ioctl(fd, EVIOCGABS(i), &abs);
         impl->abs_map[i] = ++axis_count;
+        impl->abs_min[i] = abs.minimum;
+        impl->abs_max[i] = abs.maximum;
     }
 
     for (int i = 0, count = 0; i < REL_CNT; i++)
@@ -1231,10 +1258,11 @@ static NTSTATUS lnxev_device_create(struct udev_device *dev, int fd, const char 
     }
 
     if (is_xbox_gamepad(desc.vid, desc.pid)) desc.is_gamepad = TRUE;
-    else if (axis_count == 6 && button_count >= 14) desc.is_gamepad = TRUE;
+    else if (axis_count == 6 && button_count >= (impl->hat_count ? 10 : 14)) desc.is_gamepad = TRUE;
 
-    if (desc.is_gamepad)
+    if ((impl->is_gamepad = desc.is_gamepad))
     {
+        static const int gamepad_axes[] = {1, 2, 5, 3, 4, 6};
         static const UINT gamepad_buttons[] =
         {
             BTN_A,
@@ -1254,21 +1282,30 @@ static NTSTATUS lnxev_device_create(struct udev_device *dev, int fd, const char 
             BTN_TR2,
         };
 
+        memset(impl->abs_map, 0, sizeof(impl->abs_map));
         memset(impl->button_map, 0, sizeof(impl->button_map));
         impl->button_count = 0;
+
+        for (int i = 0, count = 0; i < ABS_CNT; i++)
+        {
+            USAGE_AND_PAGE usage = absolute_usages[i];
+            if (!usage.UsagePage || !usage.Usage) continue;
+            if (!test_bit(info.abs, i)) continue;
+            impl->abs_map[i] = gamepad_axes[count++];
+        }
 
         for (int i = 0; i < ARRAY_SIZE(gamepad_buttons); i++)
         {
             int button = gamepad_buttons[i];
             if (!test_bit(info.key, button)) continue;
-            if (impl->button_count > 14) break;
+            if (impl->button_count > (impl->hat_count ? 10 : 14)) break;
             impl->button_map[button] = ++impl->button_count;
         }
 
         for (int i = BTN_MISC; i < KEY_MAX; i++)
         {
             if (i >= BTN_GAMEPAD && i < BTN_DIGI) continue;
-            if (impl->button_count > 14) break;
+            if (impl->button_count > (impl->hat_count ? 10 : 14)) break;
             if (!test_bit(info.key, i)) continue;
             impl->button_map[i] = ++impl->button_count;
         }

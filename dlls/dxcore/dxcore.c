@@ -35,6 +35,7 @@ struct dxcore_adapter
     LONG refcount;
 
     struct wined3d_adapter_identifier identifier;
+    char driver_description[128];
 };
 
 static inline struct dxcore_adapter *impl_from_IDXCoreAdapter(IDXCoreAdapter *iface)
@@ -108,6 +109,7 @@ static HRESULT dxcore_adapter_get_property_size(struct dxcore_adapter *adapter,
     static const size_t property_sizes[] =
     {
         [InstanceLuid] = sizeof(LUID),
+        [DriverVersion] = sizeof(LARGE_INTEGER),
         [HardwareID] = sizeof(DXCoreHardwareID),
         [IsHardware] = sizeof(BYTE),
     };
@@ -115,9 +117,13 @@ static HRESULT dxcore_adapter_get_property_size(struct dxcore_adapter *adapter,
     switch (property)
     {
         case InstanceLuid:
+        case DriverVersion:
         case HardwareID:
         case IsHardware:
             *size = property_sizes[property];
+            return S_OK;
+        case DriverDescription:
+            *size = strlen(adapter->driver_description) + 1;
             return S_OK;
 
         default:
@@ -141,6 +147,9 @@ static HRESULT STDMETHODCALLTYPE dxcore_adapter_GetProperty(IDXCoreAdapter *ifac
     if (FAILED(hr = dxcore_adapter_get_property_size(adapter, property, &size)))
         return hr;
 
+    if (property == DriverDescription && buffer && buffer_size)
+        *(char *)buffer = 0;
+
     if (buffer_size < size)
         return E_INVALIDARG;
 
@@ -149,6 +158,12 @@ static HRESULT STDMETHODCALLTYPE dxcore_adapter_GetProperty(IDXCoreAdapter *ifac
         case InstanceLuid:
             *(LUID *)buffer = adapter->identifier.adapter_luid;
             break;
+
+        case DriverVersion:
+        {
+            *(LARGE_INTEGER *)buffer = adapter->identifier.driver_version;
+            break;
+        }
 
         case HardwareID:
         {
@@ -165,6 +180,12 @@ static HRESULT STDMETHODCALLTYPE dxcore_adapter_GetProperty(IDXCoreAdapter *ifac
             FIXME("Returning all adapters as Hardware.\n");
             *(BYTE *)buffer = 1;
             break;
+
+        case DriverDescription:
+        {
+            memcpy(buffer, adapter->identifier.description, size);
+            break;
+        }
 
         default:
             break;
@@ -430,17 +451,25 @@ static ULONG STDMETHODCALLTYPE dxcore_adapter_factory_Release(IDXCoreAdapterFact
     return refcount;
 }
 
-static HRESULT dxcore_adapter_create(const struct wined3d_adapter_identifier *adapter_id,
+static HRESULT dxcore_adapter_create(const struct wined3d_adapter *wined3d_adapter,
         struct dxcore_adapter **ret_adapter)
 {
     struct dxcore_adapter *adapter;
+    HRESULT hr;
 
     if (!(adapter = calloc(1, sizeof(*adapter))))
         return E_OUTOFMEMORY;
 
     adapter->IDXCoreAdapter_iface.lpVtbl = &dxcore_adapter_vtbl;
     adapter->refcount = 1;
-    adapter->identifier = *adapter_id;
+
+    adapter->identifier.description_size = sizeof(adapter->driver_description);
+    adapter->identifier.description = adapter->driver_description;
+    if (FAILED(hr = wined3d_adapter_get_identifier(wined3d_adapter, 0, &adapter->identifier)))
+    {
+        free(adapter);
+        return hr;
+    }
 
     TRACE("Created adapter %p.\n", adapter);
     *ret_adapter = adapter;
@@ -466,12 +495,7 @@ static HRESULT get_adapters(struct dxcore_adapter_list *list)
 
     for (UINT i = 0; i < list->adapter_count; i++)
     {
-        struct wined3d_adapter_identifier adapter_id = {0};
-
-        if (FAILED(hr = wined3d_adapter_get_identifier(wined3d_get_adapter(wined3d, i), 0, &adapter_id)))
-            goto done;
-
-        if (FAILED(hr = dxcore_adapter_create(&adapter_id, &list->adapters[i])))
+        if (FAILED(hr = dxcore_adapter_create(wined3d_get_adapter(wined3d, i), &list->adapters[i])))
             goto done;
     }
 
@@ -531,18 +555,21 @@ static HRESULT STDMETHODCALLTYPE dxcore_adapter_factory_GetAdapterByLuid(IDXCore
     for (uint32_t i = 0; i < count; ++i)
     {
         struct wined3d_adapter_identifier adapter_id = {0};
+        struct wined3d_adapter *wined3d_adapter;
 
-        wined3d_adapter_get_identifier(wined3d_get_adapter(wined3d, i), 0, &adapter_id);
+        wined3d_adapter = wined3d_get_adapter(wined3d, i);
+        wined3d_adapter_get_identifier(wined3d_adapter, 0, &adapter_id);
 
         if (!memcmp(adapter_luid, &adapter_id.adapter_luid, sizeof(LUID)))
         {
+            hr = dxcore_adapter_create(wined3d_adapter, &adapter);
             wined3d_decref(wined3d);
 
-            if (FAILED(hr = dxcore_adapter_create(&adapter_id, &adapter)))
-                return hr;
-
-            hr = IDXCoreAdapter_QueryInterface(&adapter->IDXCoreAdapter_iface, riid, out);
-            IDXCoreAdapter_Release(&adapter->IDXCoreAdapter_iface);
+            if (SUCCEEDED(hr))
+            {
+                hr = IDXCoreAdapter_QueryInterface(&adapter->IDXCoreAdapter_iface, riid, out);
+                IDXCoreAdapter_Release(&adapter->IDXCoreAdapter_iface);
+            }
             return hr;
         }
     }

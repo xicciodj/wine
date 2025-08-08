@@ -1401,8 +1401,6 @@ NTSTATUS get_pixel_formats( void *args )
 
 #ifdef _WIN64
 
-typedef ULONG PTR32;
-
 struct wow64_string_entry
 {
     const char *str;
@@ -1411,10 +1409,16 @@ struct wow64_string_entry
 static struct wow64_string_entry *wow64_strings;
 static SIZE_T wow64_strings_count;
 
-static PTR32 find_wow64_string( const char *str, PTR32 wow64_str )
+NTSTATUS return_wow64_string( const void *str, PTR32 *wow64_str )
 {
     void *tmp;
     SIZE_T i;
+
+    if (!str)
+    {
+        *wow64_str = 0;
+        return STATUS_SUCCESS;
+    }
 
     pthread_mutex_lock( &wgl_lock );
 
@@ -1428,16 +1432,18 @@ static PTR32 find_wow64_string( const char *str, PTR32 wow64_str )
     }
 
     if (i == wow64_strings_count) ERR( "Failed to allocate memory for wow64 strings\n" );
-    else if (wow64_strings[i].wow64_str) wow64_str = wow64_strings[i].wow64_str;
-    else if (wow64_str)
+    else if (wow64_strings[i].wow64_str) *wow64_str = wow64_strings[i].wow64_str;
+    else if (*wow64_str)
     {
-        strcpy( UlongToPtr(wow64_str), (char *)str );
-        wow64_strings[i].wow64_str = wow64_str;
+        strcpy( UlongToPtr(*wow64_str), str );
+        wow64_strings[i].wow64_str = *wow64_str;
     }
 
     pthread_mutex_unlock( &wgl_lock );
 
-    return wow64_str;
+    if (*wow64_str) return STATUS_SUCCESS;
+    *wow64_str = strlen( str ) + 1;
+    return STATUS_BUFFER_TOO_SMALL;
 }
 
 NTSTATUS wow64_ext_wglCreatePbufferARB( void *args )
@@ -1505,60 +1511,6 @@ NTSTATUS wow64_wgl_wglGetProcAddress( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wow64_gl_glGetString( void *args )
-{
-    struct
-    {
-        PTR32 teb;
-        GLenum name;
-        PTR32 ret;
-    } *params32 = args;
-    struct glGetString_params params =
-    {
-        .teb = get_teb64(params32->teb),
-        .name = params32->name,
-    };
-    NTSTATUS status;
-
-    if ((status = gl_glGetString( &params ))) return status;
-
-    if (!(params32->ret = find_wow64_string( (char *)params.ret, params32->ret )))
-    {
-        params32->ret = strlen( (char *)params.ret ) + 1;
-        return STATUS_BUFFER_TOO_SMALL;
-    }
-
-    return STATUS_SUCCESS;
-}
-
-NTSTATUS wow64_ext_glGetStringi( void *args )
-{
-    struct
-    {
-        PTR32 teb;
-        GLenum name;
-        GLuint index;
-        PTR32 ret;
-    } *params32 = args;
-    struct glGetStringi_params params =
-    {
-        .teb = get_teb64(params32->teb),
-        .name = params32->name,
-        .index = params32->index,
-    };
-    NTSTATUS status;
-
-    if ((status = ext_glGetStringi( &params ))) return status;
-
-    if (!(params32->ret = find_wow64_string( (char *)params.ret, params32->ret )))
-    {
-        params32->ret = strlen( (char *)params.ret ) + 1;
-        return STATUS_BUFFER_TOO_SMALL;
-    }
-
-    return STATUS_SUCCESS;
-}
-
 NTSTATUS wow64_ext_glPathGlyphIndexRangeNV( void *args )
 {
     struct
@@ -1586,112 +1538,6 @@ NTSTATUS wow64_ext_glPathGlyphIndexRangeNV( void *args )
     if ((status = ext_glPathGlyphIndexRangeNV( &params ))) return status;
     params32->ret = params.ret;
     return status;
-}
-
-NTSTATUS wow64_ext_wglGetExtensionsStringARB( void *args )
-{
-    struct
-    {
-        PTR32 teb;
-        PTR32 hdc;
-        PTR32 ret;
-    } *params32 = args;
-    struct wglGetExtensionsStringARB_params params =
-    {
-        .teb = get_teb64(params32->teb),
-        .hdc = ULongToPtr(params32->hdc),
-    };
-    NTSTATUS status;
-
-    if ((status = ext_wglGetExtensionsStringARB( &params ))) return status;
-
-    if (!(params32->ret = find_wow64_string( params.ret, params32->ret )))
-    {
-        params32->ret = strlen( params.ret ) + 1;
-        return STATUS_BUFFER_TOO_SMALL;
-    }
-
-    return STATUS_SUCCESS;
-}
-
-NTSTATUS wow64_ext_wglGetExtensionsStringEXT( void *args )
-{
-    struct
-    {
-        PTR32 teb;
-        PTR32 ret;
-    } *params32 = args;
-    struct wglGetExtensionsStringEXT_params params =
-    {
-        .teb = get_teb64(params32->teb),
-    };
-    NTSTATUS status;
-
-    if ((status = ext_wglGetExtensionsStringEXT( &params ))) return status;
-
-    if (!(params32->ret = find_wow64_string( params.ret, params32->ret )))
-    {
-        params32->ret = strlen( params.ret ) + 1;
-        return STATUS_BUFFER_TOO_SMALL;
-    }
-
-    return STATUS_SUCCESS;
-}
-
-NTSTATUS wow64_ext_wglQueryCurrentRendererStringWINE( void *args )
-{
-    struct
-    {
-        PTR32 teb;
-        GLenum attribute;
-        PTR32 ret;
-    } *params32 = args;
-    struct wglQueryCurrentRendererStringWINE_params params =
-    {
-        .teb = get_teb64(params32->teb),
-        .attribute = params32->attribute,
-    };
-    NTSTATUS status;
-
-    if ((status = ext_wglQueryCurrentRendererStringWINE( &params ))) return status;
-
-    if (!(params32->ret = find_wow64_string( params.ret, params32->ret )))
-    {
-        params32->ret = strlen( params.ret ) + 1;
-        return STATUS_BUFFER_TOO_SMALL;
-    }
-
-    return STATUS_SUCCESS;
-}
-
-NTSTATUS wow64_ext_wglQueryRendererStringWINE( void *args )
-{
-    struct
-    {
-        PTR32 teb;
-        PTR32 dc;
-        GLint renderer;
-        GLenum attribute;
-        PTR32 ret;
-    } *params32 = args;
-    struct wglQueryRendererStringWINE_params params =
-    {
-        .teb = get_teb64(params32->teb),
-        .dc = ULongToPtr(params32->dc),
-        .renderer = params32->renderer,
-        .attribute = params32->attribute,
-    };
-    NTSTATUS status;
-
-    if ((status = ext_wglQueryRendererStringWINE( &params ))) return status;
-
-    if (!(params32->ret = find_wow64_string( params.ret, params32->ret )))
-    {
-        params32->ret = strlen( params.ret ) + 1;
-        return STATUS_BUFFER_TOO_SMALL;
-    }
-
-    return STATUS_SUCCESS;
 }
 
 GLenum wow64_glClientWaitSync( TEB *teb, GLsync sync, GLbitfield flags, GLuint64 timeout )

@@ -208,10 +208,50 @@ static HRESULT WINAPI HTMLDOMAttribute2_get_value(IHTMLDOMAttribute2 *iface, BST
 static HRESULT WINAPI HTMLDOMAttribute2_get_expando(IHTMLDOMAttribute2 *iface, VARIANT_BOOL *p)
 {
     HTMLDOMAttribute *This = impl_from_IHTMLDOMAttribute2(iface);
+    const PRUnichar *name;
+    nsIDOMElement *nselem;
+    HTMLElement *elem;
+    nsAString nsname;
+    nsresult nsres;
+    HRESULT hres;
+    DISPID id;
 
     TRACE("(%p)->(%p)\n", This, p);
 
-    *p = variant_bool(!This->dom_attr && This->elem && get_dispid_type(This->dispid) != DISPEXPROP_BUILTIN);
+    if(This->dom_attr) {
+        nsres = nsIDOMAttr_GetOwnerElement(This->dom_attr, &nselem);
+        assert(nsres == NS_OK);
+        if(!nselem) {
+            *p = VARIANT_FALSE;
+            return S_OK;
+        }
+
+        hres = get_element(nselem, &elem);
+        nsIDOMElement_Release(nselem);
+        if(FAILED(hres))
+            return hres;
+
+        nsAString_InitDepend(&nsname, NULL);
+        nsres = nsIDOMAttr_GetName(This->dom_attr, &nsname);
+        if(NS_FAILED(nsres)) {
+            IHTMLElement2_Release(&elem->IHTMLElement2_iface);
+            return map_nsresult(nsres);
+        }
+
+        nsAString_GetData(&nsname, &name);
+        hres = dispex_get_chain_builtin_id(&elem->node.event_target.dispex, name, fdexNameCaseInsensitive, &id);
+        nsAString_Finish(&nsname);
+        if(SUCCEEDED(hres))
+            *p = variant_bool(dispex_builtin_is_noattr(&elem->node.event_target.dispex, id));
+        else if(hres == DISP_E_UNKNOWNNAME) {
+            *p = VARIANT_TRUE;
+            hres = S_OK;
+        }
+        IHTMLElement2_Release(&elem->IHTMLElement2_iface);
+        return hres;
+    }
+
+    *p = variant_bool(This->elem && get_dispid_type(This->dispid) != DISPEXPROP_BUILTIN);
     return S_OK;
 }
 
@@ -509,6 +549,7 @@ static HRESULT WINAPI HTMLDOMAttribute3_get_ownerElement(IHTMLDOMAttribute3 *ifa
         if(dom_element) {
             HTMLElement *element;
             hres = get_element(dom_element, &element);
+            nsIDOMElement_Release(dom_element);
             if(SUCCEEDED(hres))
                 *p = &element->IHTMLElement2_iface;
         }else {
@@ -567,6 +608,7 @@ static void *HTMLDOMAttribute_query_interface(DispatchEx *dispex, REFIID riid)
 static void HTMLDOMAttribute_traverse(DispatchEx *dispex, nsCycleCollectionTraversalCallback *cb)
 {
     HTMLDOMAttribute *This = impl_from_DispatchEx(dispex);
+    HTMLDOMNode_traverse(&This->node.event_target.dispex, cb);
 
     if(This->doc)
         note_cc_edge((nsISupports*)&This->doc->node.IHTMLDOMNode_iface, "doc", cb);
@@ -578,6 +620,7 @@ static void HTMLDOMAttribute_traverse(DispatchEx *dispex, nsCycleCollectionTrave
 static void HTMLDOMAttribute_unlink(DispatchEx *dispex)
 {
     HTMLDOMAttribute *This = impl_from_DispatchEx(dispex);
+    HTMLDOMNode_unlink(&This->node.event_target.dispex);
 
     if(This->doc) {
         HTMLDocumentNode *doc = This->doc;
