@@ -392,9 +392,13 @@ static NTSTATUS build_controller_report_descriptor(struct unix_device *iface)
     if (!descriptor_add_haptic(impl, FALSE)) return STATUS_NO_MEMORY;
     if (!hid_device_end_report_descriptor(iface)) return STATUS_NO_MEMORY;
 
-    /* Initialize axis in the report */
     for (int i = SDL_CONTROLLER_AXIS_LEFTX; i < SDL_CONTROLLER_AXIS_MAX; i++)
-        hid_device_set_abs_axis(iface, i, pSDL_GameControllerGetAxis(impl->sdl_controller, i));
+    {
+        int value = pSDL_GameControllerGetAxis(impl->sdl_controller, i);
+        if (i == SDL_CONTROLLER_AXIS_LEFTY || i == SDL_CONTROLLER_AXIS_RIGHTY)
+            value = -value - 1; /* match XUSB / GIP protocol */
+        hid_device_set_abs_axis(iface, i, value);
+    }
 
     state = pSDL_GameControllerGetButton(impl->sdl_controller, SDL_CONTROLLER_BUTTON_DPAD_UP);
     hid_device_move_hatswitch(iface, 0, 0, state ? -1 : +1);
@@ -852,29 +856,31 @@ static BOOL set_report_from_controller_event(struct sdl_device *impl, SDL_Event 
             SDL_ControllerButtonEvent *ie = &event->cbutton;
             int button;
 
-            switch ((button = ie->button))
+            switch (ie->button)
             {
-            case SDL_CONTROLLER_BUTTON_DPAD_UP:
-                hid_device_move_hatswitch(iface, 0, 0, ie->state ? -1 : +1);
-                break;
-            case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
-                hid_device_move_hatswitch(iface, 0, 0, ie->state ? +1 : -1);
-                break;
-            case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
-                hid_device_move_hatswitch(iface, 0, ie->state ? -1 : +1, 0);
-                break;
-            case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
-                hid_device_move_hatswitch(iface, 0, ie->state ? +1 : -1, 0);
-                break;
+            case SDL_CONTROLLER_BUTTON_A: button = 0; break;
+            case SDL_CONTROLLER_BUTTON_B: button = 1; break;
+            case SDL_CONTROLLER_BUTTON_X: button = 2; break;
+            case SDL_CONTROLLER_BUTTON_Y: button = 3; break;
             case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: button = 4; break;
             case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: button = 5; break;
             case SDL_CONTROLLER_BUTTON_BACK: button = 6; break;
             case SDL_CONTROLLER_BUTTON_START: button = 7; break;
             case SDL_CONTROLLER_BUTTON_LEFTSTICK: button = 8; break;
             case SDL_CONTROLLER_BUTTON_RIGHTSTICK: button = 9; break;
-            case SDL_CONTROLLER_BUTTON_GUIDE: button = 10; break;
+            case SDL_CONTROLLER_BUTTON_DPAD_UP: button = 10; break;
+            case SDL_CONTROLLER_BUTTON_DPAD_DOWN: button = 11; break;
+            case SDL_CONTROLLER_BUTTON_DPAD_LEFT: button = 12; break;
+            case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: button = 13; break;
+            case SDL_CONTROLLER_BUTTON_GUIDE: button = 16; break;
+            default: button = -1; break;
             }
 
+            if (button == -1) break;
+            if (button == 10) hid_device_move_hatswitch(iface, 0, 0, ie->state ? -1 : +1);
+            if (button == 11) hid_device_move_hatswitch(iface, 0, 0, ie->state ? +1 : -1);
+            if (button == 12) hid_device_move_hatswitch(iface, 0, ie->state ? -1 : +1, 0);
+            if (button == 13) hid_device_move_hatswitch(iface, 0, ie->state ? +1 : -1, 0);
             hid_device_set_button(iface, button, ie->state);
             bus_event_queue_input_report(&event_queue, iface, state->report_buf, state->report_len);
             break;
@@ -882,6 +888,9 @@ static BOOL set_report_from_controller_event(struct sdl_device *impl, SDL_Event 
         case SDL_CONTROLLERAXISMOTION:
         {
             SDL_ControllerAxisEvent *ie = &event->caxis;
+
+            if (ie->axis == SDL_CONTROLLER_AXIS_LEFTY || ie->axis == SDL_CONTROLLER_AXIS_RIGHTY)
+                ie->value = -ie->value - 1; /* match XUSB / GIP protocol */
 
             hid_device_set_abs_axis(iface, ie->axis, ie->value);
             bus_event_queue_input_report(&event_queue, iface, state->report_buf, state->report_len);

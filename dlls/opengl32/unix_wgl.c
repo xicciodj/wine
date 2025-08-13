@@ -1708,11 +1708,11 @@ static GLbitfield map_range_flags_from_map_flags( GLenum flags )
     }
 }
 
-static NTSTATUS wow64_unmap_buffer( void *ptr, SIZE_T size, GLbitfield access )
+static PTR32 wow64_unmap_buffer( void *ptr, SIZE_T size, GLbitfield access )
 {
     void *wow_ptr;
 
-    if (ULongToPtr(PtrToUlong(ptr)) == ptr) return STATUS_SUCCESS;  /* we're lucky */
+    if (ULongToPtr(PtrToUlong(ptr)) == ptr) return 0;  /* we're lucky */
 
     wow_ptr = UlongToPtr(*(PTR32 *)ptr);
     if (access & GL_MAP_WRITE_BIT)
@@ -1721,7 +1721,7 @@ static NTSTATUS wow64_unmap_buffer( void *ptr, SIZE_T size, GLbitfield access )
         memcpy( ptr, wow_ptr, size );
     }
 
-    return STATUS_INVALID_ADDRESS;
+    return PtrToUlong( wow_ptr );
 }
 
 static NTSTATUS wow64_gl_get_buffer_pointer_v( void *args, NTSTATUS (*get_buffer_pointer_v64)(void *) )
@@ -1798,230 +1798,149 @@ NTSTATUS wow64_ext_glGetNamedBufferPointervEXT( void *args )
     return wow64_gl_get_named_buffer_pointer_v( args, ext_glGetNamedBufferPointervEXT );
 }
 
-static NTSTATUS wow64_gl_map_buffer( void *args, NTSTATUS (*gl_map_buffer64)(void *) )
+static PTR32 wow64_gl_map_buffer( TEB *teb, GLenum target, GLenum access, PTR32 *client_ptr,
+                                  PFN_glMapBuffer gl_map_buffer64 )
 {
-    struct
-    {
-        PTR32 teb;
-        GLenum target;
-        GLenum access;
-        PTR32 ret;
-    } *params32 = args;
-    struct glMapBuffer_params params =
-    {
-        .teb = get_teb64(params32->teb),
-        .target = params32->target,
-        .access = params32->access,
-    };
     NTSTATUS status;
+    void *ptr;
+
+    /* if *ret, we're being called again with a wow64 pointer */
+    ptr = *client_ptr ? get_buffer_pointer( teb, target ) : gl_map_buffer64( target, access );
+
+    status = wow64_map_buffer( teb, 0, target, ptr, 0, map_range_flags_from_map_flags( access ), client_ptr );
+    if (!status) return *client_ptr;
+    if (status != STATUS_INVALID_ADDRESS) unmap_buffer( teb, target );
+    return 0;
+}
+
+PTR32 wow64_glMapBuffer( TEB *teb, GLenum target, GLenum access, PTR32 *client_ptr )
+{
+    const struct opengl_funcs *funcs = teb->glTable;
+    return wow64_gl_map_buffer( teb, target, access, client_ptr, funcs->p_glMapBuffer );
+}
+
+PTR32 wow64_glMapBufferARB( TEB *teb, GLenum target, GLenum access, PTR32 *client_ptr )
+{
+    const struct opengl_funcs *funcs = teb->glTable;
+    return wow64_gl_map_buffer( teb, target, access, client_ptr, funcs->p_glMapBufferARB );
+}
+
+PTR32 wow64_glMapBufferRange( TEB *teb, GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access, PTR32 *client_ptr )
+{
+    const struct opengl_funcs *funcs = teb->glTable;
+    NTSTATUS status;
+    void *ptr;
 
     /* already mapped, we're being called again with a wow64 pointer */
-    if (params32->ret) params.ret = get_buffer_pointer( params.teb, params.target );
-    else if ((status = gl_map_buffer64( &params ))) return status;
+    if (*client_ptr) ptr = (char *)get_buffer_pointer( teb, target );
+    else ptr = funcs->p_glMapBufferRange( target, offset, length, access );
 
-    status = wow64_map_buffer( params.teb, 0, params.target, params.ret, 0,
-                               map_range_flags_from_map_flags( params.access ), &params32->ret );
-    if (!status || status == STATUS_INVALID_ADDRESS) return status;
-
-    unmap_buffer( params.teb, params.target );
-    return status;
+    status = wow64_map_buffer( teb, 0, target, ptr, length, access, client_ptr );
+    if (!status) return *client_ptr;
+    if (status != STATUS_INVALID_ADDRESS) unmap_buffer( teb, target );
+    return 0;
 }
 
-NTSTATUS wow64_ext_glMapBuffer( void *args )
+static PTR32 wow64_gl_map_named_buffer( TEB *teb, GLuint buffer, GLenum access, PTR32 *client_ptr,
+                                        PFN_glMapNamedBuffer gl_map_named_buffer64 )
 {
-    return wow64_gl_map_buffer( args, ext_glMapBuffer );
-}
-
-NTSTATUS wow64_ext_glMapBufferARB( void *args )
-{
-    return wow64_gl_map_buffer( args, ext_glMapBufferARB );
-}
-
-NTSTATUS wow64_ext_glMapBufferRange( void *args )
-{
-    struct
-    {
-        PTR32 teb;
-        GLenum target;
-        PTR32 offset;
-        PTR32 length;
-        GLbitfield access;
-        PTR32 ret;
-    } *params32 = args;
-    struct glMapBufferRange_params params =
-    {
-        .teb = get_teb64(params32->teb),
-        .target = params32->target,
-        .offset = (GLintptr)ULongToPtr(params32->offset),
-        .length = (GLsizeiptr)ULongToPtr(params32->length),
-        .access = params32->access,
-    };
     NTSTATUS status;
+    void *ptr;
 
     /* already mapped, we're being called again with a wow64 pointer */
-    if (params32->ret) params.ret = (char *)get_buffer_pointer( params.teb, params.target );
-    else if ((status = ext_glMapBufferRange( &params ))) return status;
+    if (*client_ptr) ptr = get_named_buffer_pointer( teb, buffer );
+    else ptr = gl_map_named_buffer64( buffer, access );
 
-    status = wow64_map_buffer( params.teb, 0, params.target, params.ret, params.length, params.access, &params32->ret );
-    if (!status || status == STATUS_INVALID_ADDRESS) return status;
-
-    unmap_buffer( params.teb, params.target );
-    return status;
+    status = wow64_map_buffer( teb, buffer, 0, ptr, 0, map_range_flags_from_map_flags( access ), client_ptr );
+    if (!status) return *client_ptr;
+    if (status != STATUS_INVALID_ADDRESS) unmap_named_buffer( teb, buffer );
+    return 0;
 }
 
-static NTSTATUS wow64_gl_map_named_buffer( void *args, NTSTATUS (*gl_map_named_buffer64)(void *) )
+PTR32 wow64_glMapNamedBuffer( TEB *teb, GLuint buffer, GLenum access, PTR32 *client_ptr )
 {
-    struct
-    {
-        PTR32 teb;
-        GLuint buffer;
-        GLenum access;
-        PTR32 ret;
-    } *params32 = args;
-    struct glMapNamedBuffer_params params =
-    {
-        .teb = get_teb64(params32->teb),
-        .buffer = params32->buffer,
-        .access = params32->access,
-    };
+    const struct opengl_funcs *funcs = teb->glTable;
+    return wow64_gl_map_named_buffer( teb, buffer, access, client_ptr, funcs->p_glMapNamedBuffer );
+}
+
+PTR32 wow64_glMapNamedBufferEXT( TEB *teb, GLuint buffer, GLenum access, PTR32 *client_ptr )
+{
+    const struct opengl_funcs *funcs = teb->glTable;
+    return wow64_gl_map_named_buffer( teb, buffer, access, client_ptr, funcs->p_glMapNamedBufferEXT );
+}
+
+static NTSTATUS wow64_gl_map_named_buffer_range( TEB *teb, GLuint buffer, GLintptr offset, GLsizeiptr length, GLbitfield access,
+                                                 PTR32 *client_ptr, PFN_glMapNamedBufferRange gl_map_named_buffer_range64 )
+{
     NTSTATUS status;
+    void *ptr;
 
     /* already mapped, we're being called again with a wow64 pointer */
-    if (params32->ret) params.ret = get_named_buffer_pointer( params.teb, params.buffer );
-    else if ((status = gl_map_named_buffer64( &params ))) return status;
+    if (*client_ptr) ptr = get_named_buffer_pointer( teb, buffer );
+    else ptr = gl_map_named_buffer_range64( buffer, offset, length, access );
 
-    status = wow64_map_buffer( params.teb, params.buffer, 0, params.ret, 0,
-                               map_range_flags_from_map_flags( params.access ), &params32->ret );
-    if (!status || status == STATUS_INVALID_ADDRESS) return status;
-
-    unmap_named_buffer( params.teb, params.buffer );
-    return status;
+    status = wow64_map_buffer( teb, buffer, 0, ptr, length, access, client_ptr );
+    if (!status) return *client_ptr;
+    if (status != STATUS_INVALID_ADDRESS)  unmap_named_buffer( teb, buffer );
+    return 0;
 }
 
-NTSTATUS wow64_ext_glMapNamedBuffer( void *args )
+PTR32 wow64_glMapNamedBufferRange( TEB *teb, GLuint buffer, GLintptr offset, GLsizeiptr length, GLbitfield access, PTR32 *client_ptr )
 {
-    return wow64_gl_map_named_buffer( args, ext_glMapNamedBuffer );
+    const struct opengl_funcs *funcs = teb->glTable;
+    return wow64_gl_map_named_buffer_range( teb, buffer, offset, length, access, client_ptr, funcs->p_glMapNamedBufferRange );
 }
 
-NTSTATUS wow64_ext_glMapNamedBufferEXT( void *args )
+PTR32 wow64_glMapNamedBufferRangeEXT( TEB *teb, GLuint buffer, GLintptr offset, GLsizeiptr length, GLbitfield access, PTR32 *client_ptr )
 {
-    return wow64_gl_map_named_buffer( args, ext_glMapNamedBufferEXT );
+    const struct opengl_funcs *funcs = teb->glTable;
+    return wow64_gl_map_named_buffer_range( teb, buffer, offset, length, access, client_ptr, funcs->p_glMapNamedBufferRangeEXT );
 }
 
-static NTSTATUS wow64_gl_map_named_buffer_range( void *args, NTSTATUS (*gl_map_named_buffer_range64)(void *) )
-{
-    struct
-    {
-        PTR32 teb;
-        GLuint buffer;
-        PTR32 offset;
-        PTR32 length;
-        GLbitfield access;
-        PTR32 ret;
-    } *params32 = args;
-    struct glMapNamedBufferRange_params params =
-    {
-        .teb = get_teb64(params32->teb),
-        .buffer = params32->buffer,
-        .offset = (GLintptr)ULongToPtr(params32->offset),
-        .length = (GLsizeiptr)ULongToPtr(params32->length),
-        .access = params32->access,
-    };
-    NTSTATUS status;
-
-    /* already mapped, we're being called again with a wow64 pointer */
-    if (params32->ret) params.ret = get_named_buffer_pointer( params.teb, params.buffer );
-    else if ((status = gl_map_named_buffer_range64( &params ))) return status;
-
-    status = wow64_map_buffer( params.teb, params.buffer, 0, params.ret, params.length, params.access, &params32->ret );
-    if (!status || status == STATUS_INVALID_ADDRESS) return status;
-
-    unmap_named_buffer( params.teb, params.buffer );
-    return status;
-}
-
-NTSTATUS wow64_ext_glMapNamedBufferRange( void *args )
-{
-    return wow64_gl_map_named_buffer_range( args, ext_glMapNamedBufferRange );
-}
-
-NTSTATUS wow64_ext_glMapNamedBufferRangeEXT( void *args )
-{
-    return wow64_gl_map_named_buffer_range( args, ext_glMapNamedBufferRangeEXT );
-}
-
-static NTSTATUS wow64_gl_unmap_buffer( void *args, NTSTATUS (*gl_unmap_buffer64)(void *) )
+static PTR32 wow64_unmap_client_buffer( TEB *teb, GLenum target )
 {
     PTR32 *ptr;
-    struct
-    {
-        PTR32 teb;
-        GLenum target;
-        GLboolean ret;
-    } *params32 = args;
-    struct glUnmapBuffer_params params =
-    {
-        .teb = get_teb64(params32->teb),
-        .target = params32->target,
-        .ret = TRUE,
-    };
-    NTSTATUS status;
 
-    if (!(ptr = get_buffer_pointer( params.teb, params.target ))) return STATUS_SUCCESS;
-
-    status = wow64_unmap_buffer( ptr, get_buffer_param( params.teb, params.target, GL_BUFFER_MAP_LENGTH ),
-                                 get_buffer_param( params.teb, params.target, GL_BUFFER_ACCESS_FLAGS ) );
-    gl_unmap_buffer64( &params );
-    params32->ret = params.ret;
-
-    return status;
+    if (!(ptr = get_buffer_pointer( teb, target ))) return 0;
+    return wow64_unmap_buffer( ptr, get_buffer_param( teb, target, GL_BUFFER_MAP_LENGTH ),
+                               get_buffer_param( teb, target, GL_BUFFER_ACCESS_FLAGS ) );
 }
 
-NTSTATUS wow64_ext_glUnmapBuffer( void *args )
+GLboolean wow64_glUnmapBuffer( TEB *teb, GLenum target, PTR32 *client_ptr )
 {
-    return wow64_gl_unmap_buffer( args, ext_glUnmapBuffer );
+    const struct opengl_funcs *funcs = teb->glTable;
+    *client_ptr = wow64_unmap_client_buffer( teb, target );
+    return funcs->p_glUnmapBuffer( target );
 }
 
-NTSTATUS wow64_ext_glUnmapBufferARB( void *args )
+GLboolean wow64_glUnmapBufferARB( TEB *teb, GLenum target, PTR32 *client_ptr )
 {
-    return wow64_gl_unmap_buffer( args, ext_glUnmapBufferARB );
+    const struct opengl_funcs *funcs = teb->glTable;
+    *client_ptr = wow64_unmap_client_buffer( teb, target );
+    return funcs->p_glUnmapBuffer( target );
 }
 
-static NTSTATUS wow64_gl_unmap_named_buffer( void *args, NTSTATUS (*gl_unmap_named_buffer64)(void *) )
+static PTR32 wow64_gl_unmap_named_buffer( TEB *teb, GLuint buffer )
 {
     PTR32 *ptr;
-    struct
-    {
-        PTR32 teb;
-        GLint buffer;
-        GLboolean ret;
-    } *params32 = args;
-    struct glUnmapNamedBuffer_params params =
-    {
-        .teb = get_teb64(params32->teb),
-        .buffer = params32->buffer,
-        .ret = TRUE,
-    };
-    NTSTATUS status;
 
-    if (!(ptr = get_named_buffer_pointer( params.teb, params.buffer ))) return STATUS_SUCCESS;
-
-    status = wow64_unmap_buffer( ptr, get_named_buffer_param( params.teb, params.buffer, GL_BUFFER_MAP_LENGTH ),
-                                 get_named_buffer_param( params.teb, params.buffer, GL_BUFFER_ACCESS_FLAGS ) );
-    gl_unmap_named_buffer64( &params );
-    params32->ret = params.ret;
-
-    return status;
+    if (!(ptr = get_named_buffer_pointer( teb, buffer ))) return 0;
+    return wow64_unmap_buffer( ptr, get_named_buffer_param( teb, buffer, GL_BUFFER_MAP_LENGTH ),
+                               get_named_buffer_param( teb, buffer, GL_BUFFER_ACCESS_FLAGS ) );
 }
 
-NTSTATUS wow64_ext_glUnmapNamedBuffer( void *args )
+GLboolean wow64_glUnmapNamedBuffer( TEB *teb, GLuint buffer, PTR32 *client_ptr )
 {
-    return wow64_gl_unmap_named_buffer( args, ext_glUnmapNamedBuffer );
+    const struct opengl_funcs *funcs = teb->glTable;
+    *client_ptr = wow64_gl_unmap_named_buffer( teb, buffer );
+    return funcs->p_glUnmapNamedBuffer( buffer );
 }
 
-NTSTATUS wow64_ext_glUnmapNamedBufferEXT( void *args )
+GLboolean wow64_glUnmapNamedBufferEXT( TEB *teb, GLuint buffer, PTR32 *client_ptr )
 {
-    return wow64_gl_unmap_named_buffer( args, ext_glUnmapNamedBufferEXT );
+    const struct opengl_funcs *funcs = teb->glTable;
+    *client_ptr = wow64_gl_unmap_named_buffer( teb, buffer );
+    return funcs->p_glUnmapNamedBufferEXT( buffer );
 }
 
 NTSTATUS wow64_thread_attach( void *args )

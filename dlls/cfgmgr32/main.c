@@ -20,6 +20,7 @@
 #include "wine/debug.h"
 #include "wine/rbtree.h"
 #include "winreg.h"
+#include "winternl.h"
 #include "cfgmgr32.h"
 #include "winuser.h"
 #include "dbt.h"
@@ -318,8 +319,344 @@ static BOOL dev_properties_append( DEVPROPERTY **properties, ULONG *props_len, c
     return TRUE;
 }
 
+static const char *debugstr_DEVPROPKEY( const DEVPROPKEY *key )
+{
+    if (!key) return "(null)";
+    return wine_dbg_sprintf( "{%s, %04lx}", debugstr_guid( &key->fmtid ), key->pid );
+}
+
+static const char *debugstr_DEVPROPCOMPKEY( const DEVPROPCOMPKEY *key )
+{
+    if (!key) return "(null)";
+    return wine_dbg_sprintf( "{%s, %d, %s}", debugstr_DEVPROPKEY( &key->Key ), key->Store,
+                             debugstr_w( key->LocaleName ) );
+}
+
+static const char *debugstr_DEV_OBJECT( const DEV_OBJECT *obj )
+{
+    if (!obj) return "(null)";
+    return wine_dbg_sprintf( "{%d, %s, %lu, %p}", obj->ObjectType, debugstr_w( obj->pszObjectId ), obj->cPropertyCount,
+                             obj->pProperties );
+}
+
+static int devproperty_compare( const void *p1, const void *p2 )
+{
+    const DEVPROPCOMPKEY *key1 = &((DEVPROPERTY *)p1)->CompKey;
+    const DEVPROPCOMPKEY *key2 = &((DEVPROPERTY *)p2)->CompKey;
+    int cmp = memcmp( key1, key2, offsetof( DEVPROPCOMPKEY, LocaleName ));
+
+    if (cmp)
+        return cmp;
+    if (key1->LocaleName == key2->LocaleName)
+        return 0;
+    if (!key1->LocaleName)
+        return -1;
+    if (!key2->LocaleName)
+        return 1;
+    return wcsicmp( key1->LocaleName, key2->LocaleName );
+}
+
+static const char *debugstr_DEVPROP_OPERATOR( DEVPROP_OPERATOR op )
+{
+    DWORD compare = op & DEVPROP_OPERATOR_MASK_EVAL;
+    DWORD list = op & DEVPROP_OPERATOR_MASK_LIST;
+    DWORD modifier = op & DEVPROP_OPERATOR_MASK_MODIFIER;
+    DWORD logical = op & DEVPROP_OPERATOR_MASK_LOGICAL;
+    DWORD array = op & DEVPROP_OPERATOR_MASK_ARRAY;
+
+    return wine_dbg_sprintf( "(%#lx|%#lx|%#lx|%#lx|%#lx)", list, array, modifier, compare, logical );
+}
+
+
+static const char *debugstr_DEVPROP_FILTER_EXPRESSION( const DEVPROP_FILTER_EXPRESSION *filter )
+{
+    if (!filter) return "(null)";
+    return wine_dbg_sprintf( "{%s, {%s, %#lx, %lu, %p}}", debugstr_DEVPROP_OPERATOR( filter->Operator ),
+                             debugstr_DEVPROPCOMPKEY( &filter->Property.CompKey ), filter->Property.Type,
+                             filter->Property.BufferSize, filter->Property.Buffer );
+}
+
+/* Evaluate a filter expression containing comparison operator. */
+static HRESULT devprop_filter_eval_compare( const DEV_OBJECT *obj, const DEVPROP_FILTER_EXPRESSION *filter )
+{
+    const DEVPROPERTY *cmp_prop = &filter->Property;
+    DEVPROP_OPERATOR op = filter->Operator;
+    const DEVPROPERTY *prop = NULL;
+    BOOL ret = FALSE;
+
+    TRACE( "(%s, %s)\n", debugstr_DEV_OBJECT( obj ), debugstr_DEVPROP_FILTER_EXPRESSION( filter ) );
+
+    if ((op & DEVPROP_OPERATOR_MASK_MODIFIER) & ~(DEVPROP_OPERATOR_MODIFIER_NOT | DEVPROP_OPERATOR_MODIFIER_IGNORE_CASE))
+        return E_INVALIDARG;
+
+    switch (filter->Operator & DEVPROP_OPERATOR_MASK_EVAL)
+    {
+    case DEVPROP_OPERATOR_EXISTS:
+        prop = bsearch( &filter->Property.CompKey, obj->pProperties, obj->cPropertyCount, sizeof( *obj->pProperties ),
+                        devproperty_compare );
+        ret = prop && prop->Type != DEVPROP_TYPE_EMPTY;
+        break;
+    case DEVPROP_OPERATOR_EQUALS:
+    case DEVPROP_OPERATOR_LESS_THAN:
+    case DEVPROP_OPERATOR_GREATER_THAN:
+    case DEVPROP_OPERATOR_LESS_THAN_EQUALS:
+    case DEVPROP_OPERATOR_GREATER_THAN_EQUALS:
+    {
+        int cmp = 0;
+
+        prop = bsearch( &filter->Property.CompKey, obj->pProperties, obj->cPropertyCount, sizeof( *obj->pProperties ),
+                        devproperty_compare );
+        if (prop && cmp_prop->Type == prop->Type && cmp_prop->BufferSize == prop->BufferSize)
+        {
+            switch (prop->Type)
+            {
+            case DEVPROP_TYPE_STRING:
+                cmp = op & DEVPROP_OPERATOR_MODIFIER_IGNORE_CASE ? wcsicmp( prop->Buffer, cmp_prop->Buffer )
+                                                                 : wcscmp( prop->Buffer, cmp_prop->Buffer );
+                break;
+            default:
+                cmp = memcmp( prop->Buffer, cmp_prop->Buffer, prop->BufferSize );
+                break;
+            }
+            if (op == DEVPROP_OPERATOR_EQUALS)
+                ret = !cmp;
+            else if (op & DEVPROP_OPERATOR_EQUALS && !cmp)
+                ret = TRUE;
+            else
+                ret = (op & DEVPROP_OPERATOR_LESS_THAN) ? cmp < 0 : cmp > 0;
+        }
+        break;
+    }
+    case DEVPROP_OPERATOR_BITWISE_AND:
+    case DEVPROP_OPERATOR_BITWISE_OR:
+    case DEVPROP_OPERATOR_BEGINS_WITH:
+    case DEVPROP_OPERATOR_ENDS_WITH:
+    case DEVPROP_OPERATOR_CONTAINS:
+    default:
+        FIXME( "Unsupported operator: %s", debugstr_DEVPROP_OPERATOR( filter->Operator & DEVPROP_OPERATOR_MASK_EVAL ) );
+        return S_OK;
+    }
+
+    if (op & DEVPROP_OPERATOR_MODIFIER_NOT)
+        ret = !ret;
+    return ret ? S_OK : S_FALSE;
+}
+
+/* Return S_OK if the specified filter expressions match the object, S_FALSE if it doesn't. */
+static HRESULT devprop_filter_matches_object( const DEV_OBJECT *obj, ULONG filters_len,
+                                              const DEVPROP_FILTER_EXPRESSION *filters )
+{
+    HRESULT hr = S_OK;
+    ULONG i;
+
+    TRACE( "(%s, %lu, %p)\n", debugstr_DEV_OBJECT( obj ), filters_len, filters );
+
+    if (!filters_len)
+        return S_OK;
+
+    /* By default, the evaluation is performed by AND-ing all individual filter expressions. */
+    for (i = 0; i < filters_len; i++)
+    {
+        const DEVPROP_FILTER_EXPRESSION *filter = &filters[i];
+        DEVPROP_OPERATOR op = filter->Operator;
+
+        if (op == DEVPROP_OPERATOR_NONE)
+        {
+            hr = S_FALSE;
+            break;
+        }
+        if (op & (DEVPROP_OPERATOR_MASK_LIST | DEVPROP_OPERATOR_MASK_ARRAY))
+        {
+            FIXME( "Unsupported list/array operator: %s\n", debugstr_DEVPROP_OPERATOR( op ) );
+            continue;
+        }
+        if (op & DEVPROP_OPERATOR_MASK_LOGICAL)
+        {
+            FIXME( "Unsupported logical operator: %s\n", debugstr_DEVPROP_OPERATOR( op ) );
+            continue;
+        }
+        if (op & DEVPROP_OPERATOR_MASK_EVAL)
+        {
+            hr = devprop_filter_eval_compare( obj, filter );
+            if (FAILED( hr ) || hr == S_FALSE)
+                break;
+        }
+    }
+
+    return hr;
+}
+
+static HRESULT stack_push( DEVPROP_OPERATOR **stack, ULONG *len, DEVPROP_OPERATOR op )
+{
+    DEVPROP_OPERATOR *tmp;
+
+    if (!(tmp = realloc( *stack, (*len + 1) * sizeof( op ) )))
+        return E_OUTOFMEMORY;
+    *stack = tmp;
+    tmp[*len] = op;
+    *len += 1;
+    return S_OK;
+}
+
+static DEVPROP_OPERATOR stack_pop( DEVPROP_OPERATOR **stack, ULONG *len )
+{
+    DEVPROP_OPERATOR op = DEVPROP_OPERATOR_NONE;
+
+    if (*len)
+    {
+        op = (*stack)[*len - 1];
+        *len -= 1;
+    }
+    return op;
+}
+
+static BOOL devprop_type_validate( DEVPROPTYPE type, ULONG buf_size )
+{
+    static const DWORD type_size[] = {
+        0, 0,
+        sizeof( BYTE ), sizeof( BYTE ),
+        sizeof( INT16 ), sizeof( INT16 ),
+        sizeof( INT32 ), sizeof( INT32 ),
+        sizeof( INT64 ), sizeof( INT64 ),
+        sizeof( FLOAT ), sizeof( DOUBLE ), sizeof( DECIMAL ),
+        sizeof( GUID ),
+        sizeof( CURRENCY ),
+        sizeof( DATE ),
+        sizeof( FILETIME ),
+        sizeof( DEVPROP_BOOLEAN ),
+        [DEVPROP_TYPE_DEVPROPKEY] = sizeof( DEVPROPKEY ),
+        [DEVPROP_TYPE_DEVPROPTYPE] = sizeof( DEVPROPTYPE ),
+        [DEVPROP_TYPE_ERROR] = sizeof( ULONG ),
+        [DEVPROP_TYPE_NTSTATUS] = sizeof( NTSTATUS )
+    };
+    DWORD mod = type & DEVPROP_MASK_TYPEMOD, size;
+
+    if (mod && mod != DEVPROP_TYPEMOD_ARRAY && mod != DEVPROP_TYPEMOD_LIST)
+    {
+        FIXME( "Unknown DEVPROPTYPE value: %#lx\n", type );
+        return FALSE;
+    }
+
+    switch (type & DEVPROP_MASK_TYPE)
+    {
+    case DEVPROP_TYPE_EMPTY:
+    case DEVPROP_TYPE_NULL:
+        return !mod;
+    case DEVPROP_TYPE_SECURITY_DESCRIPTOR:
+    case DEVPROP_TYPE_STRING_INDIRECT:
+        return !mod && !!buf_size;
+
+    case DEVPROP_TYPE_STRING:
+    case DEVPROP_TYPE_SECURITY_DESCRIPTOR_STRING:
+        return mod != DEVPROP_TYPEMOD_ARRAY && !!buf_size;
+    default:
+        /* The only valid modifier for the remaining types is DEVPROP_TYPEMOD_ARRAY */
+        if ((type & DEVPROP_MASK_TYPE) > DEVPROP_TYPE_NTSTATUS ||
+            (mod && mod != DEVPROP_TYPEMOD_ARRAY))
+        {
+            FIXME( "Unknown DEVPROPTYPE value: %#lx\n", type );
+            return FALSE;
+        }
+        size = type_size[type & DEVPROP_MASK_TYPE];
+    }
+
+    return mod == DEVPROP_TYPEMOD_ARRAY ? buf_size >= size : buf_size == size;
+}
+
+static HRESULT devprop_filters_validate( ULONG filters_len, const DEVPROP_FILTER_EXPRESSION *filters )
+{
+    DEVPROP_OPERATOR *stack = NULL;
+    ULONG i, logical_open = 0, stack_top = 0;
+    HRESULT hr = S_OK;
+
+    for (i = 0; i < filters_len; i++)
+    {
+        const DEVPROP_FILTER_EXPRESSION *filter = &filters[i];
+        const DEVPROPERTY *prop = &filter->Property;
+        DEVPROP_OPERATOR op = filter->Operator;
+        DWORD compare = op & DEVPROP_OPERATOR_MASK_EVAL;
+        DWORD list = op & DEVPROP_OPERATOR_MASK_LIST;
+        DWORD modifier = op & DEVPROP_OPERATOR_MASK_MODIFIER;
+        DWORD logical = op & DEVPROP_OPERATOR_MASK_LOGICAL;
+        DWORD array = op & DEVPROP_OPERATOR_MASK_ARRAY;
+
+        if ((compare && compare > DEVPROP_OPERATOR_CONTAINS)
+            || (logical && (op & DEVPROP_OPERATOR_MASK_NOT_LOGICAL))
+            || (array && (op != DEVPROP_OPERATOR_ARRAY_CONTAINS))
+            || !!prop->Buffer != !!prop->BufferSize)
+        {
+            FIXME( "Unknown operator: %#x\n", op );
+            hr = E_INVALIDARG;
+            break;
+        }
+        if (!op) continue;
+        if (compare && compare != DEVPROP_OPERATOR_EXISTS
+            && !devprop_type_validate( prop->Type, prop->BufferSize ))
+        {
+            hr = E_INVALIDARG;
+            break;
+        }
+
+        switch (modifier)
+        {
+        case DEVPROP_OPERATOR_NONE:
+        case DEVPROP_OPERATOR_MODIFIER_NOT:
+        case DEVPROP_OPERATOR_MODIFIER_IGNORE_CASE:
+            break;
+        default:
+            hr = E_INVALIDARG;
+            break;
+        }
+
+        switch (list)
+        {
+        case DEVPROP_OPERATOR_NONE:
+        case DEVPROP_OPERATOR_LIST_CONTAINS:
+        case DEVPROP_OPERATOR_LIST_ELEMENT_BEGINS_WITH:
+        case DEVPROP_OPERATOR_LIST_ELEMENT_ENDS_WITH:
+        case DEVPROP_OPERATOR_LIST_ELEMENT_CONTAINS:
+            break;
+        default:
+            hr = E_INVALIDARG;
+            break;
+        }
+
+        switch (logical)
+        {
+        case DEVPROP_OPERATOR_NONE:
+            break;
+        case DEVPROP_OPERATOR_AND_OPEN:
+        case DEVPROP_OPERATOR_OR_OPEN:
+        case DEVPROP_OPERATOR_NOT_OPEN:
+            hr = stack_push( &stack, &stack_top, logical );
+            logical_open = i;
+            break;
+        case DEVPROP_OPERATOR_AND_CLOSE:
+        case DEVPROP_OPERATOR_OR_CLOSE:
+        case DEVPROP_OPERATOR_NOT_CLOSE:
+        {
+            DEVPROP_OPERATOR top = stack_pop( &stack, &stack_top );
+            /* The operator should be correct paired, and shouldn't be empty. */
+            if (logical - top != (DEVPROP_OPERATOR_AND_CLOSE - DEVPROP_OPERATOR_AND_OPEN) || logical_open == i - 1)
+                hr = E_INVALIDARG;
+            break;
+        }
+        default:
+            hr = E_INVALIDARG;
+            break;
+        }
+
+        if (FAILED( hr )) break;
+    }
+
+    if (stack_top)
+        hr = E_INVALIDARG;
+    free( stack );
+    return hr;
+}
+
 static HRESULT dev_object_iface_get_props( DEV_OBJECT *obj, HDEVINFO set, SP_DEVICE_INTERFACE_DATA *iface_data,
-                                           ULONG props_len, const DEVPROPCOMPKEY *props, BOOL all_props )
+                                           ULONG props_len, const DEVPROPCOMPKEY *props, BOOL all_props, BOOL sort )
 {
     DEVPROPKEY *all_keys = NULL;
     DWORD keys_len = 0, i = 0;
@@ -401,13 +738,51 @@ done:
         obj->cPropertyCount = 0;
         obj->pProperties = NULL;
     }
+    else if (sort) /* Sort properties by DEVPROPCOMPKEY for faster filter evaluation. */
+        qsort( (DEVPROPERTY *)obj->pProperties, obj->cPropertyCount, sizeof( *obj->pProperties ), devproperty_compare );
     return hr;
 }
 
 typedef HRESULT (*enum_device_object_cb)( DEV_OBJECT object, void *context );
 
-static HRESULT enum_dev_objects( DEV_OBJECT_TYPE type, ULONG props_len, const DEVPROPCOMPKEY *props,
-                                 BOOL all_props, enum_device_object_cb callback, void *data )
+static void dev_object_remove_unwanted_props( DEV_OBJECT *obj, ULONG keys_len, const DEVPROPCOMPKEY *keys_wanted )
+{
+    DEVPROPERTY *props = (DEVPROPERTY *)obj->pProperties;
+    ULONG i = 0, j;
+
+    if (!keys_len)
+    {
+        DevFreeObjectProperties( obj->cPropertyCount, obj->pProperties );
+        obj->cPropertyCount = 0;
+        obj->pProperties = NULL;
+    }
+
+    while (i < obj->cPropertyCount)
+    {
+        BOOL found = FALSE;
+
+        for (j = 0; j < keys_len; j++)
+        {
+            if (IsEqualDevPropCompKey( props[i].CompKey, keys_wanted[j] ))
+            {
+                found = TRUE;
+                break;
+            }
+        }
+        if (!found)
+        {
+            free( obj->pProperties[i].Buffer );
+            props[i] = props[obj->cPropertyCount - 1];
+            obj->cPropertyCount--;
+        }
+        else
+            i++;
+    }
+}
+
+static HRESULT enum_dev_objects( DEV_OBJECT_TYPE type, ULONG props_len, const DEVPROPCOMPKEY *props, BOOL all_props,
+                                 ULONG filters_len, const DEVPROP_FILTER_EXPRESSION *filters,
+                                 enum_device_object_cb callback, void *data )
 {
     HKEY iface_key;
     HRESULT hr = S_OK;
@@ -476,15 +851,33 @@ static HRESULT enum_dev_objects( DEV_OBJECT_TYPE type, ULONG props_len, const DE
 
             obj.ObjectType = type;
             obj.pszObjectId = detail->DevicePath;
-            if (SUCCEEDED( (hr = dev_object_iface_get_props( &obj, set, &iface, props_len, props, all_props )) ))
-                hr = callback( obj, data );
+            /* If we're also filtering objects, get all properties for this object. Once the filters have been
+             * evaluated, free properties that have not been requested, and set cPropertyCount to props_len.  */
+            if (filters_len)
+                hr = dev_object_iface_get_props( &obj, set, &iface, 0, NULL, TRUE, TRUE );
+            else
+                hr = dev_object_iface_get_props( &obj, set, &iface, props_len, props, all_props, FALSE );
+            if (SUCCEEDED( hr ))
+            {
+                if (filters_len)
+                {
+                    hr = devprop_filter_matches_object( &obj, filters_len, filters );
+                    /* Shrink pProperties to only the desired ones, unless DevQueryFlagAllProperties is set. */
+                    if (!all_props)
+                        dev_object_remove_unwanted_props( &obj, props_len, props );
+                }
+                if (hr == S_OK)
+                    hr = callback( obj, data );
+                else
+                    DevFreeObjectProperties( obj.cPropertyCount, obj.pProperties );
+            }
         }
 
         if (set != INVALID_HANDLE_VALUE)
             SetupDiDestroyDeviceInfoList( set );
     }
     RegCloseKey( iface_key );
-    return hr;
+    return SUCCEEDED( hr ) ? S_OK : hr;
 }
 
 struct objects_list
@@ -534,17 +927,17 @@ HRESULT WINAPI DevGetObjectsEx( DEV_OBJECT_TYPE type, ULONG flags, ULONG props_l
            params_len, params, objs_len, objs );
 
     if (!!props_len != !!props || !!filters_len != !!filters || !!params_len != !!params || (flags & ~valid_flags)
-        || (props_len && (flags & DevQueryFlagAllProperties)))
+        || (props_len && (flags & DevQueryFlagAllProperties))
+        || FAILED( devprop_filters_validate( filters_len, filters ) ))
         return E_INVALIDARG;
-    if (filters)
-        FIXME( "Query filters are not supported!\n" );
     if (params)
         FIXME( "Query parameters are not supported!\n" );
 
     *objs = NULL;
     *objs_len = 0;
 
-    hr = enum_dev_objects( type, props_len, props, !!(flags & DevQueryFlagAllProperties), dev_objects_append, &objects );
+    hr = enum_dev_objects( type, props_len, props, !!(flags & DevQueryFlagAllProperties), filters_len, filters,
+                           dev_objects_append, &objects );
     if (SUCCEEDED( hr ))
     {
         *objs = objects.objects;
@@ -898,7 +1291,7 @@ static void CALLBACK device_query_enum_objects_async( TP_CALLBACK_INSTANCE *inst
 
     if (!ctx->filters)
         hr = enum_dev_objects( ctx->type, ctx->prop_keys_len, ctx->prop_keys, !!(ctx->flags & DevQueryFlagAllProperties),
-                               device_query_context_add_object, ctx );
+                               0, NULL, device_query_context_add_object, ctx );
 
     EnterCriticalSection( &ctx->cs );
     if (ctx->state == DevQueryStateClosed)
@@ -986,7 +1379,8 @@ HRESULT WINAPI DevCreateObjectQueryEx( DEV_OBJECT_TYPE type, ULONG flags, ULONG 
            filters, params_len, params, callback, user_data, devquery );
 
     if (!!props_len != !!props || !!filters_len != !!filters || !!params_len != !!params || (flags & ~valid_flags) || !callback
-        || (props_len && (flags & DevQueryFlagAllProperties)))
+        || (props_len && (flags & DevQueryFlagAllProperties))
+        || FAILED( devprop_filters_validate( filters_len, filters ) ))
         return E_INVALIDARG;
     if (filters)
         FIXME( "Query filters are not supported!\n" );
@@ -1095,7 +1489,7 @@ HRESULT WINAPI DevGetObjectPropertiesEx( DEV_OBJECT_TYPE type, const WCHAR *id, 
             return HRESULT_FROM_WIN32(err == ERROR_NO_SUCH_DEVICE_INTERFACE ? ERROR_FILE_NOT_FOUND : err);
         }
 
-        hr = dev_object_iface_get_props( &obj, set, &iface, props_len, props, !!(flags & DevQueryFlagAllProperties) );
+        hr = dev_object_iface_get_props( &obj, set, &iface, props_len, props, !!(flags & DevQueryFlagAllProperties), FALSE );
         *buf = obj.pProperties;
         *buf_len = obj.cPropertyCount;
         break;
@@ -1106,6 +1500,26 @@ HRESULT WINAPI DevGetObjectPropertiesEx( DEV_OBJECT_TYPE type, const WCHAR *id, 
     }
 
     return hr;
+}
+
+const DEVPROPERTY *WINAPI DevFindProperty( const DEVPROPKEY *key, DEVPROPSTORE store, const WCHAR *locale,
+                                           ULONG props_len, const DEVPROPERTY *props )
+{
+    DEVPROPCOMPKEY comp_key;
+    ULONG i;
+
+    TRACE( "(%s, %d, %s, %lu, %p)\n", debugstr_DEVPROPKEY( key ), store, debugstr_w( locale ), props_len, props );
+
+    /* Windows does not validate parameters here. */
+    comp_key.Key = *key;
+    comp_key.Store = store;
+    comp_key.LocaleName = locale;
+    for (i = 0; i < props_len; i++)
+    {
+        if (IsEqualDevPropCompKey( comp_key, props[i].CompKey ))
+            return &props[i];
+    }
+    return NULL;
 }
 
 void WINAPI DevFreeObjectProperties( ULONG len, const DEVPROPERTY *props )

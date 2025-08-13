@@ -1,5 +1,6 @@
 /*
  * Copyright 2025 Piotr Caban
+ * Copyright 2025 Vibhav Pant
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -17,6 +18,7 @@
  */
 
 #include "roapi.h"
+#include "winstring.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(vccorlib);
@@ -39,4 +41,35 @@ void __cdecl UninitializeData(int type)
     TRACE("(%d)\n", type);
 
     if (type) RoUninitialize();
+}
+
+HRESULT WINAPI GetActivationFactoryByPCWSTR(const WCHAR *name, const GUID *iid, void **out)
+{
+    HSTRING_HEADER hdr;
+    HSTRING str;
+    HRESULT hr;
+
+    TRACE("(%s, %s, %p)\n", debugstr_w(name), debugstr_guid(iid), out);
+
+    /* Use a fast-pass string to avoid an allocation. */
+    hr = WindowsCreateStringReference(name, wcslen(name), &hdr, &str);
+    if (FAILED(hr)) return hr;
+
+    return RoGetActivationFactory(str, iid, out);
+}
+
+HRESULT WINAPI GetIidsFn(unsigned int count, unsigned int *copied, const GUID *src, GUID **dest)
+{
+    TRACE("(%u, %p, %p, %p)\n", count, copied, src, dest);
+
+    if (!(*dest = CoTaskMemAlloc(count * sizeof(*src))))
+    {
+        *copied = 0;
+        return E_OUTOFMEMORY;
+    }
+
+    *copied = count;
+    memcpy(*dest, src, count * sizeof(*src));
+
+    return S_OK;
 }

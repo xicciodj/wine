@@ -218,18 +218,7 @@ my %manual_wow64_thunks =
      "glGetBufferPointervARB" => 1,
      "glGetNamedBufferPointerv" => 1,
      "glGetNamedBufferPointervEXT" => 1,
-     "glMapBuffer" => 1,
-     "glMapBufferARB" => 1,
-     "glMapBufferRange" => 1,
-     "glMapNamedBuffer" => 1,
-     "glMapNamedBufferEXT" => 1,
-     "glMapNamedBufferRange" => 1,
-     "glMapNamedBufferRangeEXT" => 1,
      "glPathGlyphIndexRangeNV" => 1,
-     "glUnmapBuffer" => 1,
-     "glUnmapBufferARB" => 1,
-     "glUnmapNamedBuffer" => 1,
-     "glUnmapNamedBufferEXT" => 1,
      "wglCreatePbufferARB" => 1,
      "wglGetPbufferDCARB" => 1,
      "wglGetProcAddress" => 1,
@@ -237,12 +226,23 @@ my %manual_wow64_thunks =
     );
 my %manual_wow64_wrappers =
     (
-     "glClientWaitSync" => 1,
-     "glDeleteSync" => 1,
-     "glFenceSync" => 1,
-     "glGetSynciv" => 1,
-     "glIsSync" => 1,
-     "glWaitSync" => 1,
+     "glClientWaitSync" => 0,
+     "glDeleteSync" => 0,
+     "glFenceSync" => 0,
+     "glGetSynciv" => 0,
+     "glIsSync" => 0,
+     "glMapBuffer" => 1,
+     "glMapBufferARB" => 1,
+     "glMapBufferRange" => 1,
+     "glMapNamedBuffer" => 1,
+     "glMapNamedBufferEXT" => 1,
+     "glMapNamedBufferRange" => 1,
+     "glMapNamedBufferRangeEXT" => 1,
+     "glUnmapBuffer" => 1,
+     "glUnmapBufferARB" => 1,
+     "glUnmapNamedBuffer" => 1,
+     "glUnmapNamedBufferEXT" => 1,
+     "glWaitSync" => 0,
     );
 my %pointer_array_count =
     (
@@ -451,9 +451,14 @@ sub generate_unix_thunk($$$$)
             }
             elsif ($ptype eq "PTR32")
             {
-                $ret_expr .= "(UINT_PTR)";
+                $ret_expr .= "(UINT_PTR)" unless $ret_type =~ /\*/;
                 $need_manual_thunk = 1 if $ret_type =~ /(GLsync|PROC|GLintptr|\*)/;
             }
+        }
+        if ($manual_wow64_wrappers{$name})
+        {
+            $ret .= "        PTR32 client_ptr;\n";
+            $call_args .= " &params->client_ptr,";
         }
         $ret .= "    } *params = args;\n";
         if (!$need_wrap && $need_manual_thunk)
@@ -538,11 +543,21 @@ sub generate_unix_thunk($$$$)
 sub generate_wrapper_declaration($$$)
 {
     my ($name, $func, $is_wow64) = @_;
-    my $ret = "extern " . get_func_ret( $func, 0 );
     my $decl_args = get_func_args( $func, 0 );
+    my $ret_type = get_func_ret( $func, 0 );
+    my $ret = "extern ";
+    $ret_type = "PTR32" if $is_wow64 && $ret_type =~ /\*/;
+    $ret .= $ret_type;
     $ret .= $is_wow64 ? " wow64_" : " wrap_";
-    $ret .= "$name( TEB *teb";
-    $ret .= " ,$decl_args" unless $decl_args eq "void";
+    $ret .= "$name( TEB *teb,";
+    foreach my $arg (@{$func->[1]})
+    {
+        my $ptype = get_arg_type( $arg );
+        my $pname = get_arg_name( $arg );
+        $ret .= " " . $arg->textContent() . ",";
+    }
+    $ret .= " PTR32 *client_ptr," if $manual_wow64_wrappers{$name};
+    $ret =~ s/,$/ /;
     $ret .= ");\n";
     return $ret;
 }
@@ -645,6 +660,7 @@ sub generate_func_params($$)
         $ret .= sprintf "    %s;\n", $arg->textContent();
     }
     $ret .= sprintf "    %sret;\n", $func->[0]->textContent() unless is_void_func($func);
+    $ret .= "#ifndef _WIN64\n    void *client_ptr;\n#endif\n" if $manual_wow64_wrappers{$name};
     $ret .= "};\n\n";
     return $ret;
 }

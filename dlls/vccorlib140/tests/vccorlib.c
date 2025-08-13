@@ -2,6 +2,7 @@
  * Unit tests for miscellaneous vccorlib functions
  *
  * Copyright 2025 Piotr Caban
+ * Copyright 2025 Vibhav Pant
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -20,6 +21,8 @@
 
 #define COBJMACROS
 
+#include "initguid.h"
+#include "activation.h"
 #include "objbase.h"
 #include "wine/test.h"
 
@@ -55,6 +58,8 @@ DEFINE_EXPECT(PostUninitialize);
 
 static HRESULT (__cdecl *pInitializeData)(int);
 static void (__cdecl *pUninitializeData)(int);
+static HRESULT (WINAPI *pGetActivationFactoryByPCWSTR)(const WCHAR *, const GUID *, void **);
+static HRESULT (WINAPI *pGetIidsFn)(UINT32, UINT32 *, const GUID *, GUID **);
 
 static BOOL init(void)
 {
@@ -72,6 +77,27 @@ static BOOL init(void)
     pUninitializeData = (void *)GetProcAddress(hmod,
             "?UninitializeData@Details@Platform@@YAXH@Z");
     ok(pUninitializeData != NULL, "UninitializeData not available\n");
+
+#ifdef __arm__
+    pGetActivationFactoryByPCWSTR = (void *)GetProcAddress(hmod,
+            "?GetActivationFactoryByPCWSTR@@YAJPAXAAVGuid@Platform@@PAPAX@Z");
+    pGetIidsFn = (void *)GetProcAddress(hmod, "?GetIidsFn@@YAJHPAKPBU__s_GUID@@PAPAVGuid@Platform@@@Z");
+#else
+    if (sizeof(void *) == 8)
+    {
+        pGetActivationFactoryByPCWSTR = (void *)GetProcAddress(hmod,
+                "?GetActivationFactoryByPCWSTR@@YAJPEAXAEAVGuid@Platform@@PEAPEAX@Z");
+        pGetIidsFn = (void *)GetProcAddress(hmod, "?GetIidsFn@@YAJHPEAKPEBU__s_GUID@@PEAPEAVGuid@Platform@@@Z");
+    }
+    else
+    {
+        pGetActivationFactoryByPCWSTR = (void *)GetProcAddress(hmod,
+                "?GetActivationFactoryByPCWSTR@@YGJPAXAAVGuid@Platform@@PAPAX@Z");
+        pGetIidsFn = (void *)GetProcAddress(hmod, "?GetIidsFn@@YGJHPAKPBU__s_GUID@@PAPAVGuid@Platform@@@Z");
+    }
+#endif
+    ok(pGetActivationFactoryByPCWSTR != NULL, "GetActivationFactoryByPCWSTR not available\n");
+    ok(pGetIidsFn != NULL, "GetIidsFn not available\n");
 
     return TRUE;
 }
@@ -212,10 +238,67 @@ static void test_InitializeData(void)
     ok(hr == S_OK, "CoRevokeInitializeSpy returned %lx\n", hr);
 }
 
+static const GUID guid_null = {0};
+
+static void test_GetActivationFactoryByPCWSTR(void)
+{
+    HRESULT hr;
+    void *out;
+
+    hr = pGetActivationFactoryByPCWSTR(L"Wine.Nonexistent.RuntimeClass", &IID_IActivationFactory, &out);
+    ok(hr == CO_E_NOTINITIALIZED, "got hr %#lx\n", hr);
+
+    hr = pInitializeData(1);
+    ok(hr == S_OK, "got hr %#lx\n", hr);
+
+    hr = pGetActivationFactoryByPCWSTR(L"Wine.Nonexistent.RuntimeClass", &IID_IActivationFactory, &out);
+    ok(hr == REGDB_E_CLASSNOTREG, "got hr %#lx\n", hr);
+
+    hr = pGetActivationFactoryByPCWSTR(L"Windows.Foundation.Metadata.ApiInformation", &IID_IActivationFactory, &out);
+    ok(hr == S_OK, "got hr %#lx\n", hr);
+    IActivationFactory_Release(out);
+
+    hr = pGetActivationFactoryByPCWSTR(L"Windows.Foundation.Metadata.ApiInformation", &IID_IInspectable, &out);
+    ok(hr == S_OK, "got hr %#lx\n", hr);
+    IActivationFactory_Release(out);
+
+    hr = pGetActivationFactoryByPCWSTR(L"Windows.Foundation.Metadata.ApiInformation", &guid_null, &out);
+    ok(hr == E_NOINTERFACE, "got hr %#lx\n", hr);
+
+    pUninitializeData(1);
+}
+
+static void test_GetIidsFn(void)
+{
+    static const GUID guids_src[] = {IID_IUnknown, IID_IInspectable, IID_IAgileObject, IID_IMarshal, guid_null};
+    GUID *guids_dest;
+    UINT32 copied;
+    HRESULT hr;
+
+    guids_dest = NULL;
+    copied = 0xdeadbeef;
+    hr = pGetIidsFn(0, &copied, NULL, &guids_dest);
+    ok(hr == S_OK, "got hr %#lx\n", hr);
+    ok(copied == 0, "got copied %I32u\n", copied);
+    ok(guids_dest != NULL, "got guids_dest %p\n", guids_dest);
+    CoTaskMemFree(guids_dest);
+
+    guids_dest = NULL;
+    copied = 0;
+    hr = pGetIidsFn(ARRAY_SIZE(guids_src), &copied, guids_src, &guids_dest);
+    ok(hr == S_OK, "got hr %#lx\n", hr);
+    ok(copied == ARRAY_SIZE(guids_src), "got copied %I32u\n", copied);
+    ok(guids_dest != NULL, "got guids_dest %p\n", guids_dest);
+    ok(!memcmp(guids_src, guids_dest, sizeof(*guids_dest) * copied), "unexpected guids_dest value.\n");
+    CoTaskMemFree(guids_dest);
+}
+
 START_TEST(vccorlib)
 {
     if(!init())
         return;
 
     test_InitializeData();
+    test_GetActivationFactoryByPCWSTR();
+    test_GetIidsFn();
 }
