@@ -98,6 +98,11 @@ BOOL SYSCALL_API NtGdiBitBlt( HDC hdc_dst, INT x_dst, INT y_dst, INT width, INT 
     SYSCALL_FUNC( NtGdiBitBlt );
 }
 
+BOOL SYSCALL_API NtGdiCancelDC( HDC hdc )
+{
+    SYSCALL_FUNC( NtGdiCancelDC );
+}
+
 BOOL SYSCALL_API NtGdiCloseFigure( HDC hdc )
 {
     SYSCALL_FUNC( NtGdiCloseFigure );
@@ -657,6 +662,11 @@ DWORD SYSCALL_API NtGdiGetKerningPairs( HDC hdc, DWORD count, KERNINGPAIR *kern_
     SYSCALL_FUNC( NtGdiGetKerningPairs );
 }
 
+BOOL SYSCALL_API NtGdiGetMiterLimit( HDC hdc, FLOAT *limit )
+{
+    SYSCALL_FUNC( NtGdiGetMiterLimit );
+}
+
 COLORREF SYSCALL_API NtGdiGetNearestColor( HDC hdc, COLORREF color )
 {
     SYSCALL_FUNC( NtGdiGetNearestColor );
@@ -1001,6 +1011,11 @@ BOOL SYSCALL_API NtGdiSetMagicColors( HDC hdc, DWORD magic, ULONG index )
 INT SYSCALL_API NtGdiSetMetaRgn( HDC hdc )
 {
     SYSCALL_FUNC( NtGdiSetMetaRgn );
+}
+
+BOOL SYSCALL_API NtGdiSetMiterLimit( HDC hdc, DWORD limit, FLOAT *old_limit )
+{
+    SYSCALL_FUNC( NtGdiSetMiterLimit );
 }
 
 COLORREF SYSCALL_API NtGdiSetPixel( HDC hdc, INT x, INT y, COLORREF color )
@@ -1557,6 +1572,11 @@ HCURSOR SYSCALL_API NtUserGetCursorFrameInfo( HCURSOR cursor, DWORD istep, DWORD
 BOOL SYSCALL_API NtUserGetCursorInfo( CURSORINFO *info )
 {
     SYSCALL_FUNC( NtUserGetCursorInfo );
+}
+
+BOOL SYSCALL_API NtUserGetCursorPos( POINT *pt )
+{
+    SYSCALL_FUNC( NtUserGetCursorPos );
 }
 
 HDC SYSCALL_API NtUserGetDC( HWND hwnd )

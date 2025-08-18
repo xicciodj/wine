@@ -66,25 +66,6 @@ static void write_line(FILE *f, int delta, const char *fmt, ...)
     fprintf(f, "\n");
 }
 
-static char *format_parameterized_type_args(const type_t *type, const char *prefix, const char *suffix)
-{
-    typeref_list_t *params;
-    typeref_t *ref;
-    size_t len = 0, pos = 0;
-    char *buf = NULL;
-
-    params = type->details.parameterized.params;
-    if (params) LIST_FOR_EACH_ENTRY(ref, params, typeref_t, entry)
-    {
-        assert(ref->type->type_type != TYPE_POINTER);
-        pos += strappend(&buf, &len, pos, "%s%s%s", prefix, ref->type->name, suffix);
-        if (list_next(params, &ref->entry)) pos += strappend(&buf, &len, pos, ", ");
-    }
-
-    if (!buf) return xstrdup("");
-    return buf;
-}
-
 static void write_guid(FILE *f, const char *guid_prefix, const char *name, const struct uuid *uuid)
 {
   if (!uuid) return;
@@ -284,12 +265,11 @@ void write_type_left(FILE *h, const decl_spec_t *ds, enum name_type name_type, b
 {
   type_t *t = ds->type;
   const char *decl_name, *name;
-  char *args;
+  struct strbuf str = {0};
 
   if (!h) return;
 
   decl_name = type_get_decl_name(t, name_type);
-  name = type_get_name(t, name_type);
 
   if (ds->func_specifier & FUNCTION_SPECIFIER_INLINE)
     fprintf(h, "inline ");
@@ -297,10 +277,11 @@ void write_type_left(FILE *h, const decl_spec_t *ds, enum name_type name_type, b
   if ((ds->qualifier & TYPE_QUALIFIER_CONST) && (type_is_alias(t) || !is_ptr(t)))
     fprintf(h, "const ");
 
-  if (type_is_alias(t)) fprintf(h, "%s", name);
+  if ((name = type_get_name( t, name_type, false ))) fprintf(h, "%s", name);
   else {
     switch (type_get_type_detect_alias(t)) {
       case TYPE_ENUM:
+        name = type_get_name( t, name_type, true );
         if (!define) fprintf(h, "enum %s", decl_name ? decl_name : "");
         else if (!t->written) {
           assert(t->defined);
@@ -317,6 +298,7 @@ void write_type_left(FILE *h, const decl_spec_t *ds, enum name_type name_type, b
         break;
       case TYPE_STRUCT:
       case TYPE_ENCAPSULATED_UNION:
+        name = type_get_name( t, name_type, true );
         if (!define) fprintf(h, "struct %s", decl_name ? decl_name : "");
         else if (!t->written) {
           assert(t->defined);
@@ -335,6 +317,7 @@ void write_type_left(FILE *h, const decl_spec_t *ds, enum name_type name_type, b
         else fprintf(h, "struct %s", name ? name : "");
         break;
       case TYPE_UNION:
+        name = type_get_name( t, name_type, true );
         if (!define) fprintf(h, "union %s", decl_name ? decl_name : "");
         else if (!t->written) {
           assert(t->defined);
@@ -357,17 +340,11 @@ void write_type_left(FILE *h, const decl_spec_t *ds, enum name_type name_type, b
         break;
       }
       case TYPE_ARRAY:
-        if (t->name && type_array_is_decl_as_ptr(t))
-          fprintf(h, "%s", t->name);
-        else
-        {
-          write_type_left(h, type_array_get_element(t), name_type, define, !type_array_is_decl_as_ptr(t));
-          if (type_array_is_decl_as_ptr(t))
-            write_pointer_left(h, type_array_get_element_type(t));
-        }
+        write_type_left(h, type_array_get_element(t), name_type, define, !type_array_is_decl_as_ptr(t));
+        if (type_array_is_decl_as_ptr(t))
+          write_pointer_left(h, type_array_get_element_type(t));
         break;
       case TYPE_FUNCTION:
-      {
         write_type_left(h, type_function_get_ret(t), name_type, define, TRUE);
 
         /* A pointer to a function has to write the calling convention inside
@@ -381,90 +358,27 @@ void write_type_left(FILE *h, const decl_spec_t *ds, enum name_type name_type, b
             if (callconv) fprintf(h, " %s ", callconv);
         }
         break;
-      }
       case TYPE_BASIC:
-        if (type_basic_get_type(t) != TYPE_BASIC_INT32 &&
-            type_basic_get_type(t) != TYPE_BASIC_INT64 &&
-            type_basic_get_type(t) != TYPE_BASIC_LONG &&
-            type_basic_get_type(t) != TYPE_BASIC_HYPER)
-        {
-          if (type_basic_get_sign(t) < 0) fprintf(h, "signed ");
-          else if (type_basic_get_sign(t) > 0) fprintf(h, "unsigned ");
-        }
-        switch (type_basic_get_type(t))
-        {
-        case TYPE_BASIC_INT8: fprintf(h, "small"); break;
-        case TYPE_BASIC_INT16: fprintf(h, "short"); break;
-        case TYPE_BASIC_INT: fprintf(h, "int"); break;
-        case TYPE_BASIC_INT3264: fprintf(h, "__int3264"); break;
-        case TYPE_BASIC_BYTE: fprintf(h, "byte"); break;
-        case TYPE_BASIC_CHAR: fprintf(h, "char"); break;
-        case TYPE_BASIC_WCHAR: fprintf(h, "wchar_t"); break;
-        case TYPE_BASIC_FLOAT: fprintf(h, "float"); break;
-        case TYPE_BASIC_DOUBLE: fprintf(h, "double"); break;
-        case TYPE_BASIC_ERROR_STATUS_T: fprintf(h, "error_status_t"); break;
-        case TYPE_BASIC_HANDLE: fprintf(h, "handle_t"); break;
-        case TYPE_BASIC_INT32:
-          if (type_basic_get_sign(t) > 0)
-            fprintf(h, "UINT32");
-          else
-            fprintf(h, "INT32");
+          append_basic_type( &str, t );
+          fwrite( str.buf, 1, str.pos, h );
           break;
-        case TYPE_BASIC_LONG:
-          if (type_basic_get_sign(t) > 0)
-            fprintf(h, "ULONG");
-          else
-            fprintf(h, "LONG");
+      case TYPE_BITFIELD:
+          t = type_bitfield_get_field( t );
+          if (!type_is_alias( t )) append_basic_type( &str, t );
+          else strappend( &str, "%s", type_get_name( t, name_type, false ) );
+          fwrite( str.buf, 1, str.pos, h );
           break;
-        case TYPE_BASIC_INT64:
-          if (type_basic_get_sign(t) > 0)
-            fprintf(h, "UINT64");
-          else
-            fprintf(h, "INT64");
-          break;
-        case TYPE_BASIC_HYPER:
-          if (type_basic_get_sign(t) > 0)
-            fprintf(h, "MIDL_uhyper");
-          else
-            fprintf(h, "hyper");
-          break;
-        }
-        break;
       case TYPE_INTERFACE:
       case TYPE_MODULE:
       case TYPE_COCLASS:
-        fprintf(h, "%s", type_get_name(t, name_type));
-        break;
       case TYPE_RUNTIMECLASS:
-        fprintf(h, "%s", type_get_name(type_runtimeclass_get_default_iface(t, TRUE), name_type));
-        break;
       case TYPE_DELEGATE:
-        fprintf(h, "%s", type_get_name(type_delegate_get_iface(t), name_type));
-        break;
       case TYPE_VOID:
-        fprintf(h, "void");
-        break;
-      case TYPE_BITFIELD:
-      {
-        const decl_spec_t ds = {.type = type_bitfield_get_field(t)};
-        write_type_left(h, &ds, name_type, define, TRUE);
-        break;
-      }
       case TYPE_ALIAS:
+      case TYPE_PARAMETERIZED_TYPE:
+      case TYPE_PARAMETER:
         /* handled elsewhere */
         assert(0);
-        break;
-      case TYPE_PARAMETERIZED_TYPE:
-      {
-        type_t *iface = type_parameterized_type_get_real_type(t);
-        if (type_get_type(iface) == TYPE_DELEGATE) iface = type_delegate_get_iface(iface);
-        args = format_parameterized_type_args(t, "", "_logical");
-        fprintf(h, "%s<%s>", iface->name, args);
-        free(args);
-        break;
-      }
-      case TYPE_PARAMETER:
-        fprintf(h, "%s_abi", t->name);
         break;
       case TYPE_APICONTRACT:
         /* shouldn't be here */

@@ -191,6 +191,13 @@ NTSTATUS WINAPI wow64_NtGdiBitBlt( UINT *args )
                         x_src, y_src, rop, bk_color, fl );
 }
 
+NTSTATUS WINAPI wow64_NtGdiCancelDC( UINT *args )
+{
+    HDC hdc = get_handle( &args );
+
+    return NtGdiCancelDC( hdc );
+}
+
 NTSTATUS WINAPI wow64_NtGdiCloseFigure( UINT *args )
 {
     HDC hdc = get_handle( &args );
@@ -1926,6 +1933,14 @@ NTSTATUS WINAPI wow64_NtGdiGetKerningPairs( UINT *args )
     return NtGdiGetKerningPairs( hdc, count, kern_pair );
 }
 
+NTSTATUS WINAPI wow64_NtGdiGetMiterLimit( UINT *args )
+{
+    HDC hdc = get_handle( &args );
+    FLOAT *limit = get_ptr( &args );
+
+    return NtGdiGetMiterLimit( hdc, limit );
+}
+
 NTSTATUS WINAPI wow64_NtGdiGetNearestColor( UINT *args )
 {
     HDC hdc = get_handle( &args );
@@ -2616,6 +2631,15 @@ NTSTATUS WINAPI wow64_NtGdiSetMetaRgn( UINT *args )
     HDC hdc = get_handle( &args );
 
     return NtGdiSetMetaRgn( hdc );
+}
+
+NTSTATUS WINAPI wow64_NtGdiSetMiterLimit( UINT *args )
+{
+    HDC hdc = get_handle( &args );
+    DWORD limit = get_ulong( &args );
+    FLOAT *old_limit = get_ptr( &args );
+
+    return NtGdiSetMiterLimit( hdc, limit, old_limit );
 }
 
 NTSTATUS WINAPI wow64_NtGdiSetPixel( UINT *args )

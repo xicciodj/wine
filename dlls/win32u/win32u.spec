@@ -154,7 +154,7 @@
 @ stub NtGdiCLIPOBJ_bEnum
 @ stub NtGdiCLIPOBJ_cEnumStart
 @ stub NtGdiCLIPOBJ_ppoGetPath
-@ stub NtGdiCancelDC
+@ stdcall -syscall NtGdiCancelDC(long)
 @ stub NtGdiChangeGhostFont
 @ stub NtGdiCheckBitmapBits
 @ stub NtGdiClearBitmapAttributes
@@ -520,7 +520,7 @@
 @ stdcall -syscall NtGdiGetGlyphOutline(long long long ptr long ptr ptr long)
 @ stdcall -syscall NtGdiGetKerningPairs(long long ptr)
 @ stub NtGdiGetLinkedUFIs
-@ stub NtGdiGetMiterLimit
+@ stdcall -syscall NtGdiGetMiterLimit(long ptr)
 @ stub NtGdiGetMonitorID
 @ stdcall -syscall NtGdiGetNearestColor(long long)
 @ stdcall -syscall NtGdiGetNearestPaletteIndex(long long)
@@ -640,7 +640,7 @@
 @ stub NtGdiSetLinkedUFIs
 @ stdcall -syscall NtGdiSetMagicColors(long long long)
 @ stdcall -syscall NtGdiSetMetaRgn(long)
-@ stub NtGdiSetMiterLimit
+@ stdcall -syscall NtGdiSetMiterLimit(long long ptr)
 @ stub NtGdiSetOPMSigningKeyAndSequenceNumbers
 @ stub NtGdiSetPUMPDOBJ
 @ stdcall -syscall NtGdiSetPixel(long long long long)
@@ -1001,7 +1001,7 @@
 @ stdcall -syscall NtUserGetCursor()
 @ stdcall -syscall NtUserGetCursorFrameInfo(long long ptr ptr)
 @ stdcall -syscall NtUserGetCursorInfo(ptr)
-@ stub NtUserGetCursorPos
+@ stdcall -syscall NtUserGetCursorPos(ptr)
 @ stdcall -syscall NtUserGetDC(long)
 @ stdcall -syscall NtUserGetDCEx(long long long)
 @ stub NtUserGetDCompositionHwndBitmap
