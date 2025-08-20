@@ -97,12 +97,11 @@ void destroy_process_classes( struct process *process )
 
 static struct window_class *find_class( struct process *process, atom_t atom, mod_handle_t instance )
 {
-    struct list *ptr;
+    struct window_class *class;
+    int is_win16;
 
-    LIST_FOR_EACH( ptr, &process->classes )
+    LIST_FOR_EACH_ENTRY( class, &process->classes, struct window_class, entry )
     {
-        int is_win16;
-        struct window_class *class = LIST_ENTRY( ptr, struct window_class, entry );
         if (class->atom != atom) continue;
         is_win16 = !(class->instance >> 16);
         if (!instance || !class->local || class->instance == instance ||
@@ -165,35 +164,23 @@ DECL_HANDLER(create_class)
     struct window_class *class;
     struct unicode_str name = get_req_unicode_str();
     struct atom_table *table = get_user_atom_table();
-    atom_t atom, base_atom;
+    atom_t atom = req->atom, base_atom;
 
-    if (name.len)
+    if (!atom && !(atom = add_atom( table, &name ))) return;
+
+    if (req->name_offset && req->name_offset < name.len / sizeof(WCHAR))
     {
-        atom = add_atom( table, &name );
-        if (!atom) return;
-        if (req->name_offset && req->name_offset < name.len / sizeof(WCHAR))
+        name.str += req->name_offset;
+        name.len -= req->name_offset * sizeof(WCHAR);
+        if (!(base_atom = add_atom( table, &name )))
         {
-            name.str += req->name_offset;
-            name.len -= req->name_offset * sizeof(WCHAR);
-
-            base_atom = add_atom( table, &name );
-            if (!base_atom)
-            {
-                release_atom( table, atom );
-                return;
-            }
-        }
-        else
-        {
-            base_atom = atom;
-            grab_atom( table, atom );
+            release_atom( table, atom );
+            return;
         }
     }
     else
     {
-        base_atom = atom = req->atom;
-        if (!grab_atom( table, atom )) return;
-        grab_atom( table, base_atom );
+        base_atom = grab_atom( table, atom );
     }
 
     class = find_class( current->process, atom, req->instance );
@@ -236,7 +223,7 @@ DECL_HANDLER(destroy_class)
     struct atom_table *table = get_user_atom_table();
     atom_t atom = req->atom;
 
-    if (name.len) atom = find_atom( table, &name );
+    if (!atom) atom = find_atom( table, &name );
 
     if (!(class = find_class( current->process, atom, req->instance )))
         set_win32_error( ERROR_CLASS_DOES_NOT_EXIST );
