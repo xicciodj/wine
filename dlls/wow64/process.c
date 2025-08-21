@@ -577,6 +577,7 @@ NTSTATUS WINAPI wow64_NtQueryInformationProcess( UINT *args )
     case ProcessTimes:  /* KERNEL_USER_TIMES */
     case ProcessDefaultHardErrorMode:  /* ULONG */
     case ProcessPriorityClass:  /* PROCESS_PRIORITY_CLASS */
+    case ProcessPriorityBoost:  /* ULONG */
     case ProcessHandleCount:  /* ULONG */
     case ProcessSessionInformation:  /* ULONG */
     case ProcessDebugFlags:  /* ULONG */
@@ -909,6 +910,7 @@ NTSTATUS WINAPI wow64_NtSetInformationProcess( UINT *args )
     case ProcessDefaultHardErrorMode:   /* ULONG */
     case ProcessPriorityClass:   /* PROCESS_PRIORITY_CLASS */
     case ProcessBasePriority:   /* ULONG */
+    case ProcessPriorityBoost:  /* ULONG */
     case ProcessExecuteFlags:   /* ULONG */
     case ProcessPagePriority:   /* MEMORY_PRIORITY_INFORMATION */
     case ProcessPowerThrottlingState:   /* PROCESS_POWER_THROTTLING_STATE */

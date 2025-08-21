@@ -900,9 +900,7 @@ BOOL WINAPI /* DECLSPEC_HOTPATCH */ GetProcessMitigationPolicy( HANDLE process, 
  */
 BOOL WINAPI DECLSPEC_HOTPATCH GetProcessPriorityBoost( HANDLE process, PBOOL disable )
 {
-    FIXME( "(%p,%p): semi-stub\n", process, disable );
-    *disable = FALSE;  /* report that no boost is present */
-    return TRUE;
+    return set_ntstatus( NtQueryInformationProcess( process, ProcessPriorityBoost, disable, sizeof(*disable), NULL ));
 }
 
 
@@ -1246,8 +1244,7 @@ BOOL WINAPI /* DECLSPEC_HOTPATCH */ SetProcessMitigationPolicy( PROCESS_MITIGATI
  */
 BOOL WINAPI /* DECLSPEC_HOTPATCH */ SetProcessPriorityBoost( HANDLE process, BOOL disable )
 {
-    FIXME( "(%p,%d): stub\n", process, disable );
-    return TRUE;
+    return set_ntstatus( NtSetInformationProcess( process, ProcessPriorityBoost, &disable, sizeof(disable) ));
 }
 
 

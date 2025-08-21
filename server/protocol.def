@@ -1171,8 +1171,9 @@ struct obj_locator
     timeout_t    end_time;         /* process end time */
     unsigned int session_id;       /* process session id */
     int          exit_code;        /* process exit code */
-    int          priority;         /* priority class */
+    unsigned short priority;       /* priority class */
     unsigned short base_priority;  /* process base priority */
+    unsigned short disable_boost;  /* disable process priority boost */
     unsigned short machine;        /* process architecture */
     VARARG(image,pe_image_info);   /* image info for main exe */
 @END
@@ -1215,16 +1216,18 @@ struct obj_locator
 /* Set a process information */
 @REQ(set_process_info)
     obj_handle_t handle;       /* process handle */
+    affinity_t   affinity;     /* affinity mask */
     int          priority;     /* priority class */
     int          base_priority; /* process base priority */
-    affinity_t   affinity;     /* affinity mask */
+    int          disable_boost; /* disable process priority boost */
     obj_handle_t token;        /* primary token */
     int          mask;         /* setting mask (see below) */
 @END
 #define SET_PROCESS_INFO_PRIORITY      0x01
 #define SET_PROCESS_INFO_BASE_PRIORITY 0x02
-#define SET_PROCESS_INFO_AFFINITY      0x04
-#define SET_PROCESS_INFO_TOKEN         0x08
+#define SET_PROCESS_INFO_DISABLE_BOOST 0x04
+#define SET_PROCESS_INFO_AFFINITY      0x08
+#define SET_PROCESS_INFO_TOKEN         0x10
 
 
 /* Retrieve information about a thread */
