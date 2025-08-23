@@ -151,12 +151,11 @@ static void write_type_definition( FILE *h, const decl_spec_t *ds, bool is_field
 
 static void write_type_v( FILE *h, const decl_spec_t *ds, bool is_field, const char *name, enum name_type name_type )
 {
-    type_t *t = ds->type;
+    struct strbuf str = {0};
 
     if (!h) return;
-    if (t) write_type_left( h, ds, name_type, true );
-    if (name) fprintf( h, "%s%s", !t || needs_space_after( t ) ? " " : "", name );
-    if (t) write_type_right( h, t, is_field );
+    append_declspec( &str, ds, name_type, is_object_interface ? "STDMETHODCALLTYPE" : "", is_field, name );
+    fwrite( str.buf, 1, str.pos, h );
 }
 
 static void write_fields(FILE *h, var_list_t *fields, enum name_type name_type)
@@ -376,81 +375,20 @@ static void write_type_definition_left( FILE *h, const decl_spec_t *decl_spec, e
     }
 }
 
-void write_type_left( FILE *h, const decl_spec_t *ds, enum name_type name_type, bool write_callconv )
+void write_type_left( FILE *h, const decl_spec_t *ds, enum name_type name_type )
 {
     struct strbuf str = {0};
     if (!h) return;
-    append_type_left( &str, ds, name_type, write_callconv ? is_object_interface ? "STDMETHODCALLTYPE" : "" : NULL );
+    append_type_left( &str, ds, name_type, is_object_interface ? "STDMETHODCALLTYPE" : "" );
     fwrite( str.buf, 1, str.pos, h );
 }
 
-void write_type_right(FILE *h, type_t *t, int is_field)
+void write_type_right( FILE *h, type_t *type, bool is_field )
 {
-  if (!h) return;
-  if (type_is_alias(t)) return;
-
-  switch (type_get_type(t))
-  {
-  case TYPE_ARRAY:
-  {
-    type_t *elem = type_array_get_element_type(t);
-    if (type_array_is_decl_as_ptr(t))
-    {
-      if (decl_needs_parens(elem))
-        fprintf(h, ")");
-    }
-    else
-    {
-      if (is_conformant_array(t))
-        fprintf(h, "[%s]", is_field ? "1" : "");
-      else
-        fprintf(h, "[%u]", type_array_get_dim(t));
-    }
-    write_type_right(h, elem, FALSE);
-    break;
-  }
-  case TYPE_FUNCTION:
-  {
-    const var_list_t *args = type_function_get_args(t);
-    fputc('(', h);
-    if (args) write_args(h, args, NULL, 0, FALSE, NAME_DEFAULT);
-    else
-      fprintf(h, "void");
-    fputc(')', h);
-    write_type_right(h, type_function_get_rettype(t), FALSE);
-    break;
-  }
-  case TYPE_POINTER:
-  {
-    type_t *ref = type_pointer_get_ref_type(t);
-    if (decl_needs_parens(ref))
-      fprintf(h, ")");
-    write_type_right(h, ref, FALSE);
-    break;
-  }
-  case TYPE_BITFIELD:
-    fprintf(h, " : %u", type_bitfield_get_bits(t)->cval);
-    break;
-  case TYPE_VOID:
-  case TYPE_BASIC:
-  case TYPE_ENUM:
-  case TYPE_STRUCT:
-  case TYPE_ENCAPSULATED_UNION:
-  case TYPE_UNION:
-  case TYPE_ALIAS:
-  case TYPE_MODULE:
-  case TYPE_COCLASS:
-  case TYPE_INTERFACE:
-  case TYPE_RUNTIMECLASS:
-  case TYPE_DELEGATE:
-  case TYPE_PARAMETERIZED_TYPE:
-  case TYPE_PARAMETER:
-    break;
-  case TYPE_APICONTRACT:
-    /* not supposed to be here */
-    assert(0);
-    break;
-  }
+    struct strbuf str = {0};
+    if (!h) return;
+    append_type_right( &str, type, is_object_interface ? "STDMETHODCALLTYPE" : "", is_field );
+    fwrite( str.buf, 1, str.pos, h );
 }
 
 static void write_type( FILE *f, type_t *t, bool define )
@@ -474,7 +412,7 @@ static void write_type( FILE *f, type_t *t, bool define )
     }
     indent(f, 0);
     if (define) write_type_definition_left( f, &ds, NAME_DEFAULT, true );
-    else write_type_left( f, &ds, NAME_DEFAULT, true );
+    else write_type_left( f, &ds, NAME_DEFAULT );
     fprintf(f, ";\n");
     if(in_namespace) {
         t->written = false;
@@ -482,7 +420,7 @@ static void write_type( FILE *f, type_t *t, bool define )
         fprintf(f, "extern \"C\" {\n");
         fprintf(f, "#else\n");
         if (define) write_type_definition_left( f, &ds, NAME_C, true );
-        else write_type_left( f, &ds, NAME_C, true );
+        else write_type_left( f, &ds, NAME_C );
         fprintf(f, ";\n");
         if (winrt_mode) write_widl_using_macros(f, t);
         fprintf(f, "#endif\n\n");
@@ -499,7 +437,7 @@ void write_type_decl(FILE *f, const decl_spec_t *t, const char *name)
 
 void write_type_decl_left(FILE *f, const decl_spec_t *ds)
 {
-    write_type_left( f, ds, NAME_DEFAULT, true );
+    write_type_left( f, ds, NAME_DEFAULT );
 }
 
 static int user_type_registered(const char *name)

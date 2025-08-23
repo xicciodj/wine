@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 Hans Leidekker for CodeWeavers
+ * Copyright 2024 Rémi Bernon for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -16,14 +16,26 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-enum name_attr_id
-{
-    NAME_ATTR_ID_NAME,
-    NAME_ATTR_ID_ARCH,
-    NAME_ATTR_ID_TOKEN,
-    NAME_ATTR_ID_TYPE,
-    NAME_ATTR_ID_VERSION,
-    NAME_ATTR_ID_LANGUAGE,
-};
+#include <stddef.h>
+#include <stdarg.h>
 
-const WCHAR *get_name_attribute( IAssemblyName *, enum name_attr_id );
+#define COBJMACROS
+#include "windef.h"
+#include "winbase.h"
+
+#include "gameinput.h"
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(ginput);
+
+HRESULT WINAPI GameInputCreate( v0_IGameInput **out )
+{
+    FIXME( "out %p, stub!\n", out );
+    return E_NOTIMPL;
+}
+
+HRESULT WINAPI DllGetClassObject( REFCLSID clsid, REFIID riid, void **out )
+{
+    FIXME( "clsid %s, riid %s, out %p stub!\n", debugstr_guid(clsid), debugstr_guid(riid), out );
+    return CLASS_E_CLASSNOTAVAILABLE;
+}

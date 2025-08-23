@@ -993,8 +993,7 @@ static NTSTATUS gl_glGenTextures( void *args )
 static NTSTATUS gl_glGetBooleanv( void *args )
 {
     struct glGetBooleanv_params *params = args;
-    const struct opengl_funcs *funcs = params->teb->glTable;
-    funcs->p_glGetBooleanv( params->pname, params->data );
+    wrap_glGetBooleanv( params->teb, params->pname, params->data );
     return STATUS_SUCCESS;
 }
 
@@ -1009,8 +1008,7 @@ static NTSTATUS gl_glGetClipPlane( void *args )
 static NTSTATUS gl_glGetDoublev( void *args )
 {
     struct glGetDoublev_params *params = args;
-    const struct opengl_funcs *funcs = params->teb->glTable;
-    funcs->p_glGetDoublev( params->pname, params->data );
+    wrap_glGetDoublev( params->teb, params->pname, params->data );
     return STATUS_SUCCESS;
 }
 
@@ -1025,8 +1023,7 @@ static NTSTATUS gl_glGetError( void *args )
 static NTSTATUS gl_glGetFloatv( void *args )
 {
     struct glGetFloatv_params *params = args;
-    const struct opengl_funcs *funcs = params->teb->glTable;
-    funcs->p_glGetFloatv( params->pname, params->data );
+    wrap_glGetFloatv( params->teb, params->pname, params->data );
     return STATUS_SUCCESS;
 }
 
@@ -3603,6 +3600,7 @@ static NTSTATUS ext_glBindFramebuffer( void *args )
     struct glBindFramebuffer_params *params = args;
     const struct opengl_funcs *funcs = params->teb->glTable;
     funcs->p_glBindFramebuffer( params->target, params->framebuffer );
+    set_current_fbo( params->teb, params->target, params->framebuffer );
     set_context_attribute( params->teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
@@ -3612,6 +3610,7 @@ static NTSTATUS ext_glBindFramebufferEXT( void *args )
     struct glBindFramebufferEXT_params *params = args;
     const struct opengl_funcs *funcs = params->teb->glTable;
     funcs->p_glBindFramebufferEXT( params->target, params->framebuffer );
+    set_current_fbo( params->teb, params->target, params->framebuffer );
     set_context_attribute( params->teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
@@ -9387,8 +9386,7 @@ static NTSTATUS ext_glGetInteger64i_v( void *args )
 static NTSTATUS ext_glGetInteger64v( void *args )
 {
     struct glGetInteger64v_params *params = args;
-    const struct opengl_funcs *funcs = params->teb->glTable;
-    funcs->p_glGetInteger64v( params->pname, params->data );
+    wrap_glGetInteger64v( params->teb, params->pname, params->data );
     return STATUS_SUCCESS;
 }
 
@@ -31557,8 +31555,7 @@ static NTSTATUS wow64_gl_glGetBooleanv( void *args )
         PTR32 data;
     } *params = args;
     TEB *teb = get_teb64( params->teb );
-    const struct opengl_funcs *funcs = teb->glTable;
-    funcs->p_glGetBooleanv( params->pname, ULongToPtr(params->data) );
+    wrap_glGetBooleanv( teb, params->pname, ULongToPtr(params->data) );
     return STATUS_SUCCESS;
 }
 
@@ -31585,8 +31582,7 @@ static NTSTATUS wow64_gl_glGetDoublev( void *args )
         PTR32 data;
     } *params = args;
     TEB *teb = get_teb64( params->teb );
-    const struct opengl_funcs *funcs = teb->glTable;
-    funcs->p_glGetDoublev( params->pname, ULongToPtr(params->data) );
+    wrap_glGetDoublev( teb, params->pname, ULongToPtr(params->data) );
     return STATUS_SUCCESS;
 }
 
@@ -31612,8 +31608,7 @@ static NTSTATUS wow64_gl_glGetFloatv( void *args )
         PTR32 data;
     } *params = args;
     TEB *teb = get_teb64( params->teb );
-    const struct opengl_funcs *funcs = teb->glTable;
-    funcs->p_glGetFloatv( params->pname, ULongToPtr(params->data) );
+    wrap_glGetFloatv( teb, params->pname, ULongToPtr(params->data) );
     return STATUS_SUCCESS;
 }
 
@@ -36100,6 +36095,7 @@ static NTSTATUS wow64_ext_glBindFramebuffer( void *args )
     TEB *teb = get_teb64( params->teb );
     const struct opengl_funcs *funcs = teb->glTable;
     funcs->p_glBindFramebuffer( params->target, params->framebuffer );
+    set_current_fbo( teb, params->target, params->framebuffer );
     set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
@@ -36115,6 +36111,7 @@ static NTSTATUS wow64_ext_glBindFramebufferEXT( void *args )
     TEB *teb = get_teb64( params->teb );
     const struct opengl_funcs *funcs = teb->glTable;
     funcs->p_glBindFramebufferEXT( params->target, params->framebuffer );
+    set_current_fbo( teb, params->target, params->framebuffer );
     set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
@@ -46818,8 +46815,7 @@ static NTSTATUS wow64_ext_glGetInteger64v( void *args )
         PTR32 data;
     } *params = args;
     TEB *teb = get_teb64( params->teb );
-    const struct opengl_funcs *funcs = teb->glTable;
-    funcs->p_glGetInteger64v( params->pname, ULongToPtr(params->data) );
+    wrap_glGetInteger64v( teb, params->pname, ULongToPtr(params->data) );
     return STATUS_SUCCESS;
 }
 
