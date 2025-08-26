@@ -555,7 +555,7 @@ static NTSTATUS fork_and_exec( OBJECT_ATTRIBUTES *attr, const char *unix_name, i
     pid_t pid;
     int fd[2], stdin_fd = -1, stdout_fd = -1;
     char **argv, **envp;
-    NTSTATUS status;
+    NTSTATUS status = STATUS_SUCCESS;
 
 #ifdef HAVE_PIPE2
     if (pipe2( fd, O_CLOEXEC ) == -1)
@@ -752,6 +752,7 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
     {
         if (status == STATUS_INVALID_IMAGE_NOT_MZ && !fork_and_exec( &attr, unix_name, unixdir, params ))
         {
+            *process_handle_ptr = *thread_handle_ptr = 0;
             memset( info, 0, sizeof(*info) );
             free( unix_name );
             free( nt_name.Buffer );

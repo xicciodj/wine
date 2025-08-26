@@ -134,7 +134,7 @@ int is_desktop_class( struct window_class *class )
     return (class->atom == DESKTOP_ATOM && !class->local);
 }
 
-int is_hwnd_message_class( struct window_class *class )
+int is_message_class( struct window_class *class )
 {
     static const WCHAR messageW[] = {'M','e','s','s','a','g','e'};
     static const struct unicode_str name = { messageW, sizeof(messageW) };
@@ -212,7 +212,7 @@ DECL_HANDLER(create_class)
     class->style      = req->style;
     class->win_extra  = req->win_extra;
     class->client_ptr = req->client_ptr;
-    reply->atom = atom;
+    reply->atom = base_atom;
 }
 
 /* destroy a window class */
@@ -241,7 +241,6 @@ DECL_HANDLER(destroy_class)
 DECL_HANDLER(set_class_info)
 {
     struct window_class *class = get_window_class( req->window );
-    struct atom_table *table = get_user_atom_table();
 
     if (!class) return;
 
@@ -278,14 +277,7 @@ DECL_HANDLER(set_class_info)
     reply->old_extra     = class->nb_extra_bytes;
     reply->old_win_extra = class->win_extra;
     reply->old_instance  = class->instance;
-    reply->base_atom     = class->base_atom;
 
-    if (req->flags & SET_CLASS_ATOM)
-    {
-        if (!grab_atom( table, req->atom )) return;
-        release_atom( table, class->atom );
-        class->atom = req->atom;
-    }
     if (req->flags & SET_CLASS_STYLE) class->style = req->style;
     if (req->flags & SET_CLASS_WINEXTRA) class->win_extra = req->win_extra;
     if (req->flags & SET_CLASS_INSTANCE) class->instance = req->instance;

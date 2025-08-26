@@ -59,7 +59,7 @@ typedef struct tagCLASS
     HICON        hIconSmIntern; /* Internal small icon, derived from hIcon */
     HCURSOR      hCursor;       /* Default cursor */
     HBRUSH       hbrBackground; /* Default background */
-    ATOM         atomName;      /* Name of the class */
+    ATOM         atom;          /* name of the class */
     WCHAR        name[MAX_ATOM_LEN + 1];
     WCHAR       *basename;      /* Base name for redirected classes, pointer within 'name'. */
     struct client_menu_name menu_name; /* Default menu name */
@@ -312,6 +312,18 @@ atom_t wine_server_add_atom( void *req, UNICODE_STRING *str )
     return atom;
 }
 
+BOOL is_desktop_class( UNICODE_STRING *name )
+{
+    static const WCHAR desktopW[] = {'#','3','2','7','6','9'};
+    return name->Length == sizeof(desktopW) && !wcsnicmp( name->Buffer, desktopW, ARRAY_SIZE(desktopW) );
+}
+
+BOOL is_message_class( UNICODE_STRING *name )
+{
+    static const WCHAR messageW[] = {'M','e','s','s','a','g','e'};
+    return name->Length == sizeof(messageW) && !wcsnicmp( name->Buffer, messageW, ARRAY_SIZE(messageW) );
+}
+
 static unsigned int is_integral_atom( const WCHAR *atomstr, ULONG len, RTL_ATOM *ret_atom )
 {
     RTL_ATOM atom;
@@ -388,7 +400,6 @@ static void release_class_ptr( CLASS *ptr )
 
 static CLASS *find_class( HINSTANCE module, UNICODE_STRING *name )
 {
-    ATOM atom = get_int_atom_value( name );
     ULONG_PTR instance = (UINT_PTR)module;
     CLASS *class;
     int is_win16;
@@ -396,15 +407,8 @@ static CLASS *find_class( HINSTANCE module, UNICODE_STRING *name )
     user_lock();
     LIST_FOR_EACH_ENTRY( class, &class_list, CLASS, entry )
     {
-        if (atom)
-        {
-            if (class->atomName != atom) continue;
-        }
-        else
-        {
-            if (wcsnicmp( class->name, name->Buffer, name->Length / sizeof(WCHAR) ) ||
-                class->name[name->Length / sizeof(WCHAR)]) continue;
-        }
+        if (wcsnicmp( class->name, name->Buffer, name->Length / sizeof(WCHAR) ) ||
+            class->name[name->Length / sizeof(WCHAR)]) continue;
         is_win16 = !(class->instance >> 16);
         if (!instance || !class->local || class->instance == instance ||
             (!is_win16 && ((class->instance & ~0xffff) == (instance & ~0xffff))))
@@ -480,19 +484,9 @@ ATOM WINAPI NtUserRegisterClassExWOW( const WNDCLASSEXW *wc, UNICODE_STRING *nam
 
     if (!(class = calloc( 1, sizeof(CLASS) + wc->cbClsExtra ))) return 0;
 
-    class->atomName = get_int_atom_value( name );
-    class->basename = class->name;
-    if (!class->atomName && name)
-    {
-        memcpy( class->name, name->Buffer, name->Length );
-        class->name[name->Length / sizeof(WCHAR)] = 0;
-        class->basename += version->Length / sizeof(WCHAR);
-    }
-    else
-    {
-        UNICODE_STRING str = { .MaximumLength = sizeof(class->name), .Buffer = class->name };
-        NtUserGetAtomName( class->atomName, &str );
-    }
+    memcpy( class->name, name->Buffer, name->Length );
+    class->name[name->Length / sizeof(WCHAR)] = 0;
+    class->basename = class->name + version->Length / sizeof(WCHAR);
 
     class->style      = wc->style;
     class->local      = !is_builtin && !(wc->style & CS_GLOBALCLASS);
@@ -511,7 +505,7 @@ ATOM WINAPI NtUserRegisterClassExWOW( const WNDCLASSEXW *wc, UNICODE_STRING *nam
         req->atom       = wine_server_add_atom( req, name );
         req->name_offset = version->Length / sizeof(WCHAR);
         ret = !wine_server_call_err( req );
-        class->atomName = reply->atom;
+        atom = reply->atom;
     }
     SERVER_END_REQ;
     if (!ret)
@@ -531,8 +525,6 @@ ATOM WINAPI NtUserRegisterClassExWOW( const WNDCLASSEXW *wc, UNICODE_STRING *nam
     if (class->local) list_add_head( &class_list, &class->entry );
     else list_add_tail( &class_list, &class->entry );
 
-    atom = class->atomName;
-
     TRACE( "name=%s->%s atom=%04x wndproc=%p hinst=%p bg=%p style=%08x clsExt=%d winExt=%d class=%p\n",
            debugstr_w(wc->lpszClassName), debugstr_us(name), atom, wc->lpfnWndProc, instance,
            wc->hbrBackground, wc->style, wc->cbClsExtra, wc->cbWndExtra, class );
@@ -542,6 +534,7 @@ ATOM WINAPI NtUserRegisterClassExWOW( const WNDCLASSEXW *wc, UNICODE_STRING *nam
     class->hIconSmIntern = sm_icon;
     class->hCursor       = wc->hCursor;
     class->hbrBackground = wc->hbrBackground;
+    class->atom          = atom;
     class->winproc       = alloc_winproc( wc->lpfnWndProc, ansi );
     if (client_menu_name) class->menu_name = *client_menu_name;
     release_class_ptr( class );
@@ -588,15 +581,11 @@ BOOL WINAPI NtUserUnregisterClass( UNICODE_STRING *name, HINSTANCE instance,
 ATOM WINAPI NtUserGetClassInfoEx( HINSTANCE instance, UNICODE_STRING *name, WNDCLASSEXW *wc,
                                   struct client_menu_name *menu_name, BOOL ansi )
 {
-    static const WCHAR messageW[] = {'M','e','s','s','a','g','e'};
     CLASS *class;
     ATOM atom;
 
     /* create the desktop window to trigger builtin class registration */
-    if (name->Buffer != (const WCHAR *)DESKTOP_CLASS_ATOM &&
-        (IS_INTRESOURCE(name->Buffer) || name->Length != sizeof(messageW) ||
-         wcsnicmp( name->Buffer, messageW, ARRAYSIZE(messageW) )))
-        get_desktop_window();
+    if (!is_desktop_class( name ) && !is_message_class( name )) get_desktop_window();
 
     if (!(class = find_class( instance, name ))) return 0;
 
@@ -616,7 +605,7 @@ ATOM WINAPI NtUserGetClassInfoEx( HINSTANCE instance, UNICODE_STRING *name, WNDC
     }
 
     if (menu_name) *menu_name = class->menu_name;
-    atom = class->atomName;
+    atom = class->atom;
     release_class_ptr( class );
     return atom;
 }
@@ -729,7 +718,7 @@ INT WINAPI NtUserGetClassName( HWND hwnd, BOOL real, UNICODE_STRING *name )
             req->extra_offset = -1;
             req->extra_size = 0;
             if (!wine_server_call_err( req ))
-                atom = reply->base_atom;
+                atom = reply->old_atom;
         }
         SERVER_END_REQ;
 
@@ -754,10 +743,6 @@ static BOOL set_server_info( HWND hwnd, INT offset, LONG_PTR newval, UINT size )
         req->extra_offset = -1;
         switch(offset)
         {
-        case GCW_ATOM:
-            req->flags = SET_CLASS_ATOM;
-            req->atom = LOWORD(newval);
-            break;
         case GCL_STYLE:
             req->flags = SET_CLASS_STYLE;
             req->style = newval;
@@ -914,17 +899,6 @@ static ULONG_PTR set_class_long( HWND hwnd, INT offset, LONG_PTR newval, UINT si
         if (!set_server_info( hwnd, offset, newval, size )) break;
         retval = class->instance;
         class->instance = newval;
-        break;
-    case GCW_ATOM:
-        {
-            UNICODE_STRING us;
-            if (!set_server_info( hwnd, offset, newval, size )) break;
-            retval = class->atomName;
-            class->atomName = newval;
-            us.Buffer = class->name;
-            us.MaximumLength = sizeof(class->name);
-            NtUserGetAtomName( newval, &us );
-        }
         break;
     case GCL_CBCLSEXTRA:  /* cannot change this one */
         RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
@@ -1101,7 +1075,7 @@ static ULONG_PTR get_class_long_size( HWND hwnd, INT offset, UINT size, BOOL ans
         retvalue = ansi ? (ULONG_PTR)class->menu_name.nameA : (ULONG_PTR)class->menu_name.nameW;
         break;
     case GCW_ATOM:
-        retvalue = class->atomName;
+        retvalue = class->atom;
         break;
     default:
         RtlSetLastWin32Error( ERROR_INVALID_INDEX );
@@ -1167,7 +1141,7 @@ BOOL needs_ime_window( HWND hwnd )
 
 static const struct builtin_class_descr desktop_builtin_class =
 {
-    .name = MAKEINTRESOURCEA(DESKTOP_CLASS_ATOM),
+    .name = "#32769", /* DESKTOP_CLASS_ATOM */
     .style = CS_DBLCLKS,
     .proc = NTUSER_WNDPROC_DESKTOP,
     .brush = (HBRUSH)(COLOR_BACKGROUND + 1),
@@ -1207,7 +1181,7 @@ static const struct builtin_class_descr builtin_classes[] =
     },
     /* dialog */
     {
-        .name = MAKEINTRESOURCEA(DIALOG_CLASS_ATOM),
+        .name = "#32770", /* DIALOG_CLASS_ATOM */
         .style = CS_SAVEBITS | CS_DBLCLKS,
         .proc = NTUSER_WNDPROC_DIALOG,
         .extra = DLGWINDOWEXTRA,
@@ -1215,7 +1189,7 @@ static const struct builtin_class_descr builtin_classes[] =
     },
     /* icon title */
     {
-        .name = MAKEINTRESOURCEA(ICONTITLE_CLASS_ATOM),
+        .name = "#32772", /* ICONTITLE_CLASS_ATOM */
         .proc = NTUSER_WNDPROC_ICONTITLE,
         .cursor = IDC_ARROW,
     },
@@ -1236,7 +1210,7 @@ static const struct builtin_class_descr builtin_classes[] =
     },
     /* menu */
     {
-        .name = MAKEINTRESOURCEA(POPUPMENU_CLASS_ATOM),
+        .name = "#32768", /* POPUPMENU_CLASS_ATOM */
         .style = CS_DROPSHADOW | CS_SAVEBITS | CS_DBLCLKS,
         .proc = NTUSER_WNDPROC_MENU,
         .extra = sizeof(HMENU),
@@ -1293,16 +1267,8 @@ static void register_builtin( const struct builtin_class_descr *descr )
         class.hCursor = LoadImageW( 0, (const WCHAR *)descr->cursor, IMAGE_CURSOR,
                                     0, 0, LR_SHARED | LR_DEFAULTSIZE );
 
-    if (IS_INTRESOURCE( descr->name ))
-    {
-        name.Buffer = (WCHAR *)descr->name;
-        name.Length = name.MaximumLength = 0;
-    }
-    else
-    {
-        asciiz_to_unicode( nameW, descr->name );
-        RtlInitUnicodeString( &name, nameW );
-    }
+    asciiz_to_unicode( nameW, descr->name );
+    RtlInitUnicodeString( &name, nameW );
 
     if (!NtUserRegisterClassExWOW( &class, &name, &version, &menu_name, 1, 0, NULL ) && class.hCursor)
         NtUserDestroyCursor( class.hCursor, 0 );
