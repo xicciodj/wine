@@ -711,14 +711,13 @@ INT WINAPI NtUserGetClassName( HWND hwnd, BOOL real, UNICODE_STRING *name )
     {
         ATOM atom = 0;
 
-        SERVER_START_REQ( set_class_info )
+        SERVER_START_REQ( get_class_info )
         {
             req->window = wine_server_user_handle( hwnd );
-            req->flags = 0;
-            req->extra_offset = -1;
-            req->extra_size = 0;
-            if (!wine_server_call_err( req ))
-                atom = reply->old_atom;
+            req->offset = GCW_ATOM;
+            req->size = sizeof(atom);
+            wine_server_call_err( req );
+            atom = reply->info;
         }
         SERVER_END_REQ;
 
@@ -740,42 +739,16 @@ static BOOL set_server_info( HWND hwnd, INT offset, LONG_PTR newval, UINT size )
     SERVER_START_REQ( set_class_info )
     {
         req->window = wine_server_user_handle( hwnd );
-        req->extra_offset = -1;
-        switch(offset)
-        {
-        case GCL_STYLE:
-            req->flags = SET_CLASS_STYLE;
-            req->style = newval;
-            break;
-        case GCL_CBWNDEXTRA:
-            req->flags = SET_CLASS_WINEXTRA;
-            req->win_extra = newval;
-            break;
-        case GCLP_HMODULE:
-            req->flags = SET_CLASS_INSTANCE;
-            req->instance = wine_server_client_ptr( (void *)newval );
-            break;
-        default:
-            assert( offset >= 0 );
-            req->flags = SET_CLASS_EXTRA;
-            req->extra_offset = offset;
-            req->extra_size = size;
-            if ( size == sizeof(LONG) )
-            {
-                LONG newlong = newval;
-                memcpy( &req->extra_value, &newlong, sizeof(LONG) );
-            }
-            else
-                memcpy( &req->extra_value, &newval, sizeof(LONG_PTR) );
-            break;
-        }
+        req->offset = offset;
+        req->size = size;
+        req->new_info = newval;
         ret = !wine_server_call_err( req );
     }
     SERVER_END_REQ;
     return ret;
 }
 
-static ULONG_PTR set_class_long( HWND hwnd, INT offset, LONG_PTR newval, UINT size, BOOL ansi )
+static ULONG_PTR set_class_long_size( HWND hwnd, INT offset, LONG_PTR newval, UINT size, BOOL ansi )
 {
     ULONG_PTR retval = 0;
     HICON small_icon = 0;
@@ -788,19 +761,8 @@ static ULONG_PTR set_class_long( HWND hwnd, INT offset, LONG_PTR newval, UINT si
         if (set_server_info( hwnd, offset, newval, size ))
         {
             void *ptr = (char *)(class + 1) + offset;
-            if ( size == sizeof(LONG) )
-            {
-                DWORD retdword;
-                LONG newlong = newval;
-                memcpy( &retdword, ptr, sizeof(DWORD) );
-                memcpy( ptr, &newlong, sizeof(LONG) );
-                retval = retdword;
-            }
-            else
-            {
-                memcpy( &retval, ptr, sizeof(ULONG_PTR) );
-                memcpy( ptr, &newval, sizeof(LONG_PTR) );
-            }
+            memcpy( &retval, ptr, size );
+            memcpy( ptr, &newval, size );
         }
     }
     else switch(offset)
@@ -848,7 +810,7 @@ static ULONG_PTR set_class_long( HWND hwnd, INT offset, LONG_PTR newval, UINT si
                 /* someone beat us, restart */
                 release_class_ptr( class );
                 NtUserDestroyCursor( small_icon, 0 );
-                return set_class_long( hwnd, offset, newval, size, ansi );
+                return set_class_long_size( hwnd, offset, newval, size, ansi );
             }
         }
         if (class->hIconSmIntern) NtUserDestroyCursor( class->hIconSmIntern, 0 );
@@ -878,7 +840,7 @@ static ULONG_PTR set_class_long( HWND hwnd, INT offset, LONG_PTR newval, UINT si
                 /* someone beat us, restart */
                 release_class_ptr( class );
                 NtUserDestroyCursor( small_icon, 0 );
-                return set_class_long( hwnd, offset, newval, size, ansi );
+                return set_class_long_size( hwnd, offset, newval, size, ansi );
             }
         }
         if (class->hIconSmIntern) NtUserDestroyCursor( class->hIconSmIntern, 0 );
@@ -916,7 +878,7 @@ static ULONG_PTR set_class_long( HWND hwnd, INT offset, LONG_PTR newval, UINT si
  */
 DWORD WINAPI NtUserSetClassLong( HWND hwnd, INT offset, LONG newval, BOOL ansi )
 {
-    return set_class_long( hwnd, offset, newval, sizeof(LONG), ansi );
+    return set_class_long_size( hwnd, offset, newval, sizeof(LONG), ansi );
 }
 
 /***********************************************************************
@@ -924,7 +886,7 @@ DWORD WINAPI NtUserSetClassLong( HWND hwnd, INT offset, LONG newval, BOOL ansi )
  */
 ULONG_PTR WINAPI NtUserSetClassLongPtr( HWND hwnd, INT offset, LONG_PTR newval, BOOL ansi )
 {
-    return set_class_long( hwnd, offset, newval, sizeof(LONG_PTR), ansi );
+    return set_class_long_size( hwnd, offset, newval, sizeof(LONG_PTR), ansi );
 }
 
 /***********************************************************************
@@ -932,30 +894,7 @@ ULONG_PTR WINAPI NtUserSetClassLongPtr( HWND hwnd, INT offset, LONG_PTR newval, 
  */
 WORD WINAPI NtUserSetClassWord( HWND hwnd, INT offset, WORD newval )
 {
-    CLASS *class;
-    WORD retval = 0;
-
-    if (offset < 0) return NtUserSetClassLong( hwnd, offset, (DWORD)newval, TRUE );
-
-    if (!(class = get_class_ptr( hwnd, TRUE ))) return 0;
-
-    SERVER_START_REQ( set_class_info )
-    {
-        req->window = wine_server_user_handle( hwnd );
-        req->flags = SET_CLASS_EXTRA;
-        req->extra_offset = offset;
-        req->extra_size = sizeof(newval);
-        memcpy( &req->extra_value, &newval, sizeof(newval) );
-        if (!wine_server_call_err( req ))
-        {
-            void *ptr = (char *)(class + 1) + offset;
-            memcpy( &retval, ptr, sizeof(retval) );
-            memcpy( ptr, &newval, sizeof(newval) );
-        }
-    }
-    SERVER_END_REQ;
-    release_class_ptr( class );
-    return retval;
+    return set_class_long_size( hwnd, offset, newval, sizeof(WORD), TRUE );
 }
 
 static ULONG_PTR get_class_long_size( HWND hwnd, INT offset, UINT size, BOOL ansi )
@@ -967,15 +906,14 @@ static ULONG_PTR get_class_long_size( HWND hwnd, INT offset, UINT size, BOOL ans
 
     if (class == OBJ_OTHER_PROCESS)
     {
-        SERVER_START_REQ( set_class_info )
+        SERVER_START_REQ( get_class_info )
         {
             req->window = wine_server_user_handle( hwnd );
-            req->flags = 0;
-            req->extra_offset = (offset >= 0) ? offset : -1;
-            req->extra_size = (offset >= 0) ? size : 0;
+            req->offset = offset;
+            req->size = size;
             if (!wine_server_call_err( req ))
             {
-                switch(offset)
+                switch (offset)
                 {
                 case GCLP_HBRBACKGROUND:
                 case GCLP_HCURSOR:
@@ -984,37 +922,9 @@ static ULONG_PTR get_class_long_size( HWND hwnd, INT offset, UINT size, BOOL ans
                 case GCLP_WNDPROC:
                 case GCLP_MENUNAME:
                     FIXME( "offset %d not supported on other process window %p\n", offset, hwnd );
-                    RtlSetLastWin32Error( ERROR_INVALID_HANDLE );
-                    break;
-                case GCL_STYLE:
-                    retvalue = reply->old_style;
-                    break;
-                case GCL_CBWNDEXTRA:
-                    retvalue = reply->old_win_extra;
-                    break;
-                case GCL_CBCLSEXTRA:
-                    retvalue = reply->old_extra;
-                    break;
-                case GCLP_HMODULE:
-                    retvalue = (ULONG_PTR)wine_server_get_ptr( reply->old_instance );
-                    break;
-                case GCW_ATOM:
-                    retvalue = reply->old_atom;
                     break;
                 default:
-                    if (offset >= 0)
-                    {
-                        if (size == sizeof(DWORD))
-                        {
-                            DWORD retdword;
-                            memcpy( &retdword, &reply->old_extra_value, sizeof(DWORD) );
-                            retvalue = retdword;
-                        }
-                        else
-                            memcpy( &retvalue, &reply->old_extra_value,
-                                    sizeof(ULONG_PTR) );
-                    }
-                    else RtlSetLastWin32Error( ERROR_INVALID_INDEX );
+                    retvalue = reply->info;
                     break;
                 }
             }
@@ -1097,34 +1007,7 @@ ULONG_PTR get_class_long_ptr( HWND hwnd, INT offset, BOOL ansi )
 
 WORD get_class_word( HWND hwnd, INT offset )
 {
-    CLASS *class;
-    WORD retvalue = 0;
-
-    if (offset < 0) return get_class_long( hwnd, offset, TRUE );
-
-    if (!(class = get_class_ptr( hwnd, FALSE ))) return 0;
-
-    if (class == OBJ_OTHER_PROCESS)
-    {
-        SERVER_START_REQ( set_class_info )
-        {
-            req->window = wine_server_user_handle( hwnd );
-            req->flags = 0;
-            req->extra_offset = offset;
-            req->extra_size = sizeof(retvalue);
-            if (!wine_server_call_err( req ))
-                memcpy( &retvalue, &reply->old_extra_value, sizeof(retvalue) );
-        }
-        SERVER_END_REQ;
-        return retvalue;
-    }
-
-    if (offset <= class->cbClsExtra - sizeof(WORD))
-        memcpy( &retvalue, (char *)(class + 1) + offset, sizeof(retvalue) );
-    else
-        RtlSetLastWin32Error( ERROR_INVALID_INDEX );
-    release_class_ptr( class );
-    return retvalue;
+    return get_class_long_size( hwnd, offset, sizeof(WORD), TRUE );
 }
 
 BOOL needs_ime_window( HWND hwnd )

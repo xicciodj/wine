@@ -214,6 +214,7 @@ DECL_HANDLER(get_hook_info);
 DECL_HANDLER(create_class);
 DECL_HANDLER(destroy_class);
 DECL_HANDLER(set_class_info);
+DECL_HANDLER(get_class_info);
 DECL_HANDLER(open_clipboard);
 DECL_HANDLER(close_clipboard);
 DECL_HANDLER(empty_clipboard);
@@ -514,6 +515,7 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_create_class,
     (req_handler)req_destroy_class,
     (req_handler)req_set_class_info,
+    (req_handler)req_get_class_info,
     (req_handler)req_open_clipboard,
     (req_handler)req_close_clipboard,
     (req_handler)req_empty_clipboard,
@@ -1829,22 +1831,18 @@ C_ASSERT( sizeof(struct destroy_class_request) == 24 );
 C_ASSERT( offsetof(struct destroy_class_reply, client_ptr) == 8 );
 C_ASSERT( sizeof(struct destroy_class_reply) == 16 );
 C_ASSERT( offsetof(struct set_class_info_request, window) == 12 );
-C_ASSERT( offsetof(struct set_class_info_request, flags) == 16 );
-C_ASSERT( offsetof(struct set_class_info_request, atom) == 20 );
-C_ASSERT( offsetof(struct set_class_info_request, style) == 24 );
-C_ASSERT( offsetof(struct set_class_info_request, win_extra) == 28 );
-C_ASSERT( offsetof(struct set_class_info_request, instance) == 32 );
-C_ASSERT( offsetof(struct set_class_info_request, extra_offset) == 40 );
-C_ASSERT( offsetof(struct set_class_info_request, extra_size) == 44 );
-C_ASSERT( offsetof(struct set_class_info_request, extra_value) == 48 );
-C_ASSERT( sizeof(struct set_class_info_request) == 56 );
-C_ASSERT( offsetof(struct set_class_info_reply, old_style) == 8 );
-C_ASSERT( offsetof(struct set_class_info_reply, old_atom) == 12 );
-C_ASSERT( offsetof(struct set_class_info_reply, old_instance) == 16 );
-C_ASSERT( offsetof(struct set_class_info_reply, old_extra_value) == 24 );
-C_ASSERT( offsetof(struct set_class_info_reply, old_extra) == 32 );
-C_ASSERT( offsetof(struct set_class_info_reply, old_win_extra) == 36 );
-C_ASSERT( sizeof(struct set_class_info_reply) == 40 );
+C_ASSERT( offsetof(struct set_class_info_request, offset) == 16 );
+C_ASSERT( offsetof(struct set_class_info_request, size) == 20 );
+C_ASSERT( offsetof(struct set_class_info_request, new_info) == 24 );
+C_ASSERT( sizeof(struct set_class_info_request) == 32 );
+C_ASSERT( offsetof(struct set_class_info_reply, old_info) == 8 );
+C_ASSERT( sizeof(struct set_class_info_reply) == 16 );
+C_ASSERT( offsetof(struct get_class_info_request, window) == 12 );
+C_ASSERT( offsetof(struct get_class_info_request, offset) == 16 );
+C_ASSERT( offsetof(struct get_class_info_request, size) == 20 );
+C_ASSERT( sizeof(struct get_class_info_request) == 24 );
+C_ASSERT( offsetof(struct get_class_info_reply, info) == 8 );
+C_ASSERT( sizeof(struct get_class_info_reply) == 16 );
 C_ASSERT( offsetof(struct open_clipboard_request, window) == 12 );
 C_ASSERT( sizeof(struct open_clipboard_request) == 16 );
 C_ASSERT( offsetof(struct open_clipboard_reply, owner) == 8 );
