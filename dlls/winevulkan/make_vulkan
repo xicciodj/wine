@@ -116,6 +116,7 @@ UNSUPPORTED_EXTENSIONS = [
     "VK_GOOGLE_surfaceless_query",
     "VK_KHR_external_fence_fd",
     "VK_KHR_external_memory_fd",
+    "VK_EXT_external_memory_metal",
     "VK_KHR_external_semaphore_fd",
     "VK_SEC_amigo_profiling", # Angle specific.
 
@@ -134,6 +135,18 @@ UNEXPOSED_EXTENSIONS = {
     "VK_EXT_map_memory_placed",
     "VK_KHR_external_memory_win32",
     "VK_EXT_headless_surface",
+    # Extensions for other platforms
+    "VK_EXT_metal_surface",
+    "VK_KHR_wayland_surface",
+    "VK_KHR_xlib_surface",
+    "VK_MVK_macos_surface",
+}
+
+UNEXPOSED_PLATFORMS = {
+    "macos",
+    "metal",
+    "wayland",
+    "xlib",
 }
 
 # The Vulkan loader provides entry-points for core functionality and important
@@ -330,6 +343,10 @@ def api_is_vulkan(obj):
     return "vulkan" in obj.get("api", "vulkan").split(",")
 
 
+def innertext(tag):
+    return (tag.text or '') + ''.join(innertext(e) for e in tag) + (tag.tail or '')
+
+
 def convert_suffix(direction, win_type, unwrap, is_wrapped):
     if direction == Direction.OUTPUT:
         if not is_wrapped:
@@ -405,8 +422,7 @@ class VkConstant(object):
 
 
 class VkDefine(object):
-    def __init__(self, name, value):
-        self.name = name
+    def __init__(self, value):
         self.value = value
 
     @staticmethod
@@ -414,59 +430,16 @@ class VkDefine(object):
         if not api_is_vulkan(define):
             return None
 
-        name_elem = define.find("name")
+        value = innertext(define)
+        value = re.sub(r'\s*//.*$', '', value, flags=re.M)
+        value = value.strip()
 
-        if name_elem is None:
-            # <type category="define" name="some_name">some_value</type>
-            name = define.attrib.get("name")
-
-            # We override behavior of VK_USE_64_BIT_PTR_DEFINES as the default non-dispatchable handle
-            # definition various between 64-bit (uses pointers) and 32-bit (uses uint64_t).
-            # This complicates TRACEs in the thunks, so just use uint64_t.
-            if name == "VK_USE_64_BIT_PTR_DEFINES":
-                value = "#define VK_USE_64_BIT_PTR_DEFINES 0"
-            else:
-                value = define.text
-            return VkDefine(name, value)
-
-        # With a name element the structure is like:
-        # <type category="define"><name>some_name</name>some_value</type>
-        name = name_elem.text
-
-        # Perform minimal parsing for Vulkan constants, which we don't need, but are referenced
-        # elsewhere in vk.xml.
-        # - VK_API_VERSION is a messy, deprecated constant and we don't want generate code for it.
-        # - AHardwareBuffer/ANativeWindow are forward declarations for Android types, which leaked
-        #   into the define region.
-        if name in ["VK_API_VERSION", "AHardwareBuffer", "ANativeWindow", "CAMetalLayer"]:
-            return VkDefine(name, None)
-
-        # The body of the define is basically unstructured C code. It is not meant for easy parsing.
-        # Some lines contain deprecated values or comments, which we try to filter out.
-        value = ""
-        for line in define.text.splitlines():
-            # Skip comments or deprecated values.
-            if "//" in line:
-                continue
-            value += line
-
-        for child in define:
-            value += child.text
-            if child.tail is not None:
-                # Split comments for VK_API_VERSION_1_0 / VK_API_VERSION_1_1
-                if "//" in child.tail:
-                    value += child.tail.split("//")[0]
-                else:
-                    value += child.tail
-
-        return VkDefine(name, value.rstrip(' '))
+        if "#define VK_USE_64_BIT_PTR_DEFINES" in value:
+            return VkDefine("#define VK_USE_64_BIT_PTR_DEFINES 0")
+        return VkDefine(value)
 
     def definition(self):
-        if self.value is None:
-            return ""
-
-        # Nothing to do as the value was already put in the right form during parsing.
-        return "{0}\n".format(self.value)
+        return self.value + '\n'
 
 
 class VkEnum(object):
@@ -1031,81 +1004,28 @@ class VkFunction(object):
 
 
 class VkFunctionPointer(object):
-    def __init__(self, _type, name, members, forward_decls):
-        self.name = name
-        self.members = members
-        self.type = _type
+    def __init__(self, value):
+        self.value = value
         self.required = False
-        self.forward_decls = forward_decls
 
     @staticmethod
     def from_xml(funcpointer):
         if not api_is_vulkan(funcpointer):
             return None
 
-        members = []
-        begin = None
+        value = innertext(funcpointer).replace('\n', '')
+        value = re.sub(r'\s*//.*$', '', value, flags=re.M)
+        value = re.sub(r'\s+', ' ', value, flags=re.M)
+        value = value.strip()
 
-        for t in funcpointer.findall("type"):
-            # General form:
-            # <type>void</type>*       pUserData,
-            # Parsing of the tail (anything past </type>) is tricky since there
-            # can be other data on the next line like: const <type>int</type>..
-
-            const = True if begin and "const" in begin else False
-            _type = t.text
-            lines = t.tail.split(",\n")
-            if lines[0][0] == "*":
-                pointer = "*"
-                name = lines[0][1:].strip()
-            else:
-                pointer = None
-                name = lines[0].strip()
-
-            # Filter out ); if it is contained.
-            name = name.partition(");")[0]
-
-            # If tail encompasses multiple lines, assign the second line to begin
-            # for the next line.
-            try:
-                begin = lines[1].strip()
-            except IndexError:
-                begin = None
-
-            members.append(VkMember(const=const, _type=_type, pointer=pointer, name=name))
-
-        _type = funcpointer.text
-        name = funcpointer.find("name").text
-        if "requires" in funcpointer.attrib:
-            forward_decls = funcpointer.attrib.get("requires").split(",")
-        else:
-            forward_decls = []
-        return VkFunctionPointer(_type, name, members, forward_decls)
+        return VkFunctionPointer(value)
 
     def definition(self):
-        text = ""
-        # forward declare required structs
-        for decl in self.forward_decls:
-            text += "typedef struct {0} {0};\n".format(decl)
-
-        text += "{0} {1})(\n".format(self.type, self.name)
-
-        first = True
-        if len(self.members) > 0:
-            for m in self.members:
-                if first:
-                    text += "    " + m.definition()
-                    first = False
-                else:
-                    text += ",\n    " + m.definition()
-        else:
-            # Just make the compiler happy by adding a void parameter.
-            text += "void"
-        text += ");\n"
-        return text
+        return self.value + '\n'
 
     def is_alias(self):
         return False
+
 
 class VkHandle(object):
     def __init__(self, name, _type, parent, alias=None):
@@ -2006,6 +1926,7 @@ class VkStruct(Sequence):
         self.type_info = None # To be set later.
         self.struct_extensions = []
         self.aliased_by = []
+        self.order = 0
 
     def __getitem__(self, i):
         return self.members[i]
@@ -2056,58 +1977,19 @@ class VkStruct(Sequence):
 
         return s
 
-    @staticmethod
-    def decouple_structs(structs):
-        """ Helper function which decouples a list of structs.
-        Structures often depend on other structures. To make the C compiler
-        happy we need to define 'substructures' first. This function analyzes
-        the list of structures and reorders them in such a way that they are
-        decoupled.
-        """
+    def set_order(self, order, structs):
+        if order < self.order:
+            return
 
-        tmp_structs = list(structs) # Don't modify the original structures.
-        decoupled_structs = []
-
-        while (len(tmp_structs) > 0):
-            # Iterate over a copy because we want to modify the list inside the loop.
-            for struct in list(tmp_structs):
-                dependends = False
-
-                if not struct.required:
-                    tmp_structs.remove(struct)
-                    continue
-
-                for m in struct:
-                    if not (m.is_struct() or m.is_union()):
-                        continue
-
-                    # VkBaseInstructure and VkBaseOutStructure reference themselves.
-                    if m.type == struct.name:
-                        break
-
-                    found = False
-                    # Check if a struct we depend on has already been defined.
-                    for s in decoupled_structs:
-                        if s.name == m.type:
-                            found = True
-                            break
-
-                    if not found:
-                        # Check if the struct we depend on is even in the list of structs.
-                        # If found now, it means we haven't met all dependencies before we
-                        # can operate on the current struct.
-                        # When generating 'host' structs we may not be able to find a struct
-                        # as the list would only contain the structs requiring conversion.
-                        for s in tmp_structs:
-                            if s.name == m.type:
-                                dependends = True
-                                break
-
-                if dependends == False:
-                    decoupled_structs.append(struct)
-                    tmp_structs.remove(struct)
-
-        return decoupled_structs
+        self.order = order + 1
+        for member in self.members:
+            if member.type == self.name:
+                continue
+            if not member.is_union() and not member.is_struct():
+                continue
+            if structs[member.type].is_alias():
+                structs[member.type].alias.set_order(self.order, structs)
+            structs[member.type].set_order(self.order, structs)
 
     def definition(self, align=False, conv=False):
         """ Convert structure to textual definition.
@@ -3053,6 +2935,12 @@ class VkGenerator(object):
         f.write("#define WINE_VK_ALIGN DECLSPEC_ALIGN\n")
         f.write("#endif\n\n")
 
+        f.write("#ifndef WINE_VULKAN_NO_X11_TYPES\n")
+        f.write("typedef unsigned long Window;\n")
+        f.write("typedef unsigned long VisualID;\n")
+        f.write("typedef struct _XDisplay Display;\n")
+        f.write("#endif\n")
+
         # The overall strategy is to define independent constants and datatypes,
         # prior to complex structures and function calls to avoid forward declarations.
         for const in self.registry.consts:
@@ -3093,6 +2981,8 @@ class VkGenerator(object):
             if enum.required:
                 f.write(enum.definition())
 
+        f.write("typedef struct VkDebugUtilsMessengerCallbackDataEXT VkDebugUtilsMessengerCallbackDataEXT;\n")
+
         for fp in self.registry.funcpointers:
             if fp.required:
                 f.write(fp.definition())
@@ -3103,11 +2993,11 @@ class VkGenerator(object):
         # decoupled structs.
         # Note: unions are stored in structs for dependency reasons,
         # see comment in parsing section.
-        structs = VkStruct.decouple_structs(self.registry.structs)
-        for struct in structs:
-            LOGGER.debug("Generating struct: {0}".format(struct.name))
-            f.write(struct.definition(align=True))
-            f.write("\n")
+        for struct in self.registry.structs:
+            if struct.required:
+                LOGGER.debug("Generating struct: {0}".format(struct.name))
+                f.write(struct.definition(align=True))
+                f.write("\n")
 
         for func in self.registry.funcs.values():
             if not func.is_required():
@@ -3276,15 +3166,6 @@ class VkRegistry(object):
             if bitmask.requires is not None:
                 types[bitmask.requires]["data"].required = True
 
-        def mark_funcpointer_dependencies(fp, types):
-            for m in fp.members:
-                type_info = types[m.type]
-
-                # Complex types have a matching definition e.g. VkStruct.
-                # Not needed for base types such as uint32_t.
-                if "data" in type_info:
-                    types[m.type]["data"].required = True
-
         def mark_struct_dependencies(struct, types):
              for m in struct:
                 type_info = types[m.type]
@@ -3297,8 +3178,6 @@ class VkRegistry(object):
                 if type_info["category"] == "struct" and struct.name != m.type:
                     # Yay, recurse
                     mark_struct_dependencies(type_info["data"], types)
-                elif type_info["category"] == "funcpointer":
-                    mark_funcpointer_dependencies(type_info["data"], types)
                 elif type_info["category"] == "bitmask":
                     mark_bitmask_dependencies(type_info["data"], types)
 
@@ -3546,7 +3425,7 @@ class VkRegistry(object):
                     self._process_require_enum(enum_elem, ext, only_aliased=True)
 
             platform = ext.attrib.get("platform")
-            if platform and platform != "win32":
+            if platform and platform != "win32" and platform not in UNEXPOSED_PLATFORMS:
                 LOGGER.debug("Skipping extensions {0} for platform {1}".format(ext_name, platform))
                 skipped_exts.append(ext_name)
                 return
@@ -3692,26 +3571,18 @@ class VkRegistry(object):
 
             if type_info["category"] == "basetype":
                 name = t.find("name").text
-                _type = None
-                if not t.find("type") is None:
-                    _type = t.find("type").text
-                    tail = t.find("type").tail
-                    if tail is not None:
-                        _type += tail.strip()
-                basetype = VkBaseType(name, _type)
-                if basetype:
-                    base_types.append(basetype)
-                    type_info["data"] = basetype
-                else:
-                    continue
+                define = VkDefine.from_xml(t)
+                defines.append(define)
+                type_info["data"] = define
 
             # Basic C types don't need us to define them, but we do need data for them
-            if type_info["requires"] == "vk_platform":
+            elif type_info["requires"] == "vk_platform":
+                name = t.attrib.get("name")
                 requires = type_info["requires"]
-                basic_c = VkBaseType(name, _type, requires=requires)
+                basic_c = VkBaseType(name, name, requires=requires)
                 type_info["data"] = basic_c
 
-            if type_info["category"] == "bitmask":
+            elif type_info["category"] == "bitmask":
                 name = t.find("name").text
                 _type = t.find("type").text
 
@@ -3722,7 +3593,7 @@ class VkRegistry(object):
                 bitmasks.append(bitmask)
                 type_info["data"] = bitmask
 
-            if type_info["category"] == "define":
+            elif type_info["category"] == "define":
                 define = VkDefine.from_xml(t)
                 if define:
                     defines.append(define)
@@ -3730,7 +3601,7 @@ class VkRegistry(object):
                 else:
                     continue
 
-            if type_info["category"] == "enum":
+            elif type_info["category"] == "enum":
                 name = t.attrib.get("name")
                 # The type section only contains enum names, not the actual definition.
                 # Since we already parsed the enum before, just link it in.
@@ -3742,7 +3613,7 @@ class VkRegistry(object):
                     # definitions.
                     type_info["data"] = None
 
-            if type_info["category"] == "funcpointer":
+            elif type_info["category"] == "funcpointer":
                 funcpointer = VkFunctionPointer.from_xml(t)
                 if funcpointer:
                     funcpointers.append(funcpointer)
@@ -3750,7 +3621,7 @@ class VkRegistry(object):
                 else:
                     continue
 
-            if type_info["category"] == "handle":
+            elif type_info["category"] == "handle":
                 handle = VkHandle.from_xml(t)
                 if handle:
                     handles.append(handle)
@@ -3758,7 +3629,7 @@ class VkRegistry(object):
                 else:
                     continue
 
-            if type_info["category"] in ["struct", "union"]:
+            elif type_info["category"] in ["struct", "union"]:
                 # We store unions among structs as some structs depend
                 # on unions. The types are very similar in parsing and
                 # generation anyway. The official Vulkan scripts use
@@ -3819,7 +3690,8 @@ class VkRegistry(object):
         # are parsed among other types, so there is no guarantee
         # that any types needed have been parsed already, so set
         # the data now.
-        for struct in structs:
+        structs = {struct.name: struct for struct in structs}
+        for struct in structs.values():
             struct.set_type_info(self.types)
 
             # Alias structures have enum values equivalent to those of the
@@ -3833,15 +3705,18 @@ class VkRegistry(object):
                 s = self.types[structextend]["data"]
                 s.struct_extensions.append(struct)
 
+        for struct in structs.values():
+            struct.set_order(0, structs)
+
         # Guarantee everything is sorted, so code generation doesn't have
         # to deal with this.
         self.base_types = sorted(base_types, key=lambda base_type: base_type.name)
         self.bitmasks = sorted(bitmasks, key=lambda bitmask: bitmask.name)
         self.defines = defines
         self.enums = OrderedDict(sorted(self.enums.items()))
-        self.funcpointers = sorted(funcpointers, key=lambda fp: fp.name)
+        self.funcpointers = sorted(funcpointers, key=lambda fp: fp.value)
         self.handles = sorted(handles, key=lambda handle: handle.name)
-        self.structs = sorted(structs, key=lambda struct: struct.name)
+        self.structs = sorted(structs.values(), key=lambda struct: (-struct.order, struct.name))
 
 def generate_vulkan_json(f):
     f.write("{\n")
