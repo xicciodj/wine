@@ -1,5 +1,6 @@
-/*
- * Copyright 2024 Zhiyi Zhang for CodeWeavers
+/* WinRT Windows.Media.Playback.MediaPlayer Implementation
+ *
+ * Copyright (C) 2025 Mohamad Al-Jaf
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -16,14 +17,23 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#pragma makedep header
+#ifndef __WINE_WINDOWS_MEDIA_PLAYBACK_MEDIAPLAYER_PRIVATE_H
+#define __WINE_WINDOWS_MEDIA_PLAYBACK_MEDIAPLAYER_PRIVATE_H
 
-#ifdef __WIDL__
-#pragma winrt ns_prefix
+#include <stdarg.h>
+
+#define COBJMACROS
+#include "windef.h"
+#include "winbase.h"
+#include "winstring.h"
+
+#include "activation.h"
+
+#define WIDL_using_Windows_Foundation
+#define WIDL_using_Windows_Foundation_Collections
+#include "windows.foundation.h"
+#define WIDL_using_Windows_Media
+#define WIDL_using_Windows_Media_Playback
+#include "windows.media.playback.h"
+
 #endif
-
-import "windows.foundation.idl";
-
-declare {
-    interface Windows.Foundation.IReference<HSTRING>;
-}

@@ -1,6 +1,6 @@
-/*
- * Copyright 2022-2024 Zhiyi Zhang for CodeWeavers
- * Copyright 2025 Jactry Zeng for CodeWeavers
+/* WinRT Windows.Media.Playback.BackgroundMediaPlayer Implementation
+ *
+ * Copyright (C) 2025 Mohamad Al-Jaf
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -17,42 +17,23 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#ifndef __WINE_WINDOWS_MEDIA_PLAYBACK_BACKGROUNDMEDIAPLAYER_PRIVATE_H
+#define __WINE_WINDOWS_MEDIA_PLAYBACK_BACKGROUNDMEDIAPLAYER_PRIVATE_H
+
 #include <stdarg.h>
 
 #define COBJMACROS
 #include "windef.h"
 #include "winbase.h"
 #include "winstring.h"
-#include "wine/debug.h"
-#include "objbase.h"
 
 #include "activation.h"
-#include "rometadataresolution.h"
 
 #define WIDL_using_Windows_Foundation
 #define WIDL_using_Windows_Foundation_Collections
-#define WIDL_using_Windows_Foundation_Metadata
-#include "windows.foundation.metadata.h"
-#define WIDL_using_Windows_Storage
-#define WIDL_using_Windows_Storage_Streams
-#include "windows.media.h"
-#include "windows.storage.streams.h"
-#include "wintypes_private.h"
-
-struct map_iids
-{
-    const GUID *map;
-    const GUID *view;
-    const GUID *iterable;
-    const GUID *iterator;
-    const GUID *pair;
-};
-extern HRESULT single_threaded_map_create( const struct map_iids *iids, IInspectable *outer, IInspectable **out );
-extern HRESULT multi_threaded_map_create( const struct map_iids *iids, IInspectable *outer, IInspectable **out );
-
-extern IActivationFactory *data_writer_activation_factory;
-extern IActivationFactory *buffer_activation_factory;
-extern IActivationFactory *property_set_factory;
+#include "windows.foundation.h"
+#define WIDL_using_Windows_Media_Playback
+#include "windows.media.playback.h"
 
 #define DEFINE_IINSPECTABLE_( pfx, iface_type, impl_type, impl_from, iface_mem, expr )             \
     static inline impl_type *impl_from( iface_type *iface )                                        \
@@ -91,5 +72,5 @@ extern IActivationFactory *property_set_factory;
     }
 #define DEFINE_IINSPECTABLE( pfx, iface_type, impl_type, base_iface )                              \
     DEFINE_IINSPECTABLE_( pfx, iface_type, impl_type, impl_from_##iface_type, iface_type##_iface, &impl->base_iface )
-#define DEFINE_IINSPECTABLE_OUTER( pfx, iface_type, impl_type, outer_iface )                       \
-    DEFINE_IINSPECTABLE_( pfx, iface_type, impl_type, impl_from_##iface_type, iface_type##_iface, impl->outer_iface )
+
+#endif

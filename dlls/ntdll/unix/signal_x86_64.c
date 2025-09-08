@@ -2064,7 +2064,7 @@ static inline BOOL check_invalid_gsbase( ucontext_t *ucontext )
     else
         arch_prctl( ARCH_GET_GS, &cur_gsbase );
 #elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
-    amd64_get_gsbase( &cur_gsbase );
+    amd64_get_gsbase( (void**)&cur_gsbase );
 #elif defined(__NetBSD__)
     sysarch( X86_64_GET_GSBASE, &cur_gsbase );
 #elif defined(__APPLE__)
@@ -2896,6 +2896,7 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
                    /* The xsavec instruction is not supported by
                     * binutils < 2.25. */
                    ".byte 0x48, 0x0f, 0xc7, 0xa1, 0xc0, 0x00, 0x00, 0x00\n\t" /* xsavec64 0xc0(%rcx) */
+                   "stmxcsr 0xd8(%rcx)\n\t"        /* frame->xsave.MxCsr */
                    "jmp 3f\n"
                    "1:\txsave64 0xc0(%rcx)\n\t"
                    "jmp 3f\n"
