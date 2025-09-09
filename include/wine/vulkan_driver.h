@@ -47,7 +47,7 @@ struct vulkan_client_object
 #include "wine/rbtree.h"
 
 /* Wine internal vulkan driver version, needs to be bumped upon vulkan_funcs changes. */
-#define WINE_VULKAN_DRIVER_VERSION 40
+#define WINE_VULKAN_DRIVER_VERSION 44
 
 struct vulkan_object
 {
@@ -138,6 +138,18 @@ static inline struct vulkan_queue *vulkan_queue_from_handle( VkQueue handle )
     return (struct vulkan_queue *)(UINT_PTR)client->unix_handle;
 }
 
+struct vulkan_command_buffer
+{
+    VULKAN_OBJECT_HEADER( VkCommandBuffer, command_buffer );
+    struct vulkan_device *device;
+};
+
+static inline struct vulkan_command_buffer *vulkan_command_buffer_from_handle( VkCommandBuffer handle )
+{
+    struct vulkan_client_object *client = (struct vulkan_client_object *)handle;
+    return (struct vulkan_command_buffer *)(UINT_PTR)client->unix_handle;
+}
+
 struct vulkan_device_memory
 {
     VULKAN_OBJECT_HEADER( VkDeviceMemory, device_memory );
@@ -179,9 +191,13 @@ struct vulkan_funcs
     PFN_vkAcquireNextImageKHR p_vkAcquireNextImageKHR;
     PFN_vkAllocateMemory p_vkAllocateMemory;
     PFN_vkCreateBuffer p_vkCreateBuffer;
+    PFN_vkCreateFence p_vkCreateFence;
     PFN_vkCreateImage p_vkCreateImage;
+    PFN_vkCreateSemaphore p_vkCreateSemaphore;
     PFN_vkCreateSwapchainKHR p_vkCreateSwapchainKHR;
     PFN_vkCreateWin32SurfaceKHR p_vkCreateWin32SurfaceKHR;
+    PFN_vkDestroyFence p_vkDestroyFence;
+    PFN_vkDestroySemaphore p_vkDestroySemaphore;
     PFN_vkDestroySurfaceKHR p_vkDestroySurfaceKHR;
     PFN_vkDestroySwapchainKHR p_vkDestroySwapchainKHR;
     PFN_vkFreeMemory p_vkFreeMemory;
@@ -189,11 +205,16 @@ struct vulkan_funcs
     PFN_vkGetDeviceBufferMemoryRequirementsKHR p_vkGetDeviceBufferMemoryRequirementsKHR;
     PFN_vkGetDeviceImageMemoryRequirements p_vkGetDeviceImageMemoryRequirements;
     PFN_vkGetDeviceProcAddr p_vkGetDeviceProcAddr;
+    PFN_vkGetFenceWin32HandleKHR p_vkGetFenceWin32HandleKHR;
     PFN_vkGetInstanceProcAddr p_vkGetInstanceProcAddr;
     PFN_vkGetMemoryWin32HandleKHR p_vkGetMemoryWin32HandleKHR;
     PFN_vkGetMemoryWin32HandlePropertiesKHR p_vkGetMemoryWin32HandlePropertiesKHR;
     PFN_vkGetPhysicalDeviceExternalBufferProperties p_vkGetPhysicalDeviceExternalBufferProperties;
     PFN_vkGetPhysicalDeviceExternalBufferPropertiesKHR p_vkGetPhysicalDeviceExternalBufferPropertiesKHR;
+    PFN_vkGetPhysicalDeviceExternalFenceProperties p_vkGetPhysicalDeviceExternalFenceProperties;
+    PFN_vkGetPhysicalDeviceExternalFencePropertiesKHR p_vkGetPhysicalDeviceExternalFencePropertiesKHR;
+    PFN_vkGetPhysicalDeviceExternalSemaphoreProperties p_vkGetPhysicalDeviceExternalSemaphoreProperties;
+    PFN_vkGetPhysicalDeviceExternalSemaphorePropertiesKHR p_vkGetPhysicalDeviceExternalSemaphorePropertiesKHR;
     PFN_vkGetPhysicalDeviceImageFormatProperties2 p_vkGetPhysicalDeviceImageFormatProperties2;
     PFN_vkGetPhysicalDeviceImageFormatProperties2KHR p_vkGetPhysicalDeviceImageFormatProperties2KHR;
     PFN_vkGetPhysicalDevicePresentRectanglesKHR p_vkGetPhysicalDevicePresentRectanglesKHR;
@@ -202,9 +223,15 @@ struct vulkan_funcs
     PFN_vkGetPhysicalDeviceSurfaceFormats2KHR p_vkGetPhysicalDeviceSurfaceFormats2KHR;
     PFN_vkGetPhysicalDeviceSurfaceFormatsKHR p_vkGetPhysicalDeviceSurfaceFormatsKHR;
     PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR p_vkGetPhysicalDeviceWin32PresentationSupportKHR;
+    PFN_vkGetSemaphoreWin32HandleKHR p_vkGetSemaphoreWin32HandleKHR;
+    PFN_vkImportFenceWin32HandleKHR p_vkImportFenceWin32HandleKHR;
+    PFN_vkImportSemaphoreWin32HandleKHR p_vkImportSemaphoreWin32HandleKHR;
     PFN_vkMapMemory p_vkMapMemory;
     PFN_vkMapMemory2KHR p_vkMapMemory2KHR;
     PFN_vkQueuePresentKHR p_vkQueuePresentKHR;
+    PFN_vkQueueSubmit p_vkQueueSubmit;
+    PFN_vkQueueSubmit2 p_vkQueueSubmit2;
+    PFN_vkQueueSubmit2KHR p_vkQueueSubmit2KHR;
     PFN_vkUnmapMemory p_vkUnmapMemory;
     PFN_vkUnmapMemory2KHR p_vkUnmapMemory2KHR;
 

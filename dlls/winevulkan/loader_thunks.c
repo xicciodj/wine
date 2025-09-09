@@ -4999,6 +4999,18 @@ VkResult WINAPI vkGetFenceStatus(VkDevice device, VkFence fence)
     return params.result;
 }
 
+VkResult WINAPI vkGetFenceWin32HandleKHR(VkDevice device, const VkFenceGetWin32HandleInfoKHR *pGetWin32HandleInfo, HANDLE *pHandle)
+{
+    struct vkGetFenceWin32HandleKHR_params params;
+    NTSTATUS status;
+    params.device = device;
+    params.pGetWin32HandleInfo = pGetWin32HandleInfo;
+    params.pHandle = pHandle;
+    status = UNIX_CALL(vkGetFenceWin32HandleKHR, &params);
+    assert(!status && "vkGetFenceWin32HandleKHR");
+    return params.result;
+}
+
 VkResult WINAPI vkGetFramebufferTilePropertiesQCOM(VkDevice device, VkFramebuffer framebuffer, uint32_t *pPropertiesCount, VkTilePropertiesQCOM *pProperties)
 {
     struct vkGetFramebufferTilePropertiesQCOM_params params;
@@ -6206,6 +6218,18 @@ VkResult WINAPI vkGetSemaphoreCounterValueKHR(VkDevice device, VkSemaphore semap
     return params.result;
 }
 
+VkResult WINAPI vkGetSemaphoreWin32HandleKHR(VkDevice device, const VkSemaphoreGetWin32HandleInfoKHR *pGetWin32HandleInfo, HANDLE *pHandle)
+{
+    struct vkGetSemaphoreWin32HandleKHR_params params;
+    NTSTATUS status;
+    params.device = device;
+    params.pGetWin32HandleInfo = pGetWin32HandleInfo;
+    params.pHandle = pHandle;
+    status = UNIX_CALL(vkGetSemaphoreWin32HandleKHR, &params);
+    assert(!status && "vkGetSemaphoreWin32HandleKHR");
+    return params.result;
+}
+
 VkResult WINAPI vkGetShaderBinaryDataEXT(VkDevice device, VkShaderEXT shader, size_t *pDataSize, void *pData)
 {
     struct vkGetShaderBinaryDataEXT_params params;
@@ -6327,6 +6351,28 @@ VkResult WINAPI vkGetVideoSessionMemoryRequirementsKHR(VkDevice device, VkVideoS
     params.pMemoryRequirements = pMemoryRequirements;
     status = UNIX_CALL(vkGetVideoSessionMemoryRequirementsKHR, &params);
     assert(!status && "vkGetVideoSessionMemoryRequirementsKHR");
+    return params.result;
+}
+
+VkResult WINAPI vkImportFenceWin32HandleKHR(VkDevice device, const VkImportFenceWin32HandleInfoKHR *pImportFenceWin32HandleInfo)
+{
+    struct vkImportFenceWin32HandleKHR_params params;
+    NTSTATUS status;
+    params.device = device;
+    params.pImportFenceWin32HandleInfo = pImportFenceWin32HandleInfo;
+    status = UNIX_CALL(vkImportFenceWin32HandleKHR, &params);
+    assert(!status && "vkImportFenceWin32HandleKHR");
+    return params.result;
+}
+
+VkResult WINAPI vkImportSemaphoreWin32HandleKHR(VkDevice device, const VkImportSemaphoreWin32HandleInfoKHR *pImportSemaphoreWin32HandleInfo)
+{
+    struct vkImportSemaphoreWin32HandleKHR_params params;
+    NTSTATUS status;
+    params.device = device;
+    params.pImportSemaphoreWin32HandleInfo = pImportSemaphoreWin32HandleInfo;
+    status = UNIX_CALL(vkImportSemaphoreWin32HandleKHR, &params);
+    assert(!status && "vkImportSemaphoreWin32HandleKHR");
     return params.result;
 }
 
@@ -7549,6 +7595,7 @@ static const struct vulkan_func vk_device_dispatch_table[] =
     {"vkGetEncodedVideoSessionParametersKHR", vkGetEncodedVideoSessionParametersKHR},
     {"vkGetEventStatus", vkGetEventStatus},
     {"vkGetFenceStatus", vkGetFenceStatus},
+    {"vkGetFenceWin32HandleKHR", vkGetFenceWin32HandleKHR},
     {"vkGetFramebufferTilePropertiesQCOM", vkGetFramebufferTilePropertiesQCOM},
     {"vkGetGeneratedCommandsMemoryRequirementsEXT", vkGetGeneratedCommandsMemoryRequirementsEXT},
     {"vkGetGeneratedCommandsMemoryRequirementsNV", vkGetGeneratedCommandsMemoryRequirementsNV},
@@ -7598,6 +7645,7 @@ static const struct vulkan_func vk_device_dispatch_table[] =
     {"vkGetSamplerOpaqueCaptureDescriptorDataEXT", vkGetSamplerOpaqueCaptureDescriptorDataEXT},
     {"vkGetSemaphoreCounterValue", vkGetSemaphoreCounterValue},
     {"vkGetSemaphoreCounterValueKHR", vkGetSemaphoreCounterValueKHR},
+    {"vkGetSemaphoreWin32HandleKHR", vkGetSemaphoreWin32HandleKHR},
     {"vkGetShaderBinaryDataEXT", vkGetShaderBinaryDataEXT},
     {"vkGetShaderInfoAMD", vkGetShaderInfoAMD},
     {"vkGetShaderModuleCreateInfoIdentifierEXT", vkGetShaderModuleCreateInfoIdentifierEXT},
@@ -7608,6 +7656,8 @@ static const struct vulkan_func vk_device_dispatch_table[] =
     {"vkGetTensorViewOpaqueCaptureDescriptorDataARM", vkGetTensorViewOpaqueCaptureDescriptorDataARM},
     {"vkGetValidationCacheDataEXT", vkGetValidationCacheDataEXT},
     {"vkGetVideoSessionMemoryRequirementsKHR", vkGetVideoSessionMemoryRequirementsKHR},
+    {"vkImportFenceWin32HandleKHR", vkImportFenceWin32HandleKHR},
+    {"vkImportSemaphoreWin32HandleKHR", vkImportSemaphoreWin32HandleKHR},
     {"vkInitializePerformanceApiINTEL", vkInitializePerformanceApiINTEL},
     {"vkInvalidateMappedMemoryRanges", vkInvalidateMappedMemoryRanges},
     {"vkLatencySleepNV", vkLatencySleepNV},

@@ -96,15 +96,12 @@ UNSUPPORTED_EXTENSIONS = [
     "VK_AMD_display_native_hdr",
     "VK_EXT_full_screen_exclusive",
     "VK_GOOGLE_display_timing",
-    "VK_KHR_external_fence_win32",
-    "VK_KHR_external_semaphore_win32",
     # Relates to external_semaphore and needs type conversions in bitflags.
     "VK_KHR_maintenance7", # Causes infinity recursion in struct convert code
     "VK_KHR_shared_presentable_image", # Needs WSI work.
     "VK_KHR_video_encode_h265", # StdVideoH265HrdParameters cannot be handled
     "VK_KHR_video_decode_h265", # by struct conversions.
     "VK_KHR_video_maintenance2", # Also affected by StdVideoH265HrdParameters.
-    "VK_KHR_win32_keyed_mutex",
     "VK_NV_external_memory_rdma", # Needs shared resources work.
     "VK_NV_external_compute_queue", # Has a new dispatchable handle
 
@@ -190,18 +187,10 @@ FUNCTION_OVERRIDES = {
 
     # Instance functions
     "vkCreateDevice" : {"extra_param" : "client_ptr"},
-    "vkGetPhysicalDeviceExternalFenceProperties" : {"dispatch" : False},
-    "vkGetPhysicalDeviceExternalSemaphoreProperties" : {"dispatch" : False},
 
     # Device functions
     "vkCreateCommandPool" : {"extra_param" : "client_ptr"},
     "vkGetDeviceProcAddr" : {"dispatch" : False},
-
-    # VK_KHR_external_fence_capabilities
-    "vkGetPhysicalDeviceExternalFencePropertiesKHR" : {"dispatch" : False},
-
-    # VK_KHR_external_semaphore_capabilities
-    "vkGetPhysicalDeviceExternalSemaphorePropertiesKHR" : {"dispatch" : False},
 }
 
 # functions for which a user driver entry must be generated
@@ -210,9 +199,13 @@ USER_DRIVER_FUNCS = {
     "vkAcquireNextImageKHR",
     "vkAllocateMemory",
     "vkCreateBuffer",
+    "vkCreateFence",
     "vkCreateImage",
+    "vkCreateSemaphore",
     "vkCreateSwapchainKHR",
     "vkCreateWin32SurfaceKHR",
+    "vkDestroyFence",
+    "vkDestroySemaphore",
     "vkDestroySurfaceKHR",
     "vkDestroySwapchainKHR",
     "vkFreeMemory",
@@ -220,11 +213,16 @@ USER_DRIVER_FUNCS = {
     "vkGetDeviceBufferMemoryRequirementsKHR",
     "vkGetDeviceImageMemoryRequirements",
     "vkGetDeviceProcAddr",
+    "vkGetFenceWin32HandleKHR",
     "vkGetInstanceProcAddr",
     "vkGetMemoryWin32HandleKHR",
     "vkGetMemoryWin32HandlePropertiesKHR",
     "vkGetPhysicalDeviceExternalBufferProperties",
     "vkGetPhysicalDeviceExternalBufferPropertiesKHR",
+    "vkGetPhysicalDeviceExternalFenceProperties",
+    "vkGetPhysicalDeviceExternalFencePropertiesKHR",
+    "vkGetPhysicalDeviceExternalSemaphoreProperties",
+    "vkGetPhysicalDeviceExternalSemaphorePropertiesKHR",
     "vkGetPhysicalDeviceImageFormatProperties2",
     "vkGetPhysicalDeviceImageFormatProperties2KHR",
     "vkGetPhysicalDevicePresentRectanglesKHR",
@@ -233,9 +231,15 @@ USER_DRIVER_FUNCS = {
     "vkGetPhysicalDeviceSurfaceFormats2KHR",
     "vkGetPhysicalDeviceSurfaceFormatsKHR",
     "vkGetPhysicalDeviceWin32PresentationSupportKHR",
+    "vkGetSemaphoreWin32HandleKHR",
+    "vkImportFenceWin32HandleKHR",
+    "vkImportSemaphoreWin32HandleKHR",
     "vkMapMemory",
     "vkMapMemory2KHR",
     "vkQueuePresentKHR",
+    "vkQueueSubmit",
+    "vkQueueSubmit2",
+    "vkQueueSubmit2KHR",
     "vkUnmapMemory",
     "vkUnmapMemory2KHR",
 }
@@ -274,8 +278,6 @@ MANUAL_UNIX_THUNKS = {
     "vkGetPhysicalDeviceCalibrateableTimeDomainsKHR",
     "vkGetPhysicalDeviceExternalFenceProperties",
     "vkGetPhysicalDeviceExternalFencePropertiesKHR",
-    "vkGetPhysicalDeviceExternalSemaphoreProperties",
-    "vkGetPhysicalDeviceExternalSemaphorePropertiesKHR",
 }
 
 # loader functions which are entirely manually implemented
@@ -308,6 +310,11 @@ STRUCT_CHAIN_CONVERSIONS = {
     "VkImageCreateInfo": {},
     "VkPhysicalDeviceExternalBufferInfo": {},
     "VkPhysicalDeviceImageFormatInfo2": {},
+    "VkCommandBufferSubmitInfo": {},
+    "VkSemaphoreCreateInfo": {},
+    "VkFenceCreateInfo": {},
+    "VkSubmitInfo": {},
+    "VkSubmitInfo2": {},
 
     # Ignore to not confuse host loader.
     "VkDeviceCreateInfo": {"strip": ["VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO"]},
@@ -1054,7 +1061,7 @@ class VkHandle(object):
             # Should only happen for VkInstance
             return "vulkan_instance_from_handle({0})".format(param)
         elif self.name == "VkCommandBuffer":
-            return "wine_cmd_buffer_from_handle({0})->device".format(param)
+            return "vulkan_command_buffer_from_handle({0})->device".format(param)
         elif self.name == "VkDevice":
             return "vulkan_device_from_handle({0})".format(param)
         elif self.name == "VkPhysicalDevice":
@@ -1093,7 +1100,7 @@ class VkHandle(object):
         """ Provide access to the host handle of a wrapped object. """
 
         if self.name == "VkCommandBuffer":
-            return "wine_cmd_buffer_from_handle({0})->host.command_buffer".format(name)
+            return "vulkan_command_buffer_from_handle({0})->host.command_buffer".format(name)
         if self.name == "VkCommandPool":
             return "wine_cmd_pool_from_handle({0})->host.command_pool".format(name)
         if self.name == "VkDebugUtilsMessengerEXT":
@@ -1557,13 +1564,13 @@ class VkMember(VkVariable):
                 return True
 
         if self.is_handle():
-            if unwrap != Unwrap.NONE and self.handle.is_wrapped():
+            if self.handle.is_wrapped() and self.is_dynamic_array():
                 return True
-            if conv and self.handle.is_dispatchable():
+            if conv and self.handle.is_dispatchable() and self.is_static_array():
                 return True
+            return unwrap != Unwrap.NONE and self.handle.is_wrapped()
         elif self.is_generic_handle():
-            if unwrap != Unwrap.NONE:
-                return True
+            return unwrap != Unwrap.NONE
         elif self.is_struct() or self.is_union():
             if self.struct.needs_conversion(conv, unwrap, direction, is_const):
                 return True
