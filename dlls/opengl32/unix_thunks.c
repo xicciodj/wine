@@ -53900,10 +53900,9 @@ static NTSTATUS wow64_ext_glMapBuffer( void *args )
         GLenum target;
         GLenum access;
         PTR32 ret;
-        PTR32 client_ptr;
     } *params = args;
     TEB *teb = get_teb64( params->teb );
-    params->ret = wow64_glMapBuffer( teb, params->target, params->access, &params->client_ptr );
+    params->ret = wow64_glMapBuffer( teb, params->target, params->access );
     set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
@@ -53916,10 +53915,9 @@ static NTSTATUS wow64_ext_glMapBufferARB( void *args )
         GLenum target;
         GLenum access;
         PTR32 ret;
-        PTR32 client_ptr;
     } *params = args;
     TEB *teb = get_teb64( params->teb );
-    params->ret = wow64_glMapBufferARB( teb, params->target, params->access, &params->client_ptr );
+    params->ret = wow64_glMapBufferARB( teb, params->target, params->access );
     set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
@@ -53934,10 +53932,9 @@ static NTSTATUS wow64_ext_glMapBufferRange( void *args )
         PTR32 length;
         GLbitfield access;
         PTR32 ret;
-        PTR32 client_ptr;
     } *params = args;
     TEB *teb = get_teb64( params->teb );
-    params->ret = wow64_glMapBufferRange( teb, params->target, (GLintptr)ULongToPtr(params->offset), (GLsizeiptr)ULongToPtr(params->length), params->access, &params->client_ptr );
+    params->ret = wow64_glMapBufferRange( teb, params->target, (GLintptr)ULongToPtr(params->offset), (GLsizeiptr)ULongToPtr(params->length), params->access );
     set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
@@ -54006,10 +54003,9 @@ static NTSTATUS wow64_ext_glMapNamedBuffer( void *args )
         GLuint buffer;
         GLenum access;
         PTR32 ret;
-        PTR32 client_ptr;
     } *params = args;
     TEB *teb = get_teb64( params->teb );
-    params->ret = wow64_glMapNamedBuffer( teb, params->buffer, params->access, &params->client_ptr );
+    params->ret = wow64_glMapNamedBuffer( teb, params->buffer, params->access );
     set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
@@ -54022,10 +54018,9 @@ static NTSTATUS wow64_ext_glMapNamedBufferEXT( void *args )
         GLuint buffer;
         GLenum access;
         PTR32 ret;
-        PTR32 client_ptr;
     } *params = args;
     TEB *teb = get_teb64( params->teb );
-    params->ret = wow64_glMapNamedBufferEXT( teb, params->buffer, params->access, &params->client_ptr );
+    params->ret = wow64_glMapNamedBufferEXT( teb, params->buffer, params->access );
     set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
@@ -54040,10 +54035,9 @@ static NTSTATUS wow64_ext_glMapNamedBufferRange( void *args )
         PTR32 length;
         GLbitfield access;
         PTR32 ret;
-        PTR32 client_ptr;
     } *params = args;
     TEB *teb = get_teb64( params->teb );
-    params->ret = wow64_glMapNamedBufferRange( teb, params->buffer, (GLintptr)ULongToPtr(params->offset), (GLsizeiptr)ULongToPtr(params->length), params->access, &params->client_ptr );
+    params->ret = wow64_glMapNamedBufferRange( teb, params->buffer, (GLintptr)ULongToPtr(params->offset), (GLsizeiptr)ULongToPtr(params->length), params->access );
     set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
@@ -54058,10 +54052,9 @@ static NTSTATUS wow64_ext_glMapNamedBufferRangeEXT( void *args )
         PTR32 length;
         GLbitfield access;
         PTR32 ret;
-        PTR32 client_ptr;
     } *params = args;
     TEB *teb = get_teb64( params->teb );
-    params->ret = wow64_glMapNamedBufferRangeEXT( teb, params->buffer, (GLintptr)ULongToPtr(params->offset), (GLsizeiptr)ULongToPtr(params->length), params->access, &params->client_ptr );
+    params->ret = wow64_glMapNamedBufferRangeEXT( teb, params->buffer, (GLintptr)ULongToPtr(params->offset), (GLsizeiptr)ULongToPtr(params->length), params->access );
     set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
@@ -71808,10 +71801,9 @@ static NTSTATUS wow64_ext_glUnmapBuffer( void *args )
         PTR32 teb;
         GLenum target;
         GLboolean ret;
-        PTR32 client_ptr;
     } *params = args;
     TEB *teb = get_teb64( params->teb );
-    params->ret = wow64_glUnmapBuffer( teb, params->target, &params->client_ptr );
+    params->ret = wow64_glUnmapBuffer( teb, params->target );
     set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
@@ -71823,10 +71815,9 @@ static NTSTATUS wow64_ext_glUnmapBufferARB( void *args )
         PTR32 teb;
         GLenum target;
         GLboolean ret;
-        PTR32 client_ptr;
     } *params = args;
     TEB *teb = get_teb64( params->teb );
-    params->ret = wow64_glUnmapBufferARB( teb, params->target, &params->client_ptr );
+    params->ret = wow64_glUnmapBufferARB( teb, params->target );
     set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
@@ -71838,10 +71829,9 @@ static NTSTATUS wow64_ext_glUnmapNamedBuffer( void *args )
         PTR32 teb;
         GLuint buffer;
         GLboolean ret;
-        PTR32 client_ptr;
     } *params = args;
     TEB *teb = get_teb64( params->teb );
-    params->ret = wow64_glUnmapNamedBuffer( teb, params->buffer, &params->client_ptr );
+    params->ret = wow64_glUnmapNamedBuffer( teb, params->buffer );
     set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
@@ -71853,10 +71843,9 @@ static NTSTATUS wow64_ext_glUnmapNamedBufferEXT( void *args )
         PTR32 teb;
         GLuint buffer;
         GLboolean ret;
-        PTR32 client_ptr;
     } *params = args;
     TEB *teb = get_teb64( params->teb );
-    params->ret = wow64_glUnmapNamedBufferEXT( teb, params->buffer, &params->client_ptr );
+    params->ret = wow64_glUnmapNamedBufferEXT( teb, params->buffer );
     set_context_attribute( teb, -1 /* unsupported */, NULL, 0 );
     return STATUS_SUCCESS;
 }
