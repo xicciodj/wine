@@ -387,8 +387,6 @@ static inline int set_thread_area( struct modify_ldt_s *ptr )
 #error You must define the signal context functions for your platform
 #endif /* linux */
 
-static ULONG first_ldt_entry = 32;
-
 enum i386_trap_code
 {
 #if defined(__FreeBSD__) || defined (__FreeBSD_kernel__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
@@ -555,7 +553,7 @@ NTSTATUS unwind_builtin_dll( void *args )
  */
 static inline int ldt_is_system( WORD sel )
 {
-    return is_gdt_sel( sel ) || ((sel >> 3) < first_ldt_entry);
+    return is_gdt_sel( sel ) || ((sel >> 3) < 32);
 }
 
 
@@ -2171,11 +2169,9 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
  *           LDT support
  */
 
-struct ldt_copy __wine_ldt_copy;
 static WORD gdt_fs_sel;
-static pthread_mutex_t ldt_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static void ldt_set_entry( WORD sel, LDT_ENTRY entry )
+void ldt_set_entry( WORD sel, LDT_ENTRY entry )
 {
 #ifdef linux
     struct modify_ldt_s ldt_info = { .entry_number = sel >> 3 };
@@ -2216,7 +2212,6 @@ static void ldt_set_entry( WORD sel, LDT_ENTRY entry )
     fprintf( stderr, "No LDT support on this platform\n" );
     exit(1);
 #endif
-    update_ldt_copy( sel, entry );
 }
 
 static void ldt_set_fs( WORD sel, TEB *teb )
@@ -2284,26 +2279,6 @@ NTSTATUS get_thread_ldt_entry( HANDLE handle, void *data, ULONG len, ULONG *ret_
 }
 
 
-/******************************************************************************
- *           NtSetLdtEntries   (NTDLL.@)
- *           ZwSetLdtEntries   (NTDLL.@)
- */
-NTSTATUS WINAPI NtSetLdtEntries( ULONG sel1, LDT_ENTRY entry1, ULONG sel2, LDT_ENTRY entry2 )
-{
-    sigset_t sigset;
-
-    if (sel1 >> 16 || sel2 >> 16) return STATUS_INVALID_LDT_DESCRIPTOR;
-    if (sel1 && (sel1 >> 3) < first_ldt_entry) return STATUS_INVALID_LDT_DESCRIPTOR;
-    if (sel2 && (sel2 >> 3) < first_ldt_entry) return STATUS_INVALID_LDT_DESCRIPTOR;
-
-    server_enter_uninterrupted_section( &ldt_mutex, &sigset );
-    if (sel1) ldt_set_entry( sel1, entry1 );
-    if (sel2) ldt_set_entry( sel2, entry2 );
-    server_leave_uninterrupted_section( &ldt_mutex, &sigset );
-   return STATUS_SUCCESS;
-}
-
-
 /**********************************************************************
  *             signal_init_threading
  */
@@ -2336,32 +2311,8 @@ NTSTATUS signal_alloc_thread( TEB *teb )
 
     if (!gdt_fs_sel)
     {
-        static int first_thread = 1;
-        sigset_t sigset;
-        int idx;
-        LDT_ENTRY entry = ldt_make_fs32_entry( teb );
-
-        if (first_thread)  /* no locking for first thread */
-        {
-            /* leave some space if libc is using the LDT for %gs */
-            if (!is_gdt_sel( get_gs() )) first_ldt_entry = 512;
-            idx = first_ldt_entry;
-            ldt_set_entry( (idx << 3) | 7, entry );
-            first_thread = 0;
-        }
-        else
-        {
-            server_enter_uninterrupted_section( &ldt_mutex, &sigset );
-            for (idx = first_ldt_entry; idx < LDT_SIZE; idx++)
-            {
-                if (__wine_ldt_copy.flags[idx]) continue;
-                ldt_set_entry( (idx << 3) | 7, entry );
-                break;
-            }
-            server_leave_uninterrupted_section( &ldt_mutex, &sigset );
-            if (idx == LDT_SIZE) return STATUS_TOO_MANY_THREADS;
-        }
-        thread_data->fs = (idx << 3) | 7;
+        thread_data->fs = ldt_alloc_entry( ldt_make_fs32_entry( teb ));
+        if (!thread_data->fs) return STATUS_TOO_MANY_THREADS;
     }
     else thread_data->fs = gdt_fs_sel;
 
@@ -2377,13 +2328,8 @@ NTSTATUS signal_alloc_thread( TEB *teb )
 void signal_free_thread( TEB *teb )
 {
     struct x86_thread_data *thread_data = (struct x86_thread_data *)&teb->GdiTebBatch;
-    sigset_t sigset;
 
-    if (gdt_fs_sel) return;
-
-    server_enter_uninterrupted_section( &ldt_mutex, &sigset );
-    __wine_ldt_copy.flags[thread_data->fs >> 3] = 0;
-    server_leave_uninterrupted_section( &ldt_mutex, &sigset );
+    if (!gdt_fs_sel) ldt_free_entry( thread_data->fs );
 }
 
 
@@ -2400,9 +2346,13 @@ void signal_init_process(void)
     frame_size = offsetof( struct syscall_frame, xstate ) + xstate_size;
 
     thread_data->syscall_frame = (struct syscall_frame *)(((ULONG_PTR)kernel_stack - frame_size) & ~(ULONG_PTR)63);
-    x86_thread_data()->frame_size = frame_size;
 
     xstate_extended_features = user_shared_data->XState.EnabledFeatures & ~(UINT64)3;
+
+    /* leave some space if libc is using the LDT for %gs */
+    if (!gdt_fs_sel && !is_gdt_sel( get_gs() )) memset( ldt_bitmap, 0xff, 512 / 8 );
+
+    signal_alloc_thread( NtCurrentTeb() );
 
     sig_act.sa_mask = server_block_set;
     sig_act.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;

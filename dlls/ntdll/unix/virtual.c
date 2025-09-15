@@ -4104,15 +4104,13 @@ NTSTATUS virtual_alloc_teb( TEB **ret_teb )
                                  MEM_COMMIT, PAGE_READWRITE );
     }
     *ret_teb = teb = init_teb( ptr, is_wow64() );
-    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
 
     if ((status = signal_alloc_thread( teb )))
     {
-        server_enter_uninterrupted_section( &virtual_mutex, &sigset );
         *(void **)ptr = next_free_teb;
         next_free_teb = ptr;
-        server_leave_uninterrupted_section( &virtual_mutex, &sigset );
     }
+    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
     return status;
 }
 
@@ -4128,7 +4126,6 @@ void virtual_free_teb( TEB *teb )
     sigset_t sigset;
     WOW_TEB *wow_teb = get_wow_teb( teb );
 
-    signal_free_thread( teb );
     if (teb->DeallocationStack)
     {
         size = 0;
@@ -4153,12 +4150,60 @@ void virtual_free_teb( TEB *teb )
     }
 
     server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+    signal_free_thread( teb );
     list_remove( &thread_data->entry );
     ptr = teb;
     if (!is_win64) ptr = (char *)ptr - teb_offset;
     *(void **)ptr = next_free_teb;
     next_free_teb = ptr;
     server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+}
+
+
+/* LDT support */
+
+#if defined(__i386__) || defined(__x86_64__)
+
+struct ldt_copy __wine_ldt_copy = { 0 };
+UINT ldt_bitmap[LDT_SIZE / 32] = { ~0u };
+
+/***********************************************************************
+ *           ldt_update_entry
+ */
+WORD ldt_update_entry( WORD sel, LDT_ENTRY entry )
+{
+    unsigned int index = sel >> 3;
+
+    ldt_set_entry( sel, entry );
+    __wine_ldt_copy.base[index]  = ldt_get_base( entry );
+    __wine_ldt_copy.limit[index] = ldt_get_limit( entry );
+    __wine_ldt_copy.flags[index] = (entry.HighWord.Bits.Type |
+                                    (entry.HighWord.Bits.Default_Big ? LDT_FLAGS_32BIT : 0));
+    ldt_bitmap[index / 32] |= 1u << (index & 31);
+    return sel;
+}
+
+#endif /* defined(__i386__) || defined(__x86_64__) */
+
+/******************************************************************************
+ *           NtSetLdtEntries   (NTDLL.@)
+ *           ZwSetLdtEntries   (NTDLL.@)
+ */
+NTSTATUS WINAPI NtSetLdtEntries( ULONG sel1, LDT_ENTRY entry1, ULONG sel2, LDT_ENTRY entry2 )
+{
+#ifdef __i386__
+    sigset_t sigset;
+
+    if (sel1 >> 16 || sel2 >> 16) return STATUS_INVALID_LDT_DESCRIPTOR;
+
+    server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+    if (sel1) ldt_update_entry( sel1, entry1 );
+    if (sel2) ldt_update_entry( sel2, entry2 );
+    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+    return STATUS_SUCCESS;
+#else
+    return STATUS_NOT_IMPLEMENTED;
+#endif
 }
 
 

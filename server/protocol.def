@@ -971,6 +971,14 @@ union udp_endpoint
 /****************************************************************/
 /* shared session mapping structures */
 
+struct obj_locator
+{
+    object_id_t          id;               /* object unique id, object data is valid if != 0 */
+    mem_size_t           offset;           /* offset of the object in session shared memory */
+};
+
+#define MAX_ATOM_LEN     255
+
 struct shared_cursor
 {
     int                  x;                /* cursor position */
@@ -1016,6 +1024,14 @@ typedef volatile struct
 
 typedef volatile struct
 {
+    data_size_t          name_offset;        /* offset in WCHAR of the unversioned class name, constant */
+    data_size_t          name_len;           /* len in bytes of the class name, constant */
+    WCHAR                name[MAX_ATOM_LEN]; /* class name, constant */
+} class_shm_t;
+
+typedef volatile struct
+{
+    struct obj_locator   class;            /* object locator for the window class shared object */
     unsigned int         dpi_context;      /* DPI awareness context */
 } window_shm_t;
 
@@ -1024,6 +1040,7 @@ typedef volatile union
     desktop_shm_t        desktop;
     queue_shm_t          queue;
     input_shm_t          input;
+    class_shm_t          class;
     window_shm_t         window;
 } object_shm_t;
 
@@ -1038,12 +1055,6 @@ typedef volatile struct
 {
     struct user_entry user_entries[MAX_USER_HANDLES];
 } session_shm_t;
-
-struct obj_locator
-{
-    object_id_t          id;               /* object unique id, object data is valid if != 0 */
-    mem_size_t           offset;           /* offset of the object in session shared memory */
-};
 
 /****************************************************************/
 /* Request declarations */
@@ -3239,7 +3250,8 @@ enum caret_state
     data_size_t    name_offset;    /* base class name offset for specified atom */
     VARARG(name,unicode_str);      /* class name */
 @REPLY
-    atom_t         atom;           /* resulting class atom */
+    struct obj_locator locator;    /* locator for the shared class object */
+    atom_t             atom;       /* resulting class atom */
 @END
 
 

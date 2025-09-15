@@ -149,6 +149,20 @@ static NTSTATUS get_shared_window( HANDLE handle, struct object_lock *lock, cons
     return STATUS_SUCCESS;
 }
 
+struct obj_locator get_window_class_locator( HWND hwnd )
+{
+    struct object_lock lock = OBJECT_LOCK_INIT;
+    const window_shm_t *window_shm = NULL;
+    struct obj_locator locator = {0};
+    NTSTATUS status;
+
+    while ((status = get_shared_window( hwnd, &lock, &window_shm )) == STATUS_PENDING)
+        locator = window_shm->class;
+    if (status) memset( &locator, 0, sizeof(locator) );
+
+    return locator;
+}
+
 /***********************************************************************
  *           get_user_handle_ptr
  */
@@ -237,7 +251,7 @@ void *free_user_handle( HANDLE handle, unsigned short type )
 static pthread_mutex_t surfaces_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct list client_surfaces = LIST_INIT( client_surfaces );
 
-static void detach_client_surfaces( HWND hwnd )
+void detach_client_surfaces( HWND hwnd )
 {
     struct list detached = LIST_INIT( detached );
     struct client_surface *surface, *next;
@@ -337,6 +351,18 @@ void client_surface_present( struct client_surface *surface )
         if (hdc) NtUserReleaseDC( hwnd, hdc );
     }
     pthread_mutex_unlock( &surfaces_lock );
+}
+
+BOOL is_client_surface_window( struct client_surface *surface, HWND hwnd )
+{
+    BOOL ret;
+
+    if (!surface) return FALSE;
+    pthread_mutex_lock( &surfaces_lock );
+    ret = surface->hwnd == hwnd;
+    pthread_mutex_unlock( &surfaces_lock );
+
+    return ret;
 }
 
 /*******************************************************************

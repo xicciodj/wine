@@ -1101,12 +1101,10 @@ static int win32u_wglGetPixelFormat( HDC hdc )
     return format > 0 ? format : 0;
 }
 
-void set_window_opengl_drawable( HWND hwnd, struct opengl_drawable *new_drawable, BOOL current )
+static void set_window_opengl_drawable( HWND hwnd, struct opengl_drawable *new_drawable, BOOL current )
 {
     struct opengl_drawable *old_drawable = NULL;
     WND *win;
-
-    TRACE( "hwnd %p, new_drawable %s\n", hwnd, debugstr_opengl_drawable( new_drawable ) );
 
     if ((win = get_win_ptr( hwnd )) && win != WND_DESKTOP && win != WND_OTHER_PROCESS)
     {
@@ -1356,7 +1354,6 @@ static BOOL context_unset_current( struct wgl_context *context )
 /* return an updated drawable, recreating one if the window drawables have been invalidated (mostly wineandroid) */
 static struct opengl_drawable *get_updated_drawable( HDC hdc, int format, struct opengl_drawable *drawable )
 {
-    struct opengl_drawable *current;
     HWND hwnd = NULL;
 
     if (hdc && !(hwnd = NtUserWindowFromDC( hdc ))) return get_dc_opengl_drawable( hdc );
@@ -1364,9 +1361,8 @@ static struct opengl_drawable *get_updated_drawable( HDC hdc, int format, struct
     if (!hwnd) return NULL;
 
     /* if the window still has a drawable, keep using the one we have */
-    if (drawable && (current = get_window_current_drawable( hwnd )))
+    if (drawable && is_client_surface_window( drawable->client, hwnd ))
     {
-        opengl_drawable_release( current );
         opengl_drawable_add_ref( drawable );
         return drawable;
     }

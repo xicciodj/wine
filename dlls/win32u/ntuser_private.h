@@ -181,7 +181,6 @@ WNDPROC get_winproc( WNDPROC proc, BOOL ansi );
 void get_winproc_params( struct win_proc_params *params, BOOL fixup_ansi_dst );
 struct dce *get_class_dce( struct tagCLASS *class );
 struct dce *set_class_dce( struct tagCLASS *class, struct dce *dce );
-BOOL needs_ime_window( HWND hwnd );
 extern atom_t wine_server_add_atom( void *req, UNICODE_STRING *str );
 extern BOOL is_desktop_class( UNICODE_STRING *name );
 extern BOOL is_message_class( UNICODE_STRING *name );
@@ -237,6 +236,7 @@ static inline UINT win_get_flags( HWND hwnd )
     return win_set_flags( hwnd, 0, 0 );
 }
 
+struct obj_locator get_window_class_locator( HWND hwnd );
 WND *get_win_ptr( HWND hwnd );
 BOOL is_child( HWND parent, HWND child );
 BOOL is_window( HWND hwnd );

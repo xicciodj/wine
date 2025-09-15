@@ -306,12 +306,12 @@ static LRESULT MDISetMenu( HWND hwnd, HMENU hmenuFrame,
 
             ci->hWindowMenu = hmenuWindow;
 
-            /* Add items to the new Window menu */
             ci->nActiveChildren = nActiveChildren_old;
-            MDI_RefreshMenu(ci);
         }
         else
             ci->hWindowMenu = hmenuWindow;
+
+        MDI_RefreshMenu(ci);
     }
 
     if (hmenuFrame)
@@ -1357,6 +1357,7 @@ LRESULT WINAPI DefMDIChildProcA( HWND hwnd, UINT message,
 	DefWindowProcA(hwnd, message, wParam, lParam);
 	if( ci->hwndChildMaximized == hwnd )
 	    MDI_UpdateFrameText( GetParent(client), client, TRUE, NULL );
+        MDI_RefreshMenu( ci );
         return 1; /* success. FIXME: check text length */
 
     case WM_GETMINMAXINFO:
@@ -1397,6 +1398,7 @@ LRESULT WINAPI DefMDIChildProcW( HWND hwnd, UINT message,
         DefWindowProcW(hwnd, message, wParam, lParam);
         if( ci->hwndChildMaximized == hwnd )
             MDI_UpdateFrameText( GetParent(client), client, TRUE, NULL );
+        MDI_RefreshMenu( ci );
         return 1; /* success. FIXME: check text length */
 
     case WM_GETMINMAXINFO:

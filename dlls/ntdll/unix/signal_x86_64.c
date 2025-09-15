@@ -115,6 +115,7 @@ __ASM_GLOBAL_FUNC( alloc_fs_sel,
                    "int $0x80\n\t"
                    /* restore stack */
                    "movl (%rsp),%eax\n\t"     /* entry_number */
+                   "leal 0x3(,%eax,8),%eax\n\t"  /* make GDT selector */
                    "movq %r12,%rsp\n\t"
                    "popq %r12\n\t"
                    "popq %rbx\n\t"
@@ -2446,15 +2447,9 @@ static void sigsys_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 
 
 /***********************************************************************
- *           LDT support
+ *           ldt_set_entry
  */
-
-struct ldt_copy __wine_ldt_copy;
-
-static ULONG first_ldt_entry = 32;
-static pthread_mutex_t ldt_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-static void ldt_set_entry( WORD sel, LDT_ENTRY entry )
+void ldt_set_entry( WORD sel, LDT_ENTRY entry )
 {
 #if defined(__APPLE__)
     if (i386_set_ldt(sel >> 3, (union ldt_entry *)&entry, 1) < 0) perror("i386_set_ldt");
@@ -2462,7 +2457,6 @@ static void ldt_set_entry( WORD sel, LDT_ENTRY entry )
     fprintf( stderr, "No LDT support on this platform\n" );
     exit(1);
 #endif
-    update_ldt_copy( sel, entry );
 }
 
 
@@ -2470,16 +2464,6 @@ static void ldt_set_entry( WORD sel, LDT_ENTRY entry )
  *           get_thread_ldt_entry
  */
 NTSTATUS get_thread_ldt_entry( HANDLE handle, void *data, ULONG len, ULONG *ret_len )
-{
-    return STATUS_NOT_IMPLEMENTED;
-}
-
-
-/******************************************************************************
- *           NtSetLdtEntries   (NTDLL.@)
- *           ZwSetLdtEntries   (NTDLL.@)
- */
-NTSTATUS WINAPI NtSetLdtEntries( ULONG sel1, LDT_ENTRY entry1, ULONG sel2, LDT_ENTRY entry2 )
 {
     return STATUS_NOT_IMPLEMENTED;
 }
@@ -2507,20 +2491,8 @@ NTSTATUS signal_alloc_thread( TEB *teb )
     {
         if (!fs32_sel)
         {
-            sigset_t sigset;
-            int idx;
-            LDT_ENTRY entry = ldt_make_fs32_entry( wow_teb );
-
-            server_enter_uninterrupted_section( &ldt_mutex, &sigset );
-            for (idx = first_ldt_entry; idx < LDT_SIZE; idx++)
-            {
-                if (__wine_ldt_copy.flags[idx]) continue;
-                ldt_set_entry( (idx << 3) | 7, entry );
-                break;
-            }
-            server_leave_uninterrupted_section( &ldt_mutex, &sigset );
-            if (idx == LDT_SIZE) return STATUS_TOO_MANY_THREADS;
-            thread_data->fs = (idx << 3) | 7;
+            thread_data->fs = ldt_alloc_entry( ldt_make_fs32_entry( wow_teb ));
+            if (!thread_data->fs) return STATUS_TOO_MANY_THREADS;
         }
         else thread_data->fs = fs32_sel;
     }
@@ -2535,14 +2507,8 @@ NTSTATUS signal_alloc_thread( TEB *teb )
 void signal_free_thread( TEB *teb )
 {
     struct amd64_thread_data *thread_data = (struct amd64_thread_data *)&teb->GdiTebBatch;
-    sigset_t sigset;
 
-    if (teb->WowTebOffset && !fs32_sel)
-    {
-        server_enter_uninterrupted_section( &ldt_mutex, &sigset );
-        __wine_ldt_copy.flags[thread_data->fs >> 3] = 0;
-        server_leave_uninterrupted_section( &ldt_mutex, &sigset );
-    }
+    if (teb->WowTebOffset && !fs32_sel) ldt_free_entry( thread_data->fs );
 }
 
 #ifdef __APPLE__
@@ -2578,7 +2544,6 @@ void signal_init_process(void)
     frame_size = offsetof( struct syscall_frame, xstate ) + xstate_size;
 
     thread_data->syscall_frame = (struct syscall_frame *)(((ULONG_PTR)kernel_stack - frame_size) & ~(ULONG_PTR)63);
-    amd64_thread_data()->frame_size = frame_size;
 
     /* sneak in a syscall dispatcher pointer at a fixed address (7ffe1000) */
     ptr = (char *)user_shared_data + page_size;
@@ -2587,41 +2552,17 @@ void signal_init_process(void)
 
     xstate_extended_features = user_shared_data->XState.EnabledFeatures & ~(UINT64)3;
 
+    if (wow_teb)
+    {
 #ifdef __linux__
-    if (wow_teb)
-    {
-        int sel = alloc_fs_sel( -1, wow_teb );
-
         cs32_sel = 0x23;
-        if (sel != -1) amd64_thread_data()->fs = fs32_sel = (sel << 3) | 3;
-        else ERR_(seh)( "failed to allocate %%fs selector\n" );
-    }
+        fs32_sel = alloc_fs_sel( -1, wow_teb );
 #elif defined(__APPLE__)
-    if (wow_teb)
-    {
-        LDT_ENTRY cs32_entry, fs32_entry;
-        int idx;
-
-        cs32_entry = ldt_make_cs32_entry();
-        fs32_entry = ldt_make_fs32_entry( wow_teb );
-
-        for (idx = first_ldt_entry; idx < LDT_SIZE; idx++)
-        {
-            if (__wine_ldt_copy.flags[idx]) continue;
-            cs32_sel = (idx << 3) | 7;
-            ldt_set_entry( cs32_sel, cs32_entry );
-            break;
-        }
-
-        for (idx = first_ldt_entry; idx < LDT_SIZE; idx++)
-        {
-            if (__wine_ldt_copy.flags[idx]) continue;
-            amd64_thread_data()->fs = (idx << 3) | 7;
-            ldt_set_entry( amd64_thread_data()->fs, fs32_entry );
-            break;
-        }
-    }
+        cs32_sel = ldt_alloc_entry( ldt_make_cs32_entry() );
 #endif
+    }
+
+    signal_alloc_thread( NtCurrentTeb() );
 
     sig_act.sa_mask = server_block_set;
     sig_act.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;

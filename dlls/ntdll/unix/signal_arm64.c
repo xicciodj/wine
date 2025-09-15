@@ -1358,16 +1358,6 @@ NTSTATUS get_thread_ldt_entry( HANDLE handle, void *data, ULONG len, ULONG *ret_
 }
 
 
-/******************************************************************************
- *           NtSetLdtEntries   (NTDLL.@)
- *           ZwSetLdtEntries   (NTDLL.@)
- */
-NTSTATUS WINAPI NtSetLdtEntries( ULONG sel1, LDT_ENTRY entry1, ULONG sel2, LDT_ENTRY entry2 )
-{
-    return STATUS_NOT_IMPLEMENTED;
-}
-
-
 /**********************************************************************
  *             signal_init_threading
  */
@@ -1403,6 +1393,8 @@ void signal_init_process(void)
     void *kernel_stack = (char *)thread_data->kernel_stack + kernel_stack_size;
 
     thread_data->syscall_frame = (struct syscall_frame *)kernel_stack - 1;
+
+    signal_alloc_thread( NtCurrentTeb() );
 
     sig_act.sa_mask = server_block_set;
     sig_act.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;
