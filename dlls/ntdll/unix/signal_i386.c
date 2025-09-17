@@ -2266,7 +2266,7 @@ NTSTATUS get_thread_ldt_entry( HANDLE handle, void *data, ULONG len, ULONG *ret_
     {
         HANDLE process;
         struct ldt_copy *ldt_copy;
-        unsigned int base = 0, limit = 0;
+        unsigned int base = 0;
         struct ldt_bits bits = { 0 };
         unsigned int idx = info->Selector >> 3;
 
@@ -2275,7 +2275,6 @@ NTSTATUS get_thread_ldt_entry( HANDLE handle, void *data, ULONG len, ULONG *ret_
             if ((ldt_copy = (struct ldt_copy *)ULongToPtr( peb->SpareUlongs[0] )))
             {
                 base = ldt_copy->base[idx];
-                limit = ldt_copy->limit[idx];
                 bits = ldt_copy->bits[idx];
             }
         }
@@ -2293,14 +2292,13 @@ NTSTATUS get_thread_ldt_entry( HANDLE handle, void *data, ULONG len, ULONG *ret_
             {
                 ldt_copy = (struct ldt_copy *)ULongToPtr( ldt_ptr );
                 NtReadVirtualMemory( process, &ldt_copy->base[idx], &base, sizeof(base), NULL );
-                NtReadVirtualMemory( process, &ldt_copy->limit[idx], &limit, sizeof(limit), NULL );
                 NtReadVirtualMemory( process, &ldt_copy->bits[idx], &bits, sizeof(bits), NULL );
             }
             NtClose( process );
         }
 
-        if (base || limit || bits.type)
-            info->Entry = ldt_make_entry( base, limit, bits );
+        if (base || bits.limit || bits.type)
+            info->Entry = ldt_make_entry( base, bits );
         else
             status = STATUS_UNSUCCESSFUL;
     }
@@ -2387,7 +2385,6 @@ void signal_init_process(void)
     if (!gdt_fs_sel && !is_gdt_sel( get_gs() )) memset( ldt_bitmap, 0xff, 512 / 8 );
 
     signal_alloc_thread( NtCurrentTeb() );
-    peb->SpareUlongs[0] = PtrToUlong( &__wine_ldt_copy );
 
     sig_act.sa_mask = server_block_set;
     sig_act.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;
