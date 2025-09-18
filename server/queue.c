@@ -328,7 +328,7 @@ static struct msg_queue *create_msg_queue( struct thread *thread, struct thread_
         list_init( &queue->expired_timers );
         for (i = 0; i < NB_MSG_KINDS; i++) list_init( &queue->msg_list[i] );
 
-        if (get_inproc_device_fd() >= 0 && !(queue->inproc_sync = create_inproc_event_sync( 1, 0 ))) goto error;
+        if (get_inproc_device_fd() >= 0 && !(queue->inproc_sync = create_inproc_internal_sync( 1, 0 ))) goto error;
         if (!(queue->shared = alloc_shared_object())) goto error;
 
         SHARED_WRITE_BEGIN( queue->shared, queue_shm_t )
@@ -729,7 +729,7 @@ static void reset_queue_sync( struct msg_queue *queue )
 }
 
 /* check the queue status */
-static inline int is_signaled( struct msg_queue *queue )
+static inline int get_queue_status( struct msg_queue *queue )
 {
     queue_shm_t *queue_shm = queue->shared;
     return (queue_shm->wake_bits & queue_shm->wake_mask) ||
@@ -754,7 +754,7 @@ static inline void set_queue_bits( struct msg_queue *queue, unsigned int bits )
     }
     SHARED_WRITE_END;
 
-    if (is_signaled( queue )) signal_queue_sync( queue );
+    if (get_queue_status( queue )) signal_queue_sync( queue );
 }
 
 /* clear some queue bits */
@@ -774,7 +774,7 @@ static inline void clear_queue_bits( struct msg_queue *queue, unsigned int bits 
         if (queue->keystate_lock) unlock_input_keystate( queue->input );
         queue->keystate_lock = 0;
     }
-    if (!is_signaled( queue )) reset_queue_sync( queue );
+    if (!get_queue_status( queue )) reset_queue_sync( queue );
 }
 
 /* check if message is matched by the filter */
@@ -1348,14 +1348,6 @@ static int msg_queue_signaled( struct object *obj, struct wait_queue_entry *entr
 static void msg_queue_satisfied( struct object *obj, struct wait_queue_entry *entry )
 {
     struct msg_queue *queue = (struct msg_queue *)obj;
-    queue_shm_t *queue_shm = queue->shared;
-
-    SHARED_WRITE_BEGIN( queue_shm, queue_shm_t )
-    {
-        shared->wake_mask = 0;
-        shared->changed_mask = 0;
-    }
-    SHARED_WRITE_END;
     reset_queue_sync( queue );
 }
 
@@ -3178,9 +3170,8 @@ DECL_HANDLER(set_queue_mask)
         reply->wake_bits    = queue_shm->wake_bits;
         reply->changed_bits = queue_shm->changed_bits;
 
-        if (!is_signaled( queue )) reset_queue_sync( queue );
-        else if (!req->skip_wait) signal_queue_sync( queue );
-        else msg_queue_satisfied( &queue->obj, NULL );
+        if (!get_queue_status( queue )) reset_queue_sync( queue );
+        else signal_queue_sync( queue );
     }
 }
 
@@ -3202,7 +3193,7 @@ DECL_HANDLER(get_queue_status)
         }
         SHARED_WRITE_END;
 
-        if (!is_signaled( queue )) reset_queue_sync( queue );
+        if (!get_queue_status( queue )) reset_queue_sync( queue );
     }
     else reply->wake_bits = reply->changed_bits = 0;
 }
@@ -3400,7 +3391,7 @@ DECL_HANDLER(get_message)
     }
     SHARED_WRITE_END;
 
-    if (!is_signaled( queue )) reset_queue_sync( queue );
+    if (!get_queue_status( queue )) reset_queue_sync( queue );
 
     /* then check for posted messages */
     if ((filter & QS_POSTMESSAGE) &&

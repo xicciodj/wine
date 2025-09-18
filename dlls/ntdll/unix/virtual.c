@@ -182,7 +182,7 @@ static const UINT_PTR host_page_mask = 0xfff;
 #endif
 
 /* Note: these are Windows limits, you cannot change them. */
-#ifdef __i386__
+#if defined(__i386__) || defined(__x86_64__)
 static void *address_space_start = (void *)0x110000; /* keep DOS area clear */
 #else
 static void *address_space_start = (void *)0x10000;
@@ -4164,6 +4164,13 @@ void virtual_free_teb( TEB *teb )
 
 #if defined(__i386__) || defined(__x86_64__)
 
+struct ldt_copy
+{
+    unsigned int    base[LDT_SIZE];
+    struct ldt_bits bits[LDT_SIZE];
+};
+C_ASSERT( sizeof(struct ldt_copy) == 8 * LDT_SIZE );
+
 static struct ldt_copy *ldt_copy;
 
 UINT ldt_bitmap[LDT_SIZE / 32] = { ~0u };
@@ -4197,7 +4204,55 @@ WORD ldt_update_entry( WORD sel, LDT_ENTRY entry )
     return sel;
 }
 
-#endif /* defined(__i386__) || defined(__x86_64__) */
+/***********************************************************************
+ *           ldt_get_entry
+ */
+NTSTATUS ldt_get_entry( WORD sel, CLIENT_ID client_id, LDT_ENTRY *entry )
+{
+    NTSTATUS status = STATUS_SUCCESS;
+    unsigned int base = 0;
+    struct ldt_bits bits = { 0 };
+    unsigned int idx = sel >> 3;
+
+    if (client_id.UniqueProcess == NtCurrentTeb()->ClientId.UniqueProcess)
+    {
+        if (ldt_copy)
+        {
+            base = ldt_copy->base[idx];
+            bits = ldt_copy->bits[idx];
+        }
+    }
+    else
+    {
+        HANDLE process;
+        ULONG ptr = 0;
+        PEB32 *peb32 = NULL;
+
+        if ((status = NtOpenProcess( &process, PROCESS_ALL_ACCESS, NULL, &client_id ))) return status;
+
+        if (!is_win64)
+        {
+            PROCESS_BASIC_INFORMATION pbi;
+
+            NtQueryInformationProcess( process, ProcessBasicInformation, &pbi, sizeof(pbi), NULL );
+            peb32 = (PEB32 *)pbi.PebBaseAddress;
+        }
+        else NtQueryInformationProcess( process, ProcessWow64Information, &peb32, sizeof(peb32), NULL );
+
+        if (!NtReadVirtualMemory( process, &peb32->SpareUlongs[0], &ptr, sizeof(ptr), NULL ) && ptr)
+        {
+            struct ldt_copy *ldt = ULongToPtr( ptr );
+            NtReadVirtualMemory( process, &ldt->base[idx], &base, sizeof(base), NULL );
+            NtReadVirtualMemory( process, &ldt->bits[idx], &bits, sizeof(bits), NULL );
+        }
+        NtClose( process );
+    }
+
+    if (base || bits.limit || bits.type) *entry = ldt_make_entry( base, bits );
+    else status = STATUS_UNSUCCESSFUL;
+
+    return status;
+}
 
 /******************************************************************************
  *           NtSetLdtEntries   (NTDLL.@)
@@ -4205,9 +4260,9 @@ WORD ldt_update_entry( WORD sel, LDT_ENTRY entry )
  */
 NTSTATUS WINAPI NtSetLdtEntries( ULONG sel1, LDT_ENTRY entry1, ULONG sel2, LDT_ENTRY entry2 )
 {
-#ifdef __i386__
     sigset_t sigset;
 
+    if (is_win64 && !is_wow64()) return STATUS_NOT_IMPLEMENTED;
     if (sel1 >> 16 || sel2 >> 16) return STATUS_INVALID_LDT_DESCRIPTOR;
 
     server_enter_uninterrupted_section( &virtual_mutex, &sigset );
@@ -4215,10 +4270,20 @@ NTSTATUS WINAPI NtSetLdtEntries( ULONG sel1, LDT_ENTRY entry1, ULONG sel2, LDT_E
     if (sel2) ldt_update_entry( sel2, entry2 );
     server_leave_uninterrupted_section( &virtual_mutex, &sigset );
     return STATUS_SUCCESS;
-#else
-    return STATUS_NOT_IMPLEMENTED;
-#endif
 }
+
+#else /* defined(__i386__) || defined(__x86_64__) */
+
+/******************************************************************************
+ *           NtSetLdtEntries   (NTDLL.@)
+ *           ZwSetLdtEntries   (NTDLL.@)
+ */
+NTSTATUS WINAPI NtSetLdtEntries( ULONG sel1, LDT_ENTRY entry1, ULONG sel2, LDT_ENTRY entry2 )
+{
+    return STATUS_NOT_IMPLEMENTED;
+}
+
+#endif /* defined(__i386__) || defined(__x86_64__) */
 
 
 /***********************************************************************
@@ -4959,13 +5024,16 @@ void virtual_set_large_address_space(void)
 {
     if (is_win64)
     {
-        if (is_wow64())
-            user_space_wow_limit = ((main_image_info.ImageCharacteristics & IMAGE_FILE_LARGE_ADDRESS_AWARE) ? limit_4g : limit_2g) - 1;
+        if (!is_wow64())
+        {
+            address_space_start = (void *)0x10000;
 #ifndef __APPLE__  /* don't free the zerofill section on macOS */
-        else if ((main_image_info.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA) &&
-                 (main_image_info.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE))
-            free_reserved_memory( 0, (char *)0x7ffe0000 );
+            if ((main_image_info.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA) &&
+                (main_image_info.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE))
+                free_reserved_memory( 0, (char *)0x7ffe0000 );
 #endif
+        }
+        else user_space_wow_limit = ((main_image_info.ImageCharacteristics & IMAGE_FILE_LARGE_ADDRESS_AWARE) ? limit_4g : limit_2g) - 1;
     }
     else
     {

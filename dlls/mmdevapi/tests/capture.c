@@ -21,6 +21,7 @@
  * - IAudioClient with eCapture and IAudioCaptureClient
  */
 
+#include <stdint.h>
 #include <math.h>
 
 #include "wine/test.h"
@@ -106,17 +107,22 @@ static void test_uninitialized(IAudioClient *ac)
     CloseHandle(handle);
 }
 
+struct read_packets_data
+{
+    UINT64 expected_dev_pos;
+};
+
 static void read_packets(IAudioClient *ac, IAudioCaptureClient *acc, HANDLE handle,
-        unsigned int packet_count)
+        unsigned int packet_count, struct read_packets_data *data)
 {
     unsigned int idx = 0;
     HRESULT hr;
 
     while (idx < packet_count)
     {
-        UINT32 next_packet_size, frames, padding;
-        UINT64 dev_pos, qpc_pos;
-        DWORD flags;
+        UINT32 next_packet_size, frames, frames2, padding;
+        UINT64 dev_pos, dev_pos2, qpc_pos, qpc_pos2;
+        DWORD flags, flags2;
         BYTE *ptr;
 
         winetest_push_context("packet %u", idx);
@@ -152,13 +158,78 @@ static void read_packets(IAudioClient *ac, IAudioCaptureClient *acc, HANDLE hand
         ok(next_packet_size == frames, "GetNextPacketSize returns %u, GetBuffer returns %u frames\n",
                 next_packet_size, frames);
 
+        hr = IAudioCaptureClient_GetNextPacketSize(acc, &next_packet_size);
+        ok(hr == S_OK, "GetNextPacketSize returns %08lx\n", hr);
+        ok(next_packet_size == frames, "GetNextPacketSize returns %u, GetBuffer returns %u frames\n",
+                next_packet_size, frames);
+
         hr = IAudioClient_GetCurrentPadding(ac, &padding);
         ok(hr == S_OK, "GetCurrentPadding returns %08lx\n", hr);
         ok(padding >= frames, "GetCurrentPadding returns %u, GetBuffer returns %u frames\n",
                 padding, frames);
 
+        if (data->expected_dev_pos != UINT64_MAX)
+        {
+            /* Win <= 8 and some older Win 10 builds sometimes handle discontinuities incorrectly. */
+            ok(dev_pos >= data->expected_dev_pos || broken(dev_pos < data->expected_dev_pos),
+                    "GetBuffer returns %I64u device position, expected at least %I64u\n",
+                    dev_pos, data->expected_dev_pos);
+            if (!(flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY))
+                ok(dev_pos == data->expected_dev_pos || broken(dev_pos != data->expected_dev_pos),
+                        "GetBuffer returns %I64u device position, expected %I64u\n",
+                        dev_pos, data->expected_dev_pos);
+        }
+
+        ptr = (void*)0xdeadf00ddeadf00d;
+        flags2 = 0xdeadf11d;
+        dev_pos2 = 0xdeadf22ddeadf22d;
+        qpc_pos2 = 0xdeadf33ddeadf33d;
+        hr = IAudioCaptureClient_GetBuffer(acc, &ptr, &frames2, &flags2, &dev_pos2, &qpc_pos2);
+        ok(hr == AUDCLNT_E_OUT_OF_ORDER, "Second GetBuffer returns %08lx\n", hr);
+        ok(broken((uintptr_t)ptr == (uintptr_t)0xdeadf00ddeadf00d) || /* <= win8 */
+                !ptr, "Unexpected data after second GetBuffer: %p\n", ptr);
+        ok(flags2 == 0xdeadf11d, "Unexpected flags after second GetBuffer: %08lx\n", flags2);
+        ok(dev_pos2 == 0xdeadf22ddeadf22d, "Unexpected device position after second GetBuffer: %I64u\n", dev_pos2);
+        ok(qpc_pos2 == 0xdeadf33ddeadf33d, "Unexpected QPC position after second GetBuffer: %I64u\n", qpc_pos2);
+
+        hr = IAudioCaptureClient_ReleaseBuffer(acc, 0);
+        ok(hr == S_OK, "Releasing buffer returns %08lx\n", hr);
+
+        hr = IAudioCaptureClient_ReleaseBuffer(acc, 0);
+        ok(hr == S_OK, "Releasing buffer again returns %08lx\n", hr);
+
+        hr = IAudioCaptureClient_ReleaseBuffer(acc, frames);
+        ok(hr == AUDCLNT_E_OUT_OF_ORDER, "Releasing buffer again returns %08lx\n", hr);
+
+        hr = IAudioCaptureClient_GetNextPacketSize(acc, &next_packet_size);
+        ok(hr == S_OK, "GetNextPacketSize returns %08lx\n", hr);
+        ok(next_packet_size == frames, "GetNextPacketSize returns %u, GetBuffer returns %u frames\n",
+                next_packet_size, frames);
+
+        hr = IAudioCaptureClient_GetBuffer(acc, &ptr, &frames2, &flags2, &dev_pos2, &qpc_pos2);
+        ok(hr == S_OK, "GetBuffer returns %08lx\n", hr);
+
+        ok(frames == frames2, "First GetBuffer returns %u frames, second GetBuffer returns %u\n",
+                frames, frames2);
+        ok(flags == flags2, "First GetBuffer returns %08lx flags, second GetBuffer returns %08lx\n",
+                flags, flags2);
+        ok(dev_pos == dev_pos2, "First GetBuffer returns %I64u device position, second GetBuffer returns %I64u\n",
+                dev_pos, dev_pos2);
+        /* Works with Pulse, but fails with ALSA and CoreAudio. */
+        todo_wine_if(qpc_pos != qpc_pos2)
+        ok(qpc_pos == qpc_pos2, "First GetBuffer returns %I64u device QPC, second GetBuffer returns %I64u\n",
+                qpc_pos, qpc_pos2);
+
+        hr = IAudioCaptureClient_ReleaseBuffer(acc, frames - 1);
+        ok(hr == AUDCLNT_E_INVALID_SIZE, "Releasing buffer with the wrong frame count returns %08lx\n", hr);
+
         hr = IAudioCaptureClient_ReleaseBuffer(acc, frames);
         ok(hr == S_OK, "Releasing buffer returns %08lx\n", hr);
+
+        hr = IAudioCaptureClient_ReleaseBuffer(acc, 0);
+        ok(hr == S_OK, "Releasing buffer again returns %08lx\n", hr);
+
+        data->expected_dev_pos = dev_pos + frames;
 
         ++idx;
 
@@ -168,6 +239,7 @@ static void read_packets(IAudioClient *ac, IAudioCaptureClient *acc, HANDLE hand
 
 static void test_capture(IAudioClient *ac, HANDLE handle, WAVEFORMATEX *wfx)
 {
+    struct read_packets_data packets_data;
     IAudioCaptureClient *acc;
     HRESULT hr;
     UINT32 frames, next, pad, sum = 0;
@@ -456,7 +528,9 @@ static void test_capture(IAudioClient *ac, HANDLE handle, WAVEFORMATEX *wfx)
     hr = IAudioClient_Start(ac);
     ok(hr == S_OK, "Start on a stopped stream returns %08lx\n", hr);
 
-    read_packets(ac, acc, handle, 10);
+    packets_data.expected_dev_pos = sum;
+
+    read_packets(ac, acc, handle, 10, &packets_data);
 
     IAudioCaptureClient_Release(acc);
 }

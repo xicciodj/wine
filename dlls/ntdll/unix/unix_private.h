@@ -313,7 +313,7 @@ extern void virtual_fill_image_information( const struct pe_image_info *pe_info,
 extern void *get_builtin_so_handle( void *module );
 extern NTSTATUS load_builtin_unixlib( void *module, const char *name );
 
-extern NTSTATUS get_thread_ldt_entry( HANDLE handle, void *data, ULONG len, ULONG *ret_len );
+extern NTSTATUS get_thread_ldt_entry( HANDLE handle, THREAD_DESCRIPTOR_INFORMATION *info, ULONG len );
 extern void *get_native_context( CONTEXT *context );
 extern void *get_wow_context( CONTEXT *context );
 extern BOOL get_thread_times( int unix_pid, int unix_tid, LARGE_INTEGER *kernel_time,
@@ -604,17 +604,11 @@ struct ldt_bits
 
 #define LDT_SIZE 8192
 
-struct ldt_copy
-{
-    unsigned int    base[LDT_SIZE];
-    struct ldt_bits bits[LDT_SIZE];
-};
-C_ASSERT( sizeof(struct ldt_copy) == 8 * LDT_SIZE );
-
 extern UINT ldt_bitmap[LDT_SIZE / 32];
 
 extern void ldt_set_entry( WORD sel, LDT_ENTRY entry );
 extern WORD ldt_update_entry( WORD sel, LDT_ENTRY entry );
+extern NTSTATUS ldt_get_entry( WORD sel, CLIENT_ID client_id, LDT_ENTRY *entry );
 
 static const LDT_ENTRY null_entry;
 static const struct ldt_bits data_segment = { .type = 0x13, .default_big = 1 };
