@@ -543,6 +543,49 @@ end:
 }
 
 /****************************************************************************
+ * WCMD_copy_loop
+ *
+ * Copies from a file
+ *    optionally reading only until EOF (ascii copy)
+ * Returns TRUE on success
+ */
+static BOOL WCMD_copy_loop(HANDLE in, HANDLE out, BOOL ascii)
+{
+    BOOL   ok;
+    DWORD  bytesread, byteswritten;
+    char *eof = NULL;
+
+    /* Loop copying data from source to destination until EOF read */
+    do
+    {
+        char buffer[MAXSTRING];
+
+        ok = ReadFile(in, buffer, MAXSTRING, &bytesread, NULL);
+        if (ok) {
+
+            /* Stop at first EOF */
+            if (ascii) {
+                eof = (char *)memchr((void *)buffer, '\x1a', bytesread);
+                if (eof) bytesread = (eof - buffer);
+            }
+
+            if (bytesread) {
+                ok = WriteFile(out, buffer, bytesread, &byteswritten, NULL);
+                if (!ok || byteswritten != bytesread) {
+                    WINE_ERR("Unexpected failure writing, rc=%ld\n",
+                             GetLastError());
+                }
+            }
+        } else {
+            WINE_ERR("Unexpected failure reading, rc=%ld\n",
+                     GetLastError());
+        }
+    } while (ok && bytesread > 0 && !eof);
+
+    return ok;
+}
+
+/****************************************************************************
  * WCMD_ManualCopy
  *
  * Copies from a file
@@ -554,7 +597,6 @@ static BOOL WCMD_ManualCopy(WCHAR *srcname, WCHAR *dstname, BOOL ascii, BOOL app
 {
     HANDLE in,out;
     BOOL   ok;
-    DWORD  bytesread, byteswritten;
 
     WINE_TRACE("Manual Copying %s to %s (ascii: %u) (append: %u)\n",
                wine_dbgstr_w(srcname), wine_dbgstr_w(dstname), ascii, append);
@@ -580,32 +622,7 @@ static BOOL WCMD_ManualCopy(WCHAR *srcname, WCHAR *dstname, BOOL ascii, BOOL app
       SetFilePointer(out, 0, NULL, FILE_END);
     }
 
-    /* Loop copying data from source to destination until EOF read */
-    do
-    {
-      char buffer[MAXSTRING];
-
-      ok = ReadFile(in, buffer, MAXSTRING, &bytesread, NULL);
-      if (ok) {
-
-        /* Stop at first EOF */
-        if (ascii) {
-          char *ptr = (char *)memchr((void *)buffer, '\x1a', bytesread);
-          if (ptr) bytesread = (ptr - buffer);
-        }
-
-        if (bytesread) {
-          ok = WriteFile(out, buffer, bytesread, &byteswritten, NULL);
-          if (!ok || byteswritten != bytesread) {
-            WINE_ERR("Unexpected failure writing to %s, rc=%ld\n",
-                     wine_dbgstr_w(dstname), GetLastError());
-          }
-        }
-      } else {
-        WINE_ERR("Unexpected failure reading from %s, rc=%ld\n",
-                 wine_dbgstr_w(srcname), GetLastError());
-      }
-    } while (ok && bytesread > 0);
+    ok = WCMD_copy_loop(in, out, ascii);
 
     CloseHandle(out);
     CloseHandle(in);
@@ -3421,31 +3438,30 @@ RETURN_CODE WCMD_type(WCHAR *args)
   while (argN) {
     WCHAR *thisArg = WCMD_parameter (args, argno++, &argN, FALSE, FALSE);
 
-    HANDLE h;
-    WCHAR buffer[512];
-    DWORD count;
+    HANDLE hIn, hOut;
+    DWORD console_mode;
 
     if (!argN) break;
 
     WINE_TRACE("type: Processing arg '%s'\n", wine_dbgstr_w(thisArg));
-    h = CreateFileW(thisArg, GENERIC_READ, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h == INVALID_HANDLE_VALUE) {
+    hIn = CreateFileW(thisArg, GENERIC_READ, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hIn == INVALID_HANDLE_VALUE) {
       WCMD_print_error ();
       WCMD_output_stderr(WCMD_LoadMessage(WCMD_READFAIL), thisArg);
       return errorlevel = ERROR_INVALID_FUNCTION;
-    } else {
-      if (writeHeaders) {
-        WCMD_output_stderr(L"\n%1\n\n\n", thisArg);
-      }
-      while (WCMD_ReadFile(h, buffer, ARRAY_SIZE(buffer) - 1, &count)) {
-        if (count == 0) break;	/* ReadFile reports success on EOF! */
-        buffer[count] = 0;
-        WCMD_output_asis (buffer);
-      }
-      CloseHandle (h);
     }
+    hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+
+    if (writeHeaders) {
+      WCMD_output_stderr(L"\n%1\n\n\n", thisArg);
+    }
+
+    WCMD_copy_loop(hIn, hOut, GetConsoleMode(hIn, &console_mode) || GetConsoleMode(hOut, &console_mode));
+
+    CloseHandle (hIn);
   }
+
   return errorlevel = return_code;
 }
 

@@ -3137,17 +3137,25 @@ static void test_WriteNmToken(void)
     ok(hr == E_UNEXPECTED, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_WriteNmToken(writer, L"");
-    todo_wine
     ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_WriteNmToken(writer, NULL);
-    todo_wine
     ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
 
     stream = writer_set_output(writer);
 
+    hr = IXmlWriter_WriteNmToken(writer, NULL);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXmlWriter_WriteNmToken(writer, L"");
+    ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
+
     hr = IXmlWriter_WriteNmToken(writer, L"token");
     ok(hr == WR_E_INVALIDACTION, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXmlWriter_WriteNmToken(writer, L"@");
+    todo_wine
+    ok(hr == WC_E_NAMECHARACTER, "Unexpected hr %#lx.\n", hr);
 
     IStream_Release(stream);
     stream = writer_set_output(writer);
@@ -3161,14 +3169,19 @@ static void test_WriteNmToken(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_WriteNmToken(writer, L"na@me");
-    todo_wine
     ok(hr == WC_E_NAMECHARACTER, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXmlWriter_WriteNmToken(writer, L"na me");
+    ok(hr == WC_E_NAMECHARACTER, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXmlWriter_WriteNmToken(writer, L":-._");
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_Flush(writer);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     CHECK_OUTPUT(stream,
-        "<a");
+        "<a>:-._");
 
     IStream_Release(stream);
     stream = writer_set_output(writer);
@@ -3180,7 +3193,6 @@ static void test_WriteNmToken(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_WriteNmToken(writer, L"na:me:x");
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_WriteEndDocument(writer);
@@ -3189,10 +3201,20 @@ static void test_WriteNmToken(void)
     hr = IXmlWriter_WriteNmToken(writer, L"name");
     ok(hr == WR_E_INVALIDACTION, "Unexpected hr %#lx.\n", hr);
 
+    hr = IXmlWriter_WriteNmToken(writer, L"na me");
+    todo_wine
+    ok(hr == WC_E_NAMECHARACTER, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXmlWriter_WriteNmToken(writer, L"");
+    ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXmlWriter_WriteNmToken(writer, NULL);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
+
     hr = IXmlWriter_Flush(writer);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
-    CHECK_OUTPUT_TODO(stream,
+    CHECK_OUTPUT(stream,
         "<a>na:me:x</a>");
 
     IStream_Release(stream);
