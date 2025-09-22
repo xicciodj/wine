@@ -18,6 +18,7 @@
 
 typedef unsigned int obj_handle_t;
 typedef unsigned int user_handle_t;
+typedef unsigned int d3dkmt_handle_t;
 typedef unsigned int atom_t;
 typedef unsigned int process_id_t;
 typedef unsigned int thread_id_t;
@@ -950,6 +951,14 @@ union udp_endpoint
         unsigned int scope_id;
         unsigned int port;
     } ipv6;
+};
+
+enum d3dkmt_type
+{
+    D3DKMT_ADAPTER      = 1,
+    D3DKMT_DEVICE       = 2,
+    D3DKMT_SOURCE       = 3,
+    D3DKMT_MUTEX        = 4,
 };
 
 
@@ -5972,6 +5981,20 @@ struct get_inproc_sync_fd_reply
 };
 
 
+
+struct d3dkmt_object_create_request
+{
+    struct request_header __header;
+    unsigned int        type;
+};
+struct d3dkmt_object_create_reply
+{
+    struct reply_header __header;
+    d3dkmt_handle_t     global;
+    obj_handle_t        handle;
+};
+
+
 enum request
 {
     REQ_new_process,
@@ -6271,6 +6294,7 @@ enum request
     REQ_get_next_thread,
     REQ_set_keyboard_repeat,
     REQ_get_inproc_sync_fd,
+    REQ_d3dkmt_object_create,
     REQ_NB_REQUESTS
 };
 
@@ -6575,6 +6599,7 @@ union generic_request
     struct get_next_thread_request get_next_thread_request;
     struct set_keyboard_repeat_request set_keyboard_repeat_request;
     struct get_inproc_sync_fd_request get_inproc_sync_fd_request;
+    struct d3dkmt_object_create_request d3dkmt_object_create_request;
 };
 union generic_reply
 {
@@ -6877,8 +6902,9 @@ union generic_reply
     struct get_next_thread_reply get_next_thread_reply;
     struct set_keyboard_repeat_reply set_keyboard_repeat_reply;
     struct get_inproc_sync_fd_reply get_inproc_sync_fd_reply;
+    struct d3dkmt_object_create_reply d3dkmt_object_create_reply;
 };
 
-#define SERVER_PROTOCOL_VERSION 901
+#define SERVER_PROTOCOL_VERSION 903
 
 #endif /* __WINE_WINE_SERVER_PROTOCOL_H */

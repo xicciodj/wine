@@ -34,6 +34,7 @@
 
 typedef unsigned int obj_handle_t;
 typedef unsigned int user_handle_t;
+typedef unsigned int d3dkmt_handle_t;
 typedef unsigned int atom_t;
 typedef unsigned int process_id_t;
 typedef unsigned int thread_id_t;
@@ -966,6 +967,14 @@ union udp_endpoint
         unsigned int scope_id;
         unsigned int port;
     } ipv6;
+};
+
+enum d3dkmt_type
+{
+    D3DKMT_ADAPTER      = 1,
+    D3DKMT_DEVICE       = 2,
+    D3DKMT_SOURCE       = 3,
+    D3DKMT_MUTEX        = 4,
 };
 
 /****************************************************************/
@@ -4138,4 +4147,13 @@ enum inproc_sync_type
 @REPLY
     int           type;         /* inproc sync type */
     unsigned int access;        /* handle access rights */
+@END
+
+
+/* Create a global d3dkmt object */
+@REQ(d3dkmt_object_create)
+    unsigned int        type;           /* d3dkmt object type */
+@REPLY
+    d3dkmt_handle_t     global;         /* global d3dkmt handle */
+    obj_handle_t        handle;         /* internal handle of the server object */
 @END

@@ -31,19 +31,15 @@
 #include "win32u_private.h"
 #include "ntuser_private.h"
 
-WINE_DEFAULT_DEBUG_CHANNEL(vulkan);
-
-enum d3dkmt_type
-{
-    D3DKMT_ADAPTER      = 1,
-    D3DKMT_DEVICE       = 2,
-    D3DKMT_SOURCE       = 3,
-};
+WINE_DEFAULT_DEBUG_CHANNEL(d3dkmt);
 
 struct d3dkmt_object
 {
     enum d3dkmt_type    type;           /* object type */
     D3DKMT_HANDLE       local;          /* object local handle */
+    D3DKMT_HANDLE       global;         /* object global handle */
+    BOOL                shared;         /* object is shared using nt handles */
+    HANDLE              handle;         /* internal handle of the server object */
 };
 
 struct d3dkmt_adapter
@@ -69,80 +65,91 @@ struct d3dkmt_vidpn_source
 static pthread_mutex_t d3dkmt_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct list d3dkmt_vidpn_sources = LIST_INIT( d3dkmt_vidpn_sources );   /* VidPN source information list */
 
-static struct d3dkmt_object **objects;
-static unsigned int object_count, object_capacity, last_index;
+static struct d3dkmt_object **objects, **objects_end, **objects_next;
 
-/* return the position of the first object which handle is not less than
- * the given local handle, d3dkmt_lock must be held. */
-static unsigned int object_handle_lower_bound( D3DKMT_HANDLE local )
+#define D3DKMT_HANDLE_BIT  0x40000000
+
+static D3DKMT_HANDLE index_to_handle( int index )
 {
-    unsigned int begin = 0, end = object_count, mid;
+    return (index << 6) | D3DKMT_HANDLE_BIT;
+}
 
-    while (begin < end)
-    {
-        mid = begin + (end - begin) / 2;
-        if (objects[mid]->local < local) begin = mid + 1;
-        else end = mid;
-    }
+static int handle_to_index( D3DKMT_HANDLE handle )
+{
+    return (handle & ~0xc0000000) >> 6;
+}
 
-    return begin;
+static NTSTATUS init_handle_table(void)
+{
+    if (!(objects = calloc( 1024, sizeof(*objects) ))) return STATUS_NO_MEMORY;
+    objects_end = objects + 1024;
+    objects_next = objects;
+    return STATUS_SUCCESS;
+}
+
+static struct d3dkmt_object **grow_handle_table(void)
+{
+    size_t old_capacity = objects_end - objects, max_capacity = handle_to_index( D3DKMT_HANDLE_BIT - 1 );
+    unsigned int new_capacity = old_capacity * 3 / 2;
+    struct d3dkmt_object **tmp;
+
+    if (new_capacity > max_capacity) new_capacity = max_capacity;
+    if (new_capacity <= old_capacity) return NULL; /* exhausted handle capacity */
+
+    if (!(tmp = realloc( objects, new_capacity * sizeof(*objects) ))) return NULL;
+    memset( tmp + old_capacity, 0, (new_capacity - old_capacity) * sizeof(*tmp) );
+
+    objects = tmp;
+    objects_end = tmp + new_capacity;
+    objects_next = tmp + old_capacity;
+
+    return objects_next;
 }
 
 /* allocate a d3dkmt object with a local handle */
 static NTSTATUS alloc_object_handle( struct d3dkmt_object *object )
 {
-    D3DKMT_HANDLE handle = 0;
-    unsigned int index;
+    struct d3dkmt_object **entry;
 
     pthread_mutex_lock( &d3dkmt_lock );
+    if (!objects && init_handle_table()) goto done;
 
-    if (object_count >= object_capacity)
+    for (entry = objects_next; entry < objects_end; entry++) if (!*entry) break;
+    if (entry == objects_end)
     {
-        unsigned int capacity = max( 32, object_capacity * 3 / 2 );
-        struct d3dkmt_object **tmp;
-        assert( capacity > object_capacity );
-
-        if (capacity >= 0xffff) goto done;
-        if (!(tmp = realloc( objects, capacity * sizeof(*objects) ))) goto done;
-        object_capacity = capacity;
-        objects = tmp;
+        for (entry = objects; entry < objects_next; entry++) if (!*entry) break;
+        if (entry == objects_next && !(entry = grow_handle_table())) goto done;
     }
 
-    last_index += 0x40;
-    handle = object->local = (last_index & ~0xc0000000) | 0x40000000;
-    index = object_handle_lower_bound( object->local );
-    if (index < object_count) memmove( objects + index + 1, objects, (object_count - index) * sizeof(*objects) );
-    objects[index] = object;
-    object_count++;
+    object->local = index_to_handle( entry - objects );
+    objects_next = entry + 1;
+    *entry = object;
 
 done:
     pthread_mutex_unlock( &d3dkmt_lock );
-    return handle ? STATUS_SUCCESS : STATUS_NO_MEMORY;
+    return object->local ? STATUS_SUCCESS : STATUS_NO_MEMORY;
 }
 
 /* free a d3dkmt local object handle */
 static void free_object_handle( struct d3dkmt_object *object )
 {
-    unsigned int index;
+    unsigned int index = handle_to_index( object->local );
 
     pthread_mutex_lock( &d3dkmt_lock );
-    index = object_handle_lower_bound( object->local );
-    assert( index < object_count && objects[index] == object );
-    object_count--;
+    assert( objects + index < objects_end && objects[index] == object );
+    objects[index] = NULL;
     object->local = 0;
-    memmove( objects + index, objects + index + 1, (object_count - index) * sizeof(*objects) );
     pthread_mutex_unlock( &d3dkmt_lock );
 }
 
 /* return a pointer to a d3dkmt object from its local handle */
 static void *get_d3dkmt_object( D3DKMT_HANDLE local, enum d3dkmt_type type )
 {
+    unsigned int index = handle_to_index( local );
     struct d3dkmt_object *object;
-    unsigned int index;
 
     pthread_mutex_lock( &d3dkmt_lock );
-    index = object_handle_lower_bound( local );
-    if (index >= object_count) object = NULL;
+    if (objects + index >= objects_end) object = NULL;
     else object = objects[index];
     pthread_mutex_unlock( &d3dkmt_lock );
 
@@ -161,9 +168,33 @@ static NTSTATUS d3dkmt_object_alloc( UINT size, enum d3dkmt_type type, void **ob
     return STATUS_SUCCESS;
 }
 
+/* create a global D3DKMT object, either with a global handle or later shareable */
+static NTSTATUS d3dkmt_object_create( struct d3dkmt_object *object, BOOL shared )
+{
+    NTSTATUS status;
+
+    SERVER_START_REQ( d3dkmt_object_create )
+    {
+        req->type = object->type;
+        status = wine_server_call( req );
+        object->handle = wine_server_ptr_handle( reply->handle );
+        object->global = reply->global;
+        object->shared = shared;
+    }
+    SERVER_END_REQ;
+
+    if (!status) status = alloc_object_handle( object );
+
+    if (status) WARN( "Failed to create global object for %p, status %#x\n", object, status );
+    else TRACE( "Created global object %#x for %p/%#x\n", object->global, object, object->local );
+    return status;
+}
+
 static void d3dkmt_object_free( struct d3dkmt_object *object )
 {
+    TRACE( "object %p/%#x, global %#x\n", object, object->local, object->global );
     if (object->local) free_object_handle( object );
+    if (object->handle) NtClose( object->handle );
     free( object );
 }
 
@@ -830,8 +861,23 @@ NTSTATUS WINAPI NtGdiDdDDIQueryResourceInfoFromNtHandle( D3DKMT_QUERYRESOURCEINF
  */
 NTSTATUS WINAPI NtGdiDdDDICreateKeyedMutex2( D3DKMT_CREATEKEYEDMUTEX2 *params )
 {
-    FIXME( "params %p stub!\n", params );
-    return STATUS_NOT_IMPLEMENTED;
+    struct d3dkmt_object *mutex;
+    NTSTATUS status;
+
+    FIXME( "params %p semi-stub!\n", params );
+
+    if (!params) return STATUS_INVALID_PARAMETER;
+
+    if ((status = d3dkmt_object_alloc( sizeof(*mutex), D3DKMT_MUTEX, (void **)&mutex ))) return status;
+    if ((status = d3dkmt_object_create( mutex, params->Flags.NtSecuritySharing ))) goto failed;
+
+    params->hSharedHandle = mutex->shared ? 0 : mutex->global;
+    params->hKeyedMutex = mutex->local;
+    return STATUS_SUCCESS;
+
+failed:
+    d3dkmt_object_free( mutex );
+    return status;
 }
 
 /******************************************************************************
@@ -839,8 +885,18 @@ NTSTATUS WINAPI NtGdiDdDDICreateKeyedMutex2( D3DKMT_CREATEKEYEDMUTEX2 *params )
  */
 NTSTATUS WINAPI NtGdiDdDDICreateKeyedMutex( D3DKMT_CREATEKEYEDMUTEX *params )
 {
-    FIXME( "params %p stub!\n", params );
-    return STATUS_NOT_IMPLEMENTED;
+    D3DKMT_CREATEKEYEDMUTEX2 params2 = {0};
+    NTSTATUS status;
+
+    TRACE( "params %p\n", params );
+
+    if (!params) return STATUS_INVALID_PARAMETER;
+
+    params2.InitialValue = params->InitialValue;
+    status = NtGdiDdDDICreateKeyedMutex2( &params2 );
+    params->hSharedHandle = params2.hSharedHandle;
+    params->hKeyedMutex = params2.hKeyedMutex;
+    return status;
 }
 
 /******************************************************************************
@@ -848,8 +904,15 @@ NTSTATUS WINAPI NtGdiDdDDICreateKeyedMutex( D3DKMT_CREATEKEYEDMUTEX *params )
  */
 NTSTATUS WINAPI NtGdiDdDDIDestroyKeyedMutex( const D3DKMT_DESTROYKEYEDMUTEX *params )
 {
-    FIXME( "params %p stub!\n", params );
-    return STATUS_NOT_IMPLEMENTED;
+    struct d3dkmt_object *mutex;
+
+    TRACE( "params %p\n", params );
+
+    if (!(mutex = get_d3dkmt_object( params->hKeyedMutex, D3DKMT_MUTEX )))
+        return STATUS_INVALID_PARAMETER;
+    d3dkmt_object_free( mutex );
+
+    return STATUS_SUCCESS;
 }
 
 /******************************************************************************
