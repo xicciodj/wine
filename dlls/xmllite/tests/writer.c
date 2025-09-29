@@ -1003,6 +1003,9 @@ static void test_WriteStartElement(void)
     hr = IXmlWriter_WriteStartElement(writer, NULL, NULL, NULL);
     ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
 
+    hr = IXmlWriter_WriteStartElement(writer, NULL, L"", NULL);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
+
     hr = IXmlWriter_WriteProcessingInstruction(writer, L"a", L"a");
     ok(hr == WR_E_INVALIDACTION, "Unexpected hr %#lx.\n", hr);
 
@@ -2508,6 +2511,8 @@ static void test_WriteDocType(void)
     doctype_tests[] =
     {
         { L"a", L"", NULL, NULL, "<!DOCTYPE a PUBLIC \"\" \"\">" },
+        { L"a.b", L"", NULL, NULL, "<!DOCTYPE a.b PUBLIC \"\" \"\">" },
+        { L"a-b", L"", NULL, NULL, "<!DOCTYPE a-b PUBLIC \"\" \"\">" },
         { L"a", NULL, NULL, NULL, "<!DOCTYPE a>" },
         { L"a", NULL, L"", NULL, "<!DOCTYPE a SYSTEM \"\">" },
         { L"a", L"", L"", NULL, "<!DOCTYPE a PUBLIC \"\" \"\">" },
@@ -3292,11 +3297,9 @@ static void test_WriteQualifiedName(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_WriteQualifiedName(writer, L"", L"cd");
-    todo_wine
     ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_WriteQualifiedName(writer, NULL, L"cd");
-    todo_wine
     ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_WriteQualifiedName(writer, L"ab", L"xyz@xyz");
@@ -3313,7 +3316,6 @@ static void test_WriteQualifiedName(void)
     writer_set_property(writer, XmlWriterProperty_OmitXmlDeclaration);
 
     hr = IXmlWriter_WriteQualifiedName(writer, L"ab", L"cd");
-    todo_wine
     ok(hr == WR_E_INVALIDACTION, "Unexpected hr %#lx.\n", hr);
 
     IStream_Release(stream);
@@ -3326,7 +3328,6 @@ static void test_WriteQualifiedName(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_WriteQualifiedName(writer, L"a@b", L"cd");
-    todo_wine
     ok(hr == WC_E_NAMECHARACTER, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_Flush(writer);
@@ -3345,13 +3346,12 @@ static void test_WriteQualifiedName(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_WriteQualifiedName(writer, L"ab", L"de");
-    todo_wine
     ok(hr == WR_E_NAMESPACEUNDECLARED, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_Flush(writer);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
-    CHECK_OUTPUT_TODO(stream,
+    CHECK_OUTPUT(stream,
         "<ab:a xmlns:ab=\"cd\">");
 
     IStream_Release(stream);
@@ -3369,7 +3369,6 @@ static void test_WriteQualifiedName(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_WriteQualifiedName(writer, L"xy", L"cd");
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_WriteEndDocument(writer);
@@ -3378,7 +3377,7 @@ static void test_WriteQualifiedName(void)
     hr = IXmlWriter_Flush(writer);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
-    CHECK_OUTPUT_TODO(stream,
+    CHECK_OUTPUT(stream,
         "<a xmlns=\"cd\"><b xmlns=\"gh\">xy</b></a>");
 
     IStream_Release(stream);
@@ -3394,7 +3393,6 @@ static void test_WriteQualifiedName(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_WriteQualifiedName(writer, L"xy", L"cd");
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = IXmlWriter_WriteEndDocument(writer);
@@ -3403,7 +3401,7 @@ static void test_WriteQualifiedName(void)
     hr = IXmlWriter_Flush(writer);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
-    CHECK_OUTPUT_TODO(stream,
+    CHECK_OUTPUT(stream,
         "<ab:a xmlns:ab=\"cd\"><ef:b xmlns:ef=\"gh\">ab:xy</ef:b></ab:a>");
 
     IStream_Release(stream);

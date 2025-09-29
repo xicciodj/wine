@@ -197,9 +197,8 @@ DIRECTORY_STACK *WCMD_dir_stack_free(DIRECTORY_STACK *dir)
  *                   set to TRUE
  *
  */
-static BOOL WCMD_ask_confirm (const WCHAR *message, BOOL showSureText,
-                              BOOL *optionAll) {
-
+static BOOL WCMD_ask_confirm(const WCHAR *message, BOOL showSureText, BOOL *optionAll)
+{
     UINT msgid;
     WCHAR confirm[MAXSTRING];
     WCHAR options[MAXSTRING];
@@ -207,11 +206,10 @@ static BOOL WCMD_ask_confirm (const WCHAR *message, BOOL showSureText,
     WCHAR Nbuffer[MAXSTRING];
     WCHAR Abuffer[MAXSTRING];
     WCHAR answer[MAX_PATH] = {'\0'};
-    DWORD count = 0;
 
     /* Load the translated valid answers */
     if (showSureText)
-      LoadStringW(hinst, WCMD_CONFIRM, confirm, ARRAY_SIZE(confirm));
+        LoadStringW(hinst, WCMD_CONFIRM, confirm, ARRAY_SIZE(confirm));
     msgid = optionAll ? WCMD_YESNOALL : WCMD_YESNO;
     LoadStringW(hinst, msgid, options, ARRAY_SIZE(options));
     LoadStringW(hinst, WCMD_YES, Ybuffer, ARRAY_SIZE(Ybuffer));
@@ -223,23 +221,23 @@ static BOOL WCMD_ask_confirm (const WCHAR *message, BOOL showSureText,
         *optionAll = FALSE;
     while (1)
     {
-      WCMD_output_asis (message);
-      if (showSureText)
-        WCMD_output_asis (confirm);
-      WCMD_output_asis (options);
-      WCMD_output_flush();
-      if (!WCMD_ReadFile(GetStdHandle(STD_INPUT_HANDLE), answer, ARRAY_SIZE(answer), &count) || !count)
-          return FALSE;
-      answer[0] = towupper(answer[0]);
-      if (answer[0] == Ybuffer[0])
-        return TRUE;
-      if (answer[0] == Nbuffer[0])
-        return FALSE;
-      if (optionAll && answer[0] == Abuffer[0])
-      {
-        *optionAll = TRUE;
-        return TRUE;
-      }
+        WCMD_output_asis(message);
+        if (showSureText)
+            WCMD_output_asis(confirm);
+        WCMD_output_asis(options);
+        WCMD_output_flush();
+        if (!WCMD_fgets(answer, ARRAY_SIZE(answer), GetStdHandle(STD_INPUT_HANDLE)) || !*answer)
+            return FALSE;
+        answer[0] = towupper(answer[0]);
+        if (answer[0] == Ybuffer[0])
+            return TRUE;
+        if (answer[0] == Nbuffer[0])
+            return FALSE;
+        if (optionAll && answer[0] == Abuffer[0])
+        {
+            *optionAll = TRUE;
+            return TRUE;
+        }
     }
 }
 
@@ -2411,29 +2409,30 @@ RETURN_CODE WCMD_setshow_default(const WCHAR *args)
 
 RETURN_CODE WCMD_setshow_date(void)
 {
-  RETURN_CODE return_code = NO_ERROR;
-  WCHAR curdate[64], buffer[64];
-  DWORD count;
+    RETURN_CODE return_code = NO_ERROR;
+    WCHAR curdate[64], buffer[64];
 
-  if (!*param1) {
-    if (GetDateFormatW(LOCALE_USER_DEFAULT, 0, NULL, NULL, curdate, ARRAY_SIZE(curdate))) {
-      WCMD_output (WCMD_LoadMessage(WCMD_CURRENTDATE), curdate);
-      if (wcsstr(quals, L"/T") == NULL) {
-        WCMD_output(WCMD_LoadMessage(WCMD_NEWDATE));
-        WCMD_output_flush();
-        if (WCMD_ReadFile(GetStdHandle(STD_INPUT_HANDLE), buffer, ARRAY_SIZE(buffer), &count) &&
-            count > 2) {
-          WCMD_output_stderr (WCMD_LoadMessage(WCMD_NYI));
+    if (!*param1)
+    {
+        if (GetDateFormatW(LOCALE_USER_DEFAULT, 0, NULL, NULL, curdate, ARRAY_SIZE(curdate)))
+        {
+            WCMD_output(WCMD_LoadMessage(WCMD_CURRENTDATE), curdate);
+            if (wcsstr(quals, L"/T") == NULL)
+            {
+                WCMD_output(WCMD_LoadMessage(WCMD_NEWDATE));
+                WCMD_output_flush();
+                if (WCMD_fgets(buffer, ARRAY_SIZE(buffer), GetStdHandle(STD_INPUT_HANDLE)))
+                    WCMD_output_stderr(WCMD_LoadMessage(WCMD_NYI));
+            }
         }
-      }
+        else WCMD_print_error();
     }
-    else WCMD_print_error ();
-  }
-  else {
-    return_code = ERROR_INVALID_FUNCTION;
-    WCMD_output_stderr (WCMD_LoadMessage(WCMD_NYI));
-  }
-  return errorlevel = return_code;
+    else
+    {
+        return_code = ERROR_INVALID_FUNCTION;
+        WCMD_output_stderr(WCMD_LoadMessage(WCMD_NYI));
+    }
+    return errorlevel = return_code;
 }
 
 /****************************************************************************
@@ -3033,9 +3032,8 @@ RETURN_CODE WCMD_setshow_env(WCHAR *s)
   /* See if /P supplied, and if so echo the prompt, and read in a reply */
   else if (CompareStringW(LOCALE_USER_DEFAULT,
                           NORM_IGNORECASE | SORT_STRINGSORT,
-                          s, 2, L"/P", -1) == CSTR_EQUAL) {
-    DWORD count;
-
+                          s, 2, L"/P", -1) == CSTR_EQUAL)
+  {
     s += 2;
     while (*s && (*s==' ' || *s=='\t')) s++;
     /* set /P "var=value"jim ignores anything after the last quote */
@@ -3065,9 +3063,8 @@ RETURN_CODE WCMD_setshow_env(WCHAR *s)
       }
 
       /* Read the reply */
-      if (WCMD_ReadFile(GetStdHandle(STD_INPUT_HANDLE), string, ARRAY_SIZE(string), &count) && count > 1) {
-        string[count-1] = '\0'; /* ReadFile output is not null-terminated! */
-        if (string[count-2] == '\r') string[count-2] = '\0'; /* Under Windoze we get CRLF! */
+      if (WCMD_fgets(string, ARRAY_SIZE(string), GetStdHandle(STD_INPUT_HANDLE)) && *string)
+      {
         TRACE("set /p: Setting var '%s' to '%s'\n", wine_dbgstr_w(s),
               wine_dbgstr_w(string));
         if (*string) SetEnvironmentVariableW(s, string);
@@ -3647,50 +3644,49 @@ BOOL WCMD_print_volume_information(const WCHAR *path)
 
 RETURN_CODE WCMD_label(void)
 {
-  DWORD count;
-  WCHAR string[MAX_PATH], curdir[MAX_PATH];
+    WCHAR string[MAX_PATH], curdir[MAX_PATH];
 
-  /* FIXME incomplete implementation:
-   * - no support for /MP qualifier,
-   * - no support for passing label as parameter
-   */
-  if (*quals)
-      return errorlevel = ERROR_INVALID_FUNCTION;
-  if (!*param1) {
-    if (!GetCurrentDirectoryW(ARRAY_SIZE(curdir), curdir)) {
-      WCMD_print_error();
-      return errorlevel = ERROR_INVALID_FUNCTION;
+    /* FIXME incomplete implementation:
+     * - no support for /MP qualifier,
+     * - no support for passing label as parameter
+     */
+    if (*quals)
+        return errorlevel = ERROR_INVALID_FUNCTION;
+    if (!*param1)
+    {
+        if (!GetCurrentDirectoryW(ARRAY_SIZE(curdir), curdir))
+        {
+            WCMD_print_error();
+            return errorlevel = ERROR_INVALID_FUNCTION;
+        }
     }
-  }
-  else if (param1[1] == ':' && !param1[2]) {
-    curdir[0] = param1[0];
-    curdir[1] = param1[1];
-  } else {
-      WCMD_output_stderr(WCMD_LoadMessage(WCMD_SYNTAXERR));
-      return errorlevel = ERROR_INVALID_FUNCTION;
-  }
-  curdir[2] = L'\\';
-  curdir[3] = L'\0';
-  if (!WCMD_print_volume_information(curdir)) {
-    WCMD_print_error();
-    return errorlevel = ERROR_INVALID_FUNCTION;
-  }
+    else if (param1[1] == ':' && !param1[2])
+    {
+        curdir[0] = param1[0];
+        curdir[1] = param1[1];
+    }
+    else
+    {
+        WCMD_output_stderr(WCMD_LoadMessage(WCMD_SYNTAXERR));
+        return errorlevel = ERROR_INVALID_FUNCTION;
+    }
+    curdir[2] = L'\\';
+    curdir[3] = L'\0';
+    if (!WCMD_print_volume_information(curdir))
+    {
+        WCMD_print_error();
+        return errorlevel = ERROR_INVALID_FUNCTION;
+    }
 
-  if (WCMD_ReadFile(GetStdHandle(STD_INPUT_HANDLE), string, ARRAY_SIZE(string), &count) &&
-      count > 1) {
-    string[count-1] = '\0';		/* ReadFile output is not null-terminatrred! */
-    if (string[count-2] == '\r') string[count-2] = '\0'; /* Under Windoze we get CRLF! */
-  }
-  else return errorlevel = ERROR_INVALID_FUNCTION;
-  if (*param1) {
-    if (!SetVolumeLabelW(curdir, string))
+    if (!WCMD_fgets(string, ARRAY_SIZE(string), GetStdHandle(STD_INPUT_HANDLE)) || !string[0])
+        return errorlevel = ERROR_INVALID_FUNCTION;
+    if (*param1 && !SetVolumeLabelW(curdir, string))
     {
         errorlevel = GetLastError();
         WCMD_print_error();
         return errorlevel;
     }
-  }
-  return errorlevel = NO_ERROR;
+    return errorlevel = NO_ERROR;
 }
 
 RETURN_CODE WCMD_volume(void)

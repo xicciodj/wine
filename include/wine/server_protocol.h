@@ -959,6 +959,9 @@ enum d3dkmt_type
     D3DKMT_DEVICE       = 2,
     D3DKMT_SOURCE       = 3,
     D3DKMT_MUTEX        = 4,
+    D3DKMT_SYNC         = 5,
+    D3DKMT_RESOURCE     = 6,
+    D3DKMT_ALLOCATION   = 7,
 };
 
 
@@ -5986,12 +5989,29 @@ struct d3dkmt_object_create_request
 {
     struct request_header __header;
     unsigned int        type;
+    /* VARARG(runtime,bytes); */
 };
 struct d3dkmt_object_create_reply
 {
     struct reply_header __header;
     d3dkmt_handle_t     global;
     obj_handle_t        handle;
+};
+
+
+
+struct d3dkmt_object_query_request
+{
+    struct request_header __header;
+    unsigned int        type;
+    d3dkmt_handle_t     global;
+    char __pad_20[4];
+};
+struct d3dkmt_object_query_reply
+{
+    struct reply_header __header;
+    data_size_t         runtime_size;
+    char __pad_12[4];
 };
 
 
@@ -6295,6 +6315,7 @@ enum request
     REQ_set_keyboard_repeat,
     REQ_get_inproc_sync_fd,
     REQ_d3dkmt_object_create,
+    REQ_d3dkmt_object_query,
     REQ_NB_REQUESTS
 };
 
@@ -6600,6 +6621,7 @@ union generic_request
     struct set_keyboard_repeat_request set_keyboard_repeat_request;
     struct get_inproc_sync_fd_request get_inproc_sync_fd_request;
     struct d3dkmt_object_create_request d3dkmt_object_create_request;
+    struct d3dkmt_object_query_request d3dkmt_object_query_request;
 };
 union generic_reply
 {
@@ -6903,8 +6925,9 @@ union generic_reply
     struct set_keyboard_repeat_reply set_keyboard_repeat_reply;
     struct get_inproc_sync_fd_reply get_inproc_sync_fd_reply;
     struct d3dkmt_object_create_reply d3dkmt_object_create_reply;
+    struct d3dkmt_object_query_reply d3dkmt_object_query_reply;
 };
 
-#define SERVER_PROTOCOL_VERSION 903
+#define SERVER_PROTOCOL_VERSION 907
 
 #endif /* __WINE_WINE_SERVER_PROTOCOL_H */
