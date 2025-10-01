@@ -1001,6 +1001,7 @@ typedef volatile struct
     unsigned int         wake_bits;
     unsigned int         changed_mask;
     unsigned int         changed_bits;
+    unsigned int         internal_bits;
     int                  hooks_count[NB_HOOKS];
 } queue_shm_t;
 
@@ -6005,12 +6006,69 @@ struct d3dkmt_object_query_request
     struct request_header __header;
     unsigned int        type;
     d3dkmt_handle_t     global;
-    char __pad_20[4];
+    obj_handle_t        handle;
 };
 struct d3dkmt_object_query_reply
 {
     struct reply_header __header;
     data_size_t         runtime_size;
+    char __pad_12[4];
+};
+
+
+
+struct d3dkmt_object_open_request
+{
+    struct request_header __header;
+    unsigned int        type;
+    d3dkmt_handle_t     global;
+    obj_handle_t        handle;
+};
+struct d3dkmt_object_open_reply
+{
+    struct reply_header __header;
+    d3dkmt_handle_t     global;
+    obj_handle_t        handle;
+    data_size_t         runtime_size;
+    /* VARARG(runtime,bytes); */
+    char __pad_20[4];
+};
+
+
+
+struct d3dkmt_share_objects_request
+{
+    struct request_header __header;
+    d3dkmt_handle_t     resource;
+    d3dkmt_handle_t     mutex;
+    d3dkmt_handle_t     sync;
+    unsigned int        access;
+    /* VARARG(objattr,object_attributes); */
+    char __pad_28[4];
+};
+struct d3dkmt_share_objects_reply
+{
+    struct reply_header __header;
+    obj_handle_t        handle;
+    char __pad_12[4];
+};
+
+
+
+struct d3dkmt_object_open_name_request
+{
+    struct request_header __header;
+    unsigned int        type;
+    unsigned int        access;
+    unsigned int        attributes;
+    obj_handle_t        rootdir;
+    /* VARARG(name,unicode_str); */
+    char __pad_28[4];
+};
+struct d3dkmt_object_open_name_reply
+{
+    struct reply_header __header;
+    obj_handle_t        handle;
     char __pad_12[4];
 };
 
@@ -6316,6 +6374,9 @@ enum request
     REQ_get_inproc_sync_fd,
     REQ_d3dkmt_object_create,
     REQ_d3dkmt_object_query,
+    REQ_d3dkmt_object_open,
+    REQ_d3dkmt_share_objects,
+    REQ_d3dkmt_object_open_name,
     REQ_NB_REQUESTS
 };
 
@@ -6622,6 +6683,9 @@ union generic_request
     struct get_inproc_sync_fd_request get_inproc_sync_fd_request;
     struct d3dkmt_object_create_request d3dkmt_object_create_request;
     struct d3dkmt_object_query_request d3dkmt_object_query_request;
+    struct d3dkmt_object_open_request d3dkmt_object_open_request;
+    struct d3dkmt_share_objects_request d3dkmt_share_objects_request;
+    struct d3dkmt_object_open_name_request d3dkmt_object_open_name_request;
 };
 union generic_reply
 {
@@ -6926,8 +6990,11 @@ union generic_reply
     struct get_inproc_sync_fd_reply get_inproc_sync_fd_reply;
     struct d3dkmt_object_create_reply d3dkmt_object_create_reply;
     struct d3dkmt_object_query_reply d3dkmt_object_query_reply;
+    struct d3dkmt_object_open_reply d3dkmt_object_open_reply;
+    struct d3dkmt_share_objects_reply d3dkmt_share_objects_reply;
+    struct d3dkmt_object_open_name_reply d3dkmt_object_open_name_reply;
 };
 
-#define SERVER_PROTOCOL_VERSION 907
+#define SERVER_PROTOCOL_VERSION 914
 
 #endif /* __WINE_WINE_SERVER_PROTOCOL_H */

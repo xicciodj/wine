@@ -1017,6 +1017,7 @@ typedef volatile struct
     unsigned int         wake_bits;        /* wakeup bits */
     unsigned int         changed_mask;     /* changed wakeup mask */
     unsigned int         changed_bits;     /* changed wakeup bits */
+    unsigned int         internal_bits;    /* internal queue bits */
     int                  hooks_count[NB_HOOKS];  /* active hooks count */
 } queue_shm_t;
 
@@ -4163,10 +4164,48 @@ enum inproc_sync_type
 @END
 
 
-/* Query a global d3dkmt object */
+/* Query a global/shared d3dkmt object */
 @REQ(d3dkmt_object_query)
     unsigned int        type;           /* d3dkmt object type */
     d3dkmt_handle_t     global;         /* global d3dkmt handle */
+    obj_handle_t        handle;         /* shared object handle */
 @REPLY
     data_size_t         runtime_size;   /* size of client runtime data */
+@END
+
+
+/* Open a global/shared d3dkmt object */
+@REQ(d3dkmt_object_open)
+    unsigned int        type;           /* d3dkmt object type */
+    d3dkmt_handle_t     global;         /* global d3dkmt handle */
+    obj_handle_t        handle;         /* shared object handle */
+@REPLY
+    d3dkmt_handle_t     global;         /* global d3dkmt handle */
+    obj_handle_t        handle;         /* internal handle of the server object */
+    data_size_t         runtime_size;   /* size of client runtime data */
+    VARARG(runtime,bytes);              /* client runtime data */
+@END
+
+
+/* Share d3dkmt objects together */
+@REQ(d3dkmt_share_objects)
+    d3dkmt_handle_t     resource;       /* resource global handle */
+    d3dkmt_handle_t     mutex;          /* mutex global handle */
+    d3dkmt_handle_t     sync;           /* sync global handle */
+    unsigned int        access;         /* wanted access rights */
+    VARARG(objattr,object_attributes);  /* object attributes */
+@REPLY
+    obj_handle_t        handle;         /* shared object handle */
+@END
+
+
+/* Open a shared d3dkmt object from a name */
+@REQ(d3dkmt_object_open_name)
+    unsigned int        type;           /* d3dkmt object type */
+    unsigned int        access;         /* wanted access rights */
+    unsigned int        attributes;     /* object attributes */
+    obj_handle_t        rootdir;        /* root directory */
+    VARARG(name,unicode_str);           /* object name */
+@REPLY
+    obj_handle_t        handle;         /* shared object handle */
 @END

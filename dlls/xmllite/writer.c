@@ -248,6 +248,22 @@ static struct element *pop_element(xmlwriter *writer)
     return element;
 }
 
+static HRESULT write_end_element(xmlwriter *writer, const struct element *element);
+
+static HRESULT writer_end_elements(xmlwriter *writer)
+{
+    struct element *element;
+    HRESULT hr = S_OK;
+
+    while (hr == S_OK && (element = pop_element(writer)))
+    {
+        hr = write_end_element(writer, element);
+        writer_free_element(writer, element);
+    }
+
+    return hr;
+}
+
 static WCHAR *writer_strndupW(const xmlwriter *writer, const WCHAR *str, int len)
 {
     WCHAR *ret;
@@ -593,20 +609,6 @@ static HRESULT write_output_quoted(xmlwriter *writer, const WCHAR *data, int len
     return *hr;
 }
 
-static HRESULT write_output_buffer_char(xmlwriteroutput *output, WCHAR ch)
-{
-    return write_output_buffer(output, &ch, 1);
-}
-
-static HRESULT write_output_buffer_quoted(xmlwriteroutput *output, const WCHAR *data, int len)
-{
-    write_output_buffer_char(output, '"');
-    if (!is_empty_string(data))
-        write_output_buffer(output, data, len);
-    write_output_buffer_char(output, '"');
-    return S_OK;
-}
-
 /* TODO: test if we need to validate char range */
 static HRESULT write_output_qname(xmlwriter *writer, const WCHAR *prefix, int prefix_len,
         const WCHAR *local_name, int local_len, HRESULT *hr)
@@ -834,6 +836,7 @@ static ULONG WINAPI xmlwriter_Release(IXmlWriter *iface)
     {
         IMalloc *imalloc = writer->imalloc;
 
+        writer_end_elements(writer);
         writeroutput_flush_stream(writer->output);
         if (writer->output)
             IUnknown_Release(&writer->output->IXmlWriterOutput_iface);
@@ -855,6 +858,9 @@ static HRESULT WINAPI xmlwriter_SetOutput(IXmlWriter *iface, IUnknown *output)
     HRESULT hr;
 
     TRACE("(%p)->(%p)\n", This, output);
+
+    writer_end_elements(This);
+    writeroutput_flush_stream(This->output);
 
     if (This->output) {
         writeroutput_release_stream(This->output);
@@ -1498,7 +1504,7 @@ static HRESULT WINAPI xmlwriter_WriteElementString(IXmlWriter *iface, LPCWSTR pr
     {
         write_output_qname(writer, L" xmlns", 6, prefix, prefix_len, &hr);
         write_output(writer, L"=", 1, &hr);
-        write_output_buffer_quoted(writer->output, uri, -1);
+        write_output_quoted(writer, uri, -1, &hr);
     }
 
     if (value)

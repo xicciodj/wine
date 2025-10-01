@@ -3397,11 +3397,55 @@ static void dump_d3dkmt_object_query_request( const struct d3dkmt_object_query_r
 {
     fprintf( stderr, " type=%08x", req->type );
     fprintf( stderr, ", global=%08x", req->global );
+    fprintf( stderr, ", handle=%04x", req->handle );
 }
 
 static void dump_d3dkmt_object_query_reply( const struct d3dkmt_object_query_reply *req )
 {
     fprintf( stderr, " runtime_size=%u", req->runtime_size );
+}
+
+static void dump_d3dkmt_object_open_request( const struct d3dkmt_object_open_request *req )
+{
+    fprintf( stderr, " type=%08x", req->type );
+    fprintf( stderr, ", global=%08x", req->global );
+    fprintf( stderr, ", handle=%04x", req->handle );
+}
+
+static void dump_d3dkmt_object_open_reply( const struct d3dkmt_object_open_reply *req )
+{
+    fprintf( stderr, " global=%08x", req->global );
+    fprintf( stderr, ", handle=%04x", req->handle );
+    fprintf( stderr, ", runtime_size=%u", req->runtime_size );
+    dump_varargs_bytes( ", runtime=", cur_size );
+}
+
+static void dump_d3dkmt_share_objects_request( const struct d3dkmt_share_objects_request *req )
+{
+    fprintf( stderr, " resource=%08x", req->resource );
+    fprintf( stderr, ", mutex=%08x", req->mutex );
+    fprintf( stderr, ", sync=%08x", req->sync );
+    fprintf( stderr, ", access=%08x", req->access );
+    dump_varargs_object_attributes( ", objattr=", cur_size );
+}
+
+static void dump_d3dkmt_share_objects_reply( const struct d3dkmt_share_objects_reply *req )
+{
+    fprintf( stderr, " handle=%04x", req->handle );
+}
+
+static void dump_d3dkmt_object_open_name_request( const struct d3dkmt_object_open_name_request *req )
+{
+    fprintf( stderr, " type=%08x", req->type );
+    fprintf( stderr, ", access=%08x", req->access );
+    fprintf( stderr, ", attributes=%08x", req->attributes );
+    fprintf( stderr, ", rootdir=%04x", req->rootdir );
+    dump_varargs_unicode_str( ", name=", cur_size );
+}
+
+static void dump_d3dkmt_object_open_name_reply( const struct d3dkmt_object_open_name_reply *req )
+{
+    fprintf( stderr, " handle=%04x", req->handle );
 }
 
 typedef void (*dump_func)( const void *req );
@@ -3707,6 +3751,9 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] =
     (dump_func)dump_get_inproc_sync_fd_request,
     (dump_func)dump_d3dkmt_object_create_request,
     (dump_func)dump_d3dkmt_object_query_request,
+    (dump_func)dump_d3dkmt_object_open_request,
+    (dump_func)dump_d3dkmt_share_objects_request,
+    (dump_func)dump_d3dkmt_object_open_name_request,
 };
 
 static const dump_func reply_dumpers[REQ_NB_REQUESTS] =
@@ -4010,6 +4057,9 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] =
     (dump_func)dump_get_inproc_sync_fd_reply,
     (dump_func)dump_d3dkmt_object_create_reply,
     (dump_func)dump_d3dkmt_object_query_reply,
+    (dump_func)dump_d3dkmt_object_open_reply,
+    (dump_func)dump_d3dkmt_share_objects_reply,
+    (dump_func)dump_d3dkmt_object_open_name_reply,
 };
 
 static const char * const req_names[REQ_NB_REQUESTS] =
@@ -4313,6 +4363,9 @@ static const char * const req_names[REQ_NB_REQUESTS] =
     "get_inproc_sync_fd",
     "d3dkmt_object_create",
     "d3dkmt_object_query",
+    "d3dkmt_object_open",
+    "d3dkmt_share_objects",
+    "d3dkmt_object_open_name",
 };
 
 static const struct
