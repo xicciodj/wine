@@ -47,7 +47,8 @@
 #include "user.h"
 
 #define QS_DRIVER       0x80000000
-#define QS_INTERNAL     QS_DRIVER
+#define QS_HARDWARE     0x40000000
+#define QS_INTERNAL     (QS_DRIVER | QS_HARDWARE)
 
 #define WM_NCMOUSEFIRST WM_NCMOUSEMOVE
 #define WM_NCMOUSELAST  (WM_NCMOUSEFIRST+(WM_MOUSELAST-WM_MOUSEFIRST))
@@ -119,8 +120,7 @@ struct msg_queue
 {
     struct object          obj;             /* object header */
     struct fd             *fd;              /* optional file descriptor to poll */
-    struct inproc_sync    *inproc_sync;     /* inproc sync for client-side waits */
-    int                    signaled;        /* queue is signaled from fd POLLIN or masks */
+    struct event_sync     *sync;            /* sync object for wait/signal */
     int                    paint_count;     /* pending paint messages count */
     int                    hotkey_count;    /* pending hotkey messages count */
     int                    quit_message;    /* is there a pending quit message? */
@@ -151,9 +151,7 @@ struct hotkey
 };
 
 static void msg_queue_dump( struct object *obj, int verbose );
-static int msg_queue_add_queue( struct object *obj, struct wait_queue_entry *entry );
-static void msg_queue_remove_queue( struct object *obj, struct wait_queue_entry *entry );
-static int msg_queue_signaled( struct object *obj, struct wait_queue_entry *entry );
+static struct object *msg_queue_get_sync( struct object *obj );
 static void msg_queue_destroy( struct object *obj );
 static void msg_queue_poll_event( struct fd *fd, int event );
 static void thread_input_dump( struct object *obj, int verbose );
@@ -165,13 +163,13 @@ static const struct object_ops msg_queue_ops =
     sizeof(struct msg_queue),  /* size */
     &no_type,                  /* type */
     msg_queue_dump,            /* dump */
-    msg_queue_add_queue,       /* add_queue */
-    msg_queue_remove_queue,    /* remove_queue */
-    msg_queue_signaled,        /* signaled */
-    no_satisfied,              /* satisfied */
+    NULL,                      /* add_queue */
+    NULL,                      /* remove_queue */
+    NULL,                      /* signaled */
+    NULL,                      /* satisfied */
     no_signal,                 /* signal */
     no_get_fd,                 /* get_fd */
-    default_get_sync,          /* get_sync */
+    msg_queue_get_sync,        /* get_sync */
     default_map_access,        /* map_access */
     default_get_sd,            /* get_sd */
     default_set_sd,            /* set_sd */
@@ -308,8 +306,7 @@ static struct msg_queue *create_msg_queue( struct thread *thread, struct thread_
     if ((queue = alloc_object( &msg_queue_ops )))
     {
         queue->fd              = NULL;
-        queue->inproc_sync     = NULL;
-        queue->signaled        = 0;
+        queue->sync            = NULL;
         queue->paint_count     = 0;
         queue->hotkey_count    = 0;
         queue->quit_message    = 0;
@@ -326,7 +323,7 @@ static struct msg_queue *create_msg_queue( struct thread *thread, struct thread_
         list_init( &queue->expired_timers );
         for (i = 0; i < NB_MSG_KINDS; i++) list_init( &queue->msg_list[i] );
 
-        if (get_inproc_device_fd() >= 0 && !(queue->inproc_sync = create_inproc_internal_sync( 1, 0 ))) goto error;
+        if (!(queue->sync = create_event_sync( 1, 0 ))) goto error;
         if (!(queue->shared = alloc_shared_object())) goto error;
 
         SHARED_WRITE_BEGIN( queue->shared, queue_shm_t )
@@ -714,20 +711,6 @@ void add_queue_hook_count( struct thread *thread, unsigned int index, int count 
     assert( thread->queue->shared->hooks_count[index] >= 0 );
 }
 
-static void signal_queue_sync( struct msg_queue *queue )
-{
-    if (queue->signaled) return;
-    queue->signaled = 1;
-    wake_up( &queue->obj, 0 );
-    if (queue->inproc_sync) signal_inproc_sync( queue->inproc_sync );
-}
-
-static void reset_queue_sync( struct msg_queue *queue )
-{
-    queue->signaled = 0;
-    if (queue->inproc_sync) reset_inproc_sync( queue->inproc_sync );
-}
-
 /* check the queue status */
 static inline int get_queue_status( struct msg_queue *queue )
 {
@@ -744,7 +727,8 @@ static inline void set_queue_bits( struct msg_queue *queue, unsigned int bits )
     unsigned int internal = bits & QS_INTERNAL;
     bits &= ~QS_INTERNAL;
 
-    if (!internal && (bits & (QS_KEY | QS_MOUSEBUTTON)))
+    /* lock the key state on key press, including from hardware messages */
+    if (bits & (QS_KEY | QS_MOUSEBUTTON))
     {
         if (!queue->keystate_lock) lock_input_keystate( queue->input );
         queue->keystate_lock = 1;
@@ -758,7 +742,7 @@ static inline void set_queue_bits( struct msg_queue *queue, unsigned int bits )
     }
     SHARED_WRITE_END;
 
-    if (get_queue_status( queue )) signal_queue_sync( queue );
+    if (get_queue_status( queue )) signal_sync( queue->sync );
 }
 
 /* clear some queue bits */
@@ -777,12 +761,13 @@ static inline void clear_queue_bits( struct msg_queue *queue, unsigned int bits 
     }
     SHARED_WRITE_END;
 
+    /* release the keystate lock when last key message has been processed */
     if (!internal && !(bits & (QS_KEY | QS_MOUSEBUTTON)))
     {
         if (queue->keystate_lock) unlock_input_keystate( queue->input );
         queue->keystate_lock = 0;
     }
-    if (!get_queue_status( queue )) reset_queue_sync( queue );
+    if (!get_queue_status( queue )) reset_sync( queue->sync );
 }
 
 /* check if message is matched by the filter */
@@ -1293,45 +1278,14 @@ static void cleanup_results( struct msg_queue *queue )
 static int is_queue_hung( struct msg_queue *queue )
 {
     /* queue is hung if it's signaled and thread didn't access it for more than 5 seconds */
-    return queue->signaled && monotonic_time - queue->shared->access_time > 5 * TICKS_PER_SEC;
+    return get_queue_status( queue ) && monotonic_time - queue->shared->access_time > 5 * TICKS_PER_SEC;
 }
 
-static int msg_queue_add_queue( struct object *obj, struct wait_queue_entry *entry )
+static struct object *msg_queue_get_sync( struct object *obj )
 {
     struct msg_queue *queue = (struct msg_queue *)obj;
-
-    /* a thread can only wait on its own queue */
-    if (get_wait_queue_thread(entry)->queue != queue)
-    {
-        set_error( STATUS_ACCESS_DENIED );
-        return 0;
-    }
-
-    if (queue->fd)
-    {
-        if (check_fd_events( queue->fd, POLLIN ))
-            set_queue_bits( queue, QS_DRIVER );
-        else
-        {
-            clear_queue_bits( queue, QS_DRIVER );
-            set_fd_events( queue->fd, POLLIN );
-        }
-    }
-    add_queue( obj, entry );
-    return 1;
-}
-
-static void msg_queue_remove_queue(struct object *obj, struct wait_queue_entry *entry )
-{
-    struct msg_queue *queue = (struct msg_queue *)obj;
-
-    remove_queue( obj, entry );
-    if (queue->fd)
-    {
-        /* after waiting, assume that all events will be processed */
-        clear_queue_bits( queue, QS_DRIVER );
-        set_fd_events( queue->fd, 0 );
-    }
+    assert( obj->ops == &msg_queue_ops );
+    return grab_object( queue->sync );
 }
 
 static void msg_queue_dump( struct object *obj, int verbose )
@@ -1340,13 +1294,6 @@ static void msg_queue_dump( struct object *obj, int verbose )
     queue_shm_t *queue_shm = queue->shared;
     fprintf( stderr, "Msg queue bits=%x mask=%x\n",
              queue_shm->wake_bits, queue_shm->wake_mask );
-}
-
-static int msg_queue_signaled( struct object *obj, struct wait_queue_entry *entry )
-{
-    struct msg_queue *queue = (struct msg_queue *)obj;
-    assert( obj->ops == &msg_queue_ops );
-    return queue->signaled;
 }
 
 static void msg_queue_destroy( struct object *obj )
@@ -1392,7 +1339,7 @@ static void msg_queue_destroy( struct object *obj )
     if (queue->hooks) release_object( queue->hooks );
     if (queue->fd) release_object( queue->fd );
     if (queue->shared) free_shared_object( queue->shared );
-    if (queue->inproc_sync) release_object( queue->inproc_sync );
+    if (queue->sync) release_object( queue->sync );
 }
 
 static void msg_queue_poll_event( struct fd *fd, int event )
@@ -1480,12 +1427,6 @@ int init_thread_queue( struct thread *thread )
 {
     if (thread->queue) return 1;
     return (create_msg_queue( thread, NULL ) != NULL);
-}
-
-struct object *thread_queue_inproc_sync( struct thread *thread )
-{
-    if (!thread->queue) return NULL;
-    return grab_object( thread->queue->inproc_sync );
 }
 
 /* attach two thread input data structures */
@@ -1824,6 +1765,7 @@ static void release_hardware_message( struct msg_queue *queue, unsigned int hw_i
         }
     }
     if (clr_bit) clear_queue_bits( queue, clr_bit );
+    if (list_empty( &input->msg_list )) clear_queue_bits( queue, QS_HARDWARE );
 
     update_thread_input_key_state( input, msg->msg, msg->wparam );
     list_remove( &msg->entry );
@@ -1952,13 +1894,13 @@ static void queue_hardware_message( struct desktop *desktop, struct message *msg
     struct thread_input *input;
     struct hardware_msg_data *msg_data = msg->data;
     unsigned int msg_code;
-    int flags;
+    int flags, msg_bit;
 
     update_desktop_key_state( desktop, msg->msg, msg->wparam );
     last_input_time = get_tick_count();
     if (msg->msg != WM_MOUSEMOVE) always_queue = 1;
 
-    switch (get_hardware_msg_bit( msg->msg ))
+    switch ((msg_bit = get_hardware_msg_bit( msg->msg )))
     {
     case QS_KEY:
         if (queue_hotkey_message( desktop, msg )) return;
@@ -2008,7 +1950,7 @@ static void queue_hardware_message( struct desktop *desktop, struct message *msg
     {
         msg->unique_id = 0;  /* will be set once we return it to the app */
         list_add_tail( &input->msg_list, &msg->entry );
-        set_queue_bits( thread->queue, get_hardware_msg_bit( msg->msg ) );
+        set_queue_bits( thread->queue, QS_HARDWARE | msg_bit );
     }
     release_object( thread );
 }
@@ -2789,6 +2731,7 @@ static int get_hardware_message( struct thread *thread, unsigned int hw_id, user
     while (ptr)
     {
         struct message *msg = LIST_ENTRY( ptr, struct message, entry );
+        int msg_bit = get_hardware_msg_bit( msg->msg );
         struct hardware_msg_data *data = msg->data;
 
         ptr = list_next( &input->msg_list, ptr );
@@ -2812,7 +2755,7 @@ static int get_hardware_message( struct thread *thread, unsigned int hw_id, user
             if (win_thread->queue->input == input)
             {
                 /* wake the other thread */
-                set_queue_bits( win_thread->queue, get_hardware_msg_bit( msg->msg ) );
+                set_queue_bits( win_thread->queue, QS_HARDWARE | msg_bit );
                 got_one = 1;
             }
             else
@@ -2831,7 +2774,7 @@ static int get_hardware_message( struct thread *thread, unsigned int hw_id, user
          * match the filter we skip it */
         if (got_one || !check_hw_message_filter( win, msg_code, filter_win, first, last ))
         {
-            clear_bits &= ~get_hardware_msg_bit( msg->msg );
+            clear_bits &= ~msg_bit;
             continue;
         }
 
@@ -2861,7 +2804,7 @@ static int get_hardware_message( struct thread *thread, unsigned int hw_id, user
         return 1;
     }
     /* nothing found, clear the hardware queue bits */
-    clear_queue_bits( thread->queue, clear_bits );
+    clear_queue_bits( thread->queue, QS_HARDWARE | clear_bits );
     return 0;
 }
 
@@ -3141,7 +3084,10 @@ DECL_HANDLER(set_queue_fd)
     if ((unix_fd = get_file_unix_fd( file )) != -1)
     {
         if ((unix_fd = dup( unix_fd )) != -1)
+        {
             queue->fd = create_anonymous_fd( &msg_queue_fd_ops, unix_fd, &queue->obj, 0 );
+            set_fd_events( queue->fd, POLLIN );
+        }
         else
             file_set_error();
     }
@@ -3158,6 +3104,14 @@ DECL_HANDLER(set_queue_mask)
     if (!queue) return;
     queue_shm = queue->shared;
 
+    if (req->poll_events)
+    {
+        if (!queue->fd) return;
+        clear_queue_bits( queue, QS_DRIVER );
+        set_fd_events( queue->fd, POLLIN );
+        return;
+    }
+
     SHARED_WRITE_BEGIN( queue_shm, queue_shm_t )
     {
         shared->access_time  = monotonic_time;
@@ -3168,8 +3122,8 @@ DECL_HANDLER(set_queue_mask)
     }
     SHARED_WRITE_END;
 
-    if (!get_queue_status( queue )) reset_queue_sync( queue );
-    else signal_queue_sync( queue );
+    if (!get_queue_status( queue )) reset_sync( queue->sync );
+    else signal_sync( queue->sync );
 }
 
 
@@ -3190,7 +3144,7 @@ DECL_HANDLER(get_queue_status)
     }
     SHARED_WRITE_END;
 
-    if (!get_queue_status( queue )) reset_queue_sync( queue );
+    if (!get_queue_status( queue )) reset_sync( queue->sync );
 }
 
 
@@ -3390,7 +3344,7 @@ DECL_HANDLER(get_message)
     }
     SHARED_WRITE_END;
 
-    if (!get_queue_status( queue )) reset_queue_sync( queue );
+    if (!get_queue_status( queue )) reset_sync( queue->sync );
 
     /* then check for posted messages */
     if ((filter & QS_POSTMESSAGE) &&
@@ -3451,8 +3405,8 @@ DECL_HANDLER(get_message)
     }
     SHARED_WRITE_END;
 
-    if (!get_queue_status( queue )) reset_queue_sync( queue );
-    else signal_queue_sync( queue );
+    if (!get_queue_status( queue )) reset_sync( queue->sync );
+    else signal_sync( queue->sync );
     set_error( STATUS_PENDING );  /* FIXME */
 }
 
