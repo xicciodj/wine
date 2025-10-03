@@ -120,7 +120,7 @@ struct msg_queue
 {
     struct object          obj;             /* object header */
     struct fd             *fd;              /* optional file descriptor to poll */
-    struct event_sync     *sync;            /* sync object for wait/signal */
+    struct object         *sync;            /* sync object for wait/signal */
     int                    paint_count;     /* pending paint messages count */
     int                    hotkey_count;    /* pending hotkey messages count */
     int                    quit_message;    /* is there a pending quit message? */
@@ -323,7 +323,7 @@ static struct msg_queue *create_msg_queue( struct thread *thread, struct thread_
         list_init( &queue->expired_timers );
         for (i = 0; i < NB_MSG_KINDS; i++) list_init( &queue->msg_list[i] );
 
-        if (!(queue->sync = create_event_sync( 1, 0 ))) goto error;
+        if (!(queue->sync = create_internal_sync( 1, 0 ))) goto error;
         if (!(queue->shared = alloc_shared_object())) goto error;
 
         SHARED_WRITE_BEGIN( queue->shared, queue_shm_t )

@@ -140,7 +140,7 @@ static const struct fd_ops process_fd_ops =
 struct startup_info
 {
     struct object               obj;            /* object header */
-    struct event_sync          *sync;           /* sync object for wait/signal */
+    struct object              *sync;           /* sync object for wait/signal */
     struct process             *process;        /* created process */
     data_size_t                 info_size;      /* size of startup info */
     data_size_t                 data_size;      /* size of whole startup data */
@@ -200,7 +200,7 @@ static void job_destroy( struct object *obj );
 struct job
 {
     struct object        obj;               /* object header */
-    struct event_sync   *sync;              /* sync object for wait/signal */
+    struct object       *sync;              /* sync object for wait/signal */
     struct list          process_list;      /* list of processes */
     int                  num_processes;     /* count of running processes */
     int                  total_processes;   /* count of processes which have been assigned */
@@ -259,7 +259,7 @@ static struct job *create_job_object( struct object *root, const struct unicode_
             job->completion_key = 0;
             job->parent = NULL;
 
-            if (!(job->sync = create_event_sync( 1, 0 )))
+            if (!(job->sync = create_internal_sync( 1, 0 )))
             {
                 release_object( job );
                 return NULL;
@@ -722,7 +722,7 @@ struct process *create_process( int fd, struct process *parent, unsigned int fla
         goto error;
     }
     if (!(process->msg_fd = create_anonymous_fd( &process_fd_ops, fd, &process->obj, 0 ))) goto error;
-    if (!(process->sync = create_event_sync( 1, 0 ))) goto error;
+    if (!(process->sync = create_internal_sync( 1, 0 ))) goto error;
 
     /* create the handle table */
     if (!parent)
@@ -1222,7 +1222,7 @@ DECL_HANDLER(new_process)
     info->process  = NULL;
     info->data     = NULL;
 
-    if (!(info->sync = create_event_sync( 1, 0 )))
+    if (!(info->sync = create_internal_sync( 1, 0 )))
     {
         close( socket_fd );
         goto done;

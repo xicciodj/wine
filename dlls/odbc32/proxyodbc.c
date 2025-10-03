@@ -1098,6 +1098,25 @@ static SQLWCHAR *strnAtoW( const SQLCHAR *str, int len )
     return ret;
 }
 
+static SQLCHAR *strnWtoA( const SQLWCHAR *str, int len )
+{
+    SQLCHAR *ret;
+    int lenA;
+
+    if (!str) return NULL;
+
+    if (len == SQL_NTS) len = -1;
+    lenA = WideCharToMultiByte( CP_ACP, 0, str, len, NULL, 0, NULL, NULL );
+
+    if ((ret = malloc( (lenA + 1) * sizeof(*ret) )))
+    {
+        WideCharToMultiByte( CP_ACP, 0, str, len, (char *)ret, lenA, NULL, NULL );
+        ret[lenA] = 0;
+    }
+
+    return ret;
+}
+
 static SQLRETURN columns_unix_a( struct statement *stmt, SQLCHAR *catalog, SQLSMALLINT len1, SQLCHAR *schema,
                                  SQLSMALLINT len2, SQLCHAR *table, SQLSMALLINT len3, SQLCHAR *column,
                                  SQLSMALLINT len4 )
@@ -1768,6 +1787,10 @@ static SQLRETURN error_win32_a( struct environment *env, struct connection *con,
         }
         free( msgW );
     }
+
+    if (win32_funcs->SQLGetDiagRec) FIXME("Use SQLGetDiagRec\n");
+    else if (win32_funcs->SQLGetDiagRecW) FIXME("Use SQLGetDiagRecW\n");
+
     return ret;
 }
 
@@ -6016,6 +6039,7 @@ static SQLRETURN error_win32_w( struct environment *env, struct connection *con,
                                 SQLINTEGER *native_err, SQLWCHAR *msg, SQLSMALLINT buflen, SQLSMALLINT *retlen )
 {
     const struct win32_funcs *win32_funcs;
+    SQLRETURN ret;
 
     if (env) win32_funcs = env->hdr.win32_funcs;
     else if (con) win32_funcs = con->hdr.win32_funcs;
@@ -6024,7 +6048,28 @@ static SQLRETURN error_win32_w( struct environment *env, struct connection *con,
     if (win32_funcs->SQLErrorW)
         return win32_funcs->SQLErrorW( env ? env->hdr.win32_handle : NULL, con ? con->hdr.win32_handle : NULL,
                                        stmt ? stmt->hdr.win32_handle : NULL, state, native_err, msg, buflen, retlen );
-    if (win32_funcs->SQLError) FIXME( "Unicode to ANSI conversion not handled\n" );
+    if (win32_funcs->SQLError)
+    {
+        SQLCHAR stateA[6], *msgA;
+        SQLSMALLINT lenA;
+
+        if (!(msgA = malloc( buflen * sizeof(*msgA) ))) return SQL_ERROR;
+        ret = win32_funcs->SQLError( env ? env->hdr.win32_handle : NULL, con ? con->hdr.win32_handle : NULL,
+                stmt ? stmt->hdr.win32_handle : NULL, stateA, native_err, msgA, buflen, &lenA );
+        if (SUCCESS( ret ))
+        {
+            int len = MultiByteToWideChar( CP_ACP, 0, (const char *)msgA, -1, msg, buflen );
+            if (retlen) *retlen = len - 1;
+            MultiByteToWideChar( CP_ACP, 0, (const char *)stateA, -1, state, 6 );
+        }
+        free( msgA );
+
+        return ret;
+    }
+
+    if (win32_funcs->SQLGetDiagRecW) FIXME("Use SQLGetDiagRecW\n");
+    else if (win32_funcs->SQLGetDiagRec) FIXME("Use SQLGetDiagRec\n");
+
     return SQL_ERROR;
 }
 
@@ -6077,10 +6122,19 @@ static SQLRETURN exec_direct_unix_w( struct statement *stmt, SQLWCHAR *text, SQL
 
 static SQLRETURN exec_direct_win32_w( struct statement *stmt, SQLWCHAR *text, SQLINTEGER len )
 {
+    SQLRETURN ret = SQL_ERROR;
+
     if (stmt->hdr.win32_funcs->SQLExecDirectW)
         return stmt->hdr.win32_funcs->SQLExecDirectW( stmt->hdr.win32_handle, text, len );
-    if (stmt->hdr.win32_funcs->SQLExecDirect) FIXME( "Unicode to ANSI conversion not handled\n" );
-    return SQL_ERROR;
+
+    if (stmt->hdr.win32_funcs->SQLExecDirect)
+    {
+        SQLCHAR *textA = strnWtoA( text, len );
+        ret = stmt->hdr.win32_funcs->SQLExecDirect( stmt->hdr.win32_handle, textA, SQL_NTS );
+        free(textA);
+    }
+
+    return ret;
 }
 
 /*************************************************************************
@@ -6844,14 +6898,35 @@ SQLRETURN WINAPI SQLColumnsW(SQLHSTMT StatementHandle, SQLWCHAR *CatalogName, SQ
 }
 
 static SQLRETURN driver_connect_win32_w( struct connection *con, SQLHWND window, SQLWCHAR *in_conn_str,
-                                         SQLSMALLINT len, SQLWCHAR *out_conn_str, SQLSMALLINT buflen, SQLSMALLINT *len2,
+                                         SQLSMALLINT len1, SQLWCHAR *out_conn_str, SQLSMALLINT buflen, SQLSMALLINT *len2,
                                          SQLUSMALLINT completion )
 {
+    SQLRETURN ret = SQL_ERROR;
+
     if (con->hdr.win32_funcs->SQLDriverConnectW)
-        return con->hdr.win32_funcs->SQLDriverConnectW( con->hdr.win32_handle, window, in_conn_str, len, out_conn_str,
+        return con->hdr.win32_funcs->SQLDriverConnectW( con->hdr.win32_handle, window, in_conn_str, len1, out_conn_str,
                                                         buflen, len2, completion );
-    if (con->hdr.win32_funcs->SQLDriverConnect) FIXME( "Unicode to ANSI conversion not handled\n" );
-    return SQL_ERROR;
+    if (con->hdr.win32_funcs->SQLDriverConnect)
+    {
+        SQLCHAR *in_conn_str_a, *out_conn_str_a;
+        SQLSMALLINT out_len;
+
+        if (!(out_conn_str_a = malloc( buflen * sizeof(*out_conn_str_a) ))) return SQL_ERROR;
+        in_conn_str_a = strnWtoA( in_conn_str, len1 );
+
+        ret = con->hdr.win32_funcs->SQLDriverConnect( con->hdr.win32_handle, window, in_conn_str_a, SQL_NTS, out_conn_str_a,
+                buflen, &out_len, completion );
+        if (SUCCESS( ret ))
+        {
+            int len = MultiByteToWideChar( CP_ACP, 0, (const char *)out_conn_str_a, -1, out_conn_str, buflen );
+            if (len2) *len2 = len - 1;
+        }
+
+        free(in_conn_str_a);
+        free(out_conn_str_a);
+    }
+
+    return ret;
 }
 
 static SQLRETURN driver_connect_unix_w( struct connection *con, SQLHWND window, SQLWCHAR *in_conn_str, SQLSMALLINT len,
@@ -6984,10 +7059,50 @@ static SQLRETURN get_info_unix_w( struct connection *con, SQLUSMALLINT type, SQL
 static SQLRETURN get_info_win32_w( struct connection *con, SQLUSMALLINT type, SQLPOINTER value, SQLSMALLINT buflen,
                                    SQLSMALLINT *retlen )
 {
+    SQLRETURN ret = SQL_ERROR;
+
     if (con->hdr.win32_funcs->SQLGetInfoW)
         return con->hdr.win32_funcs->SQLGetInfoW( con->hdr.win32_handle, type, value, buflen, retlen );
-    if (con->hdr.win32_funcs->SQLGetInfo) FIXME( "Unicode to ANSI conversion not handled\n" );
-    return SQL_ERROR;
+
+    if (con->hdr.win32_funcs->SQLGetInfo)
+    {
+        switch (type)
+        {
+        case SQL_ACTIVE_CONNECTIONS:
+        case SQL_ACTIVE_STATEMENTS:
+        case SQL_ODBC_API_CONFORMANCE:
+        case SQL_TXN_CAPABLE:
+            ret = con->hdr.win32_funcs->SQLGetInfo( con->hdr.win32_handle, type, value, buflen, retlen );
+            break;
+        case SQL_DRIVER_NAME:
+        case SQL_DBMS_NAME:
+        case SQL_DATA_SOURCE_READ_ONLY:
+        case SQL_IDENTIFIER_QUOTE_CHAR:
+        {
+            SQLSMALLINT lenA;
+            SQLCHAR *strA;
+
+            /* For string types sizes are in bytes. */
+
+            buflen /= sizeof(WCHAR);
+            if (!(strA = malloc(buflen))) return SQL_ERROR;
+
+            ret = con->hdr.win32_funcs->SQLGetInfo( con->hdr.win32_handle, type, strA, buflen, &lenA );
+            if (SUCCESS( ret ))
+            {
+                int len = MultiByteToWideChar( CP_ACP, 0, (const char *)strA, -1, (WCHAR *)value, buflen );
+                if (retlen) *retlen = (len - 1) * sizeof(WCHAR);
+            }
+            free( strA );
+
+            break;
+        }
+        default:
+            FIXME( "Unicode to ANSI conversion not handled, for info type %u.\n", type );
+        }
+    }
+
+    return ret;
 }
 
 /*************************************************************************

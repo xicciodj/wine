@@ -85,7 +85,7 @@ struct thread_wait
 struct thread_apc
 {
     struct object       obj;      /* object header */
-    struct event_sync  *sync;     /* sync object for wait/signal */
+    struct object      *sync;     /* sync object for wait/signal */
     struct list         entry;    /* queue linked list */
     struct thread      *caller;   /* thread that queued this apc */
     struct object      *owner;    /* object that queued this apc */
@@ -131,7 +131,7 @@ static const struct object_ops thread_apc_ops =
 struct context
 {
     struct object           obj;        /* object header */
-    struct event_sync      *sync;       /* sync object for wait/signal */
+    struct object          *sync;       /* sync object for wait/signal */
     unsigned int            status;     /* status of the context */
     struct context_data     regs[2];    /* context data */
 };
@@ -487,7 +487,7 @@ static struct context *create_thread_context( struct thread *thread )
     memset( &context->regs, 0, sizeof(context->regs) );
     context->regs[CTX_NATIVE].machine = native_machine;
 
-    if (!(context->sync = create_event_sync( 1, 0 )))
+    if (!(context->sync = create_internal_sync( 1, 0 )))
     {
         release_object( context );
         return NULL;
@@ -560,7 +560,7 @@ struct thread *create_thread( int fd, struct process *process, const struct secu
         return NULL;
     }
     if (!(thread->request_fd = create_anonymous_fd( &thread_fd_ops, fd, &thread->obj, 0 ))) goto error;
-    if (!(thread->sync = create_event_sync( 1, 0 ))) goto error;
+    if (!(thread->sync = create_internal_sync( 1, 0 ))) goto error;
     if (get_inproc_device_fd() >= 0 && !(thread->alert_sync = create_inproc_internal_sync( 1, 0 ))) goto error;
 
     if (process->desktop)
@@ -734,7 +734,7 @@ static struct thread_apc *create_apc( struct object *owner, const union apc_call
         apc->result.type = APC_NONE;
         if (owner) grab_object( owner );
 
-        if (!(apc->sync = create_event_sync( 1, 0 )))
+        if (!(apc->sync = create_internal_sync( 1, 0 )))
         {
             release_object( apc );
             return NULL;
@@ -1031,6 +1031,16 @@ static int object_sync_signaled( struct object *obj, struct wait_queue_entry *en
     return ret;
 }
 
+void signal_sync( struct object *obj )
+{
+    obj->ops->signal( obj, 0, 1 );
+}
+
+void reset_sync( struct object *obj )
+{
+    obj->ops->signal( obj, 0, 0 );
+}
+
 /* finish waiting */
 static unsigned int end_wait( struct thread *thread, unsigned int status )
 {
@@ -1269,7 +1279,7 @@ static int signal_object( obj_handle_t handle )
     obj = get_handle_obj( current->process, handle, 0, NULL );
     if (obj)
     {
-        ret = obj->ops->signal( obj, get_handle_access( current->process, handle ));
+        ret = obj->ops->signal( obj, get_handle_access( current->process, handle ), -1 );
         release_object( obj );
     }
     return ret;
@@ -2359,4 +2369,18 @@ DECL_HANDLER(get_next_thread)
     }
     set_error( STATUS_NO_MORE_ENTRIES );
     release_object( process );
+}
+
+
+/* Get the in-process synchronization fd for the current thread user APC alerts */
+DECL_HANDLER(get_inproc_alert_fd)
+{
+    int fd;
+
+    if ((fd = get_inproc_sync_fd( current->alert_sync )) < 0) set_error( STATUS_INVALID_PARAMETER );
+    else
+    {
+        reply->handle = get_thread_id( current ) | 1; /* arbitrary token */
+        send_client_fd( current->process, fd, reply->handle );
+    }
 }

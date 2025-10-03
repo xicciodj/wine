@@ -4144,6 +4144,9 @@ enum inproc_sync_type
 {
     INPROC_SYNC_UNKNOWN   = 0,
     INPROC_SYNC_INTERNAL  = 1,
+    INPROC_SYNC_EVENT     = 2,
+    INPROC_SYNC_MUTEX     = 3,
+    INPROC_SYNC_SEMAPHORE = 4,
 };
 
 /* Get the in-process synchronization fd associated with the waitable handle */
@@ -4152,6 +4155,13 @@ enum inproc_sync_type
 @REPLY
     int           type;         /* inproc sync type */
     unsigned int access;        /* handle access rights */
+@END
+
+
+/* Get the in-process synchronization fd for the current thread user APC alerts */
+@REQ(get_inproc_alert_fd)
+@REPLY
+    obj_handle_t handle;        /* alert fd is in flight with this handle */
 @END
 
 
