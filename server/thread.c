@@ -255,9 +255,10 @@ void init_threading(void)
     if (nice_limit < 0 && debug_level) fprintf(stderr, "wine: Using setpriority to control niceness in the [%d,%d] range\n", nice_limit, -nice_limit );
 }
 
-static void apply_thread_priority( struct thread *thread, int effective_priority )
+static void apply_thread_priority( struct thread *thread )
 {
     int min = -nice_limit, max = nice_limit, range = max - min, niceness;
+    int effective_priority = get_effective_thread_priority( thread );
 
     if (nice_limit >= 0) return;
 
@@ -291,7 +292,7 @@ static int get_mach_importance( int effective_priority )
     return min + (effective_priority - 1) * range / 14;
 }
 
-static void apply_thread_priority( struct thread *thread, int effective_priority )
+static void apply_thread_priority( struct thread *thread )
 {
     kern_return_t kr;
     mach_msg_type_name_t type;
@@ -299,6 +300,7 @@ static void apply_thread_priority( struct thread *thread, int effective_priority
     struct thread_extended_policy thread_extended_policy;
     struct thread_precedence_policy thread_precedence_policy;
     mach_port_t thread_port, process_port = thread->process->trace_data;
+    int effective_priority = get_effective_thread_priority( thread );
 
     if (!process_port) return;
     kr = mach_port_extract_right( process_port, thread->unix_tid,
@@ -335,7 +337,7 @@ static void apply_thread_priority( struct thread *thread, int effective_priority
         break;
     }
     /* QOS_UNSPECIFIED is assigned the highest tier available, so it does not provide a limit */
-    if (effective_priority >= LOW_REALTIME_PRIORITY)
+    if (effective_priority >= LOW_REALTIME_PRIORITY || effective_priority > thread->priority)
     {
         throughput_qos = THROUGHPUT_QOS_TIER_UNSPECIFIED;
         latency_qos = LATENCY_QOS_TIER_UNSPECIFIED;
@@ -385,7 +387,7 @@ void init_threading(void)
 {
 }
 
-static void apply_thread_priority( struct thread *thread, int effective_priority )
+static void apply_thread_priority( struct thread *thread )
 {
 }
 
@@ -823,6 +825,19 @@ affinity_t get_thread_affinity( struct thread *thread )
     return mask;
 }
 
+int get_effective_thread_priority( struct thread *thread )
+{
+    int priority = thread->priority;
+
+    if (thread->disable_boost || priority >= LOW_REALTIME_PRIORITY)
+        return priority;
+
+    if (get_process_first_thread( thread->process ) == thread)
+        priority++;
+
+    return min( priority, LOW_REALTIME_PRIORITY - 1 );
+}
+
 unsigned int set_thread_priority( struct thread *thread, int priority )
 {
     int priority_class = thread->process->priority;
@@ -833,7 +848,7 @@ unsigned int set_thread_priority( struct thread *thread, int priority )
     thread->priority = priority;
 
     /* if thread is gone or hasn't started yet, this will be called again from init_thread with a unix_tid */
-    if (thread->state == RUNNING && thread->unix_tid != -1) apply_thread_priority( thread, priority );
+    if (thread->state == RUNNING && thread->unix_tid != -1) apply_thread_priority( thread );
 
     return STATUS_SUCCESS;
 }
@@ -874,6 +889,12 @@ unsigned int set_thread_base_priority( struct thread *thread, int base_priority 
     return set_thread_priority( thread, priority );
 }
 
+void set_thread_disable_boost( struct thread *thread, int disable_boost )
+{
+    thread->disable_boost = disable_boost;
+    apply_thread_priority( thread );
+}
+
 /* set all information about a thread */
 static void set_thread_info( struct thread *thread,
                              const struct set_thread_info_request *req )
@@ -904,7 +925,7 @@ static void set_thread_info( struct thread *thread,
     if (req->mask & SET_THREAD_INFO_DBG_HIDDEN)
         thread->dbg_hidden = 1;
     if (req->mask & SET_THREAD_INFO_DISABLE_BOOST)
-        thread->disable_boost = req->disable_boost;
+        set_thread_disable_boost( thread, req->disable_boost );
     if (req->mask & SET_THREAD_INFO_DESCRIPTION)
     {
         WCHAR *desc;
@@ -1828,7 +1849,7 @@ DECL_HANDLER(get_thread_info)
         reply->teb            = thread->teb;
         reply->entry_point    = thread->entry_point;
         reply->exit_code      = (thread->state == TERMINATED) ? thread->exit_code : STATUS_PENDING;
-        reply->priority       = thread->priority;
+        reply->priority       = get_effective_thread_priority( thread );
         reply->base_priority  = thread->base_priority;
         reply->affinity       = thread->affinity;
         reply->suspend_count  = thread->suspend;

@@ -1719,7 +1719,7 @@ static void set_process_disable_boost( struct process *process, int disable_boos
 
     LIST_FOR_EACH_ENTRY( thread, &process->thread_list, struct thread, proc_entry )
     {
-        thread->disable_boost = disable_boost;
+        set_thread_disable_boost( thread, disable_boost );
     }
 }
 
@@ -2102,7 +2102,7 @@ DECL_HANDLER(list_processes)
             thread_info->start_time = thread->creation_time;
             thread_info->tid = thread->id;
             thread_info->base_priority = thread->base_priority;
-            thread_info->current_priority = thread->priority;
+            thread_info->current_priority = get_effective_thread_priority( thread );
             thread_info->unix_tid = thread->unix_tid;
             thread_info->entry_point = thread->entry_point;
             thread_info->teb = thread->teb;
