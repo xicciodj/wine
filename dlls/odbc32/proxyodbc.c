@@ -427,6 +427,11 @@ static void unlock_object( struct object *obj )
     LeaveCriticalSection( &obj->cs );
 }
 
+static BOOL is_ansi_driver( struct object *obj )
+{
+    return obj->win32_handle && !obj->win32_funcs->SQLConnectW;
+}
+
 static struct connection *create_connection( struct environment *env )
 {
     struct connection *ret;
@@ -2517,9 +2522,32 @@ static SQLRETURN get_data_unix( struct statement *stmt, SQLUSMALLINT column, SQL
 static SQLRETURN get_data_win32( struct statement *stmt, SQLUSMALLINT column, SQLSMALLINT type, SQLPOINTER value,
                                  SQLLEN buflen, SQLLEN *retlen )
 {
-    if (stmt->hdr.win32_funcs->SQLGetData)
-        return stmt->hdr.win32_funcs->SQLGetData( stmt->hdr.win32_handle, column, type, value, buflen, retlen );
-    return SQL_ERROR;
+    if (!stmt->hdr.win32_funcs->SQLGetData)
+        return SQL_ERROR;
+
+    if (type == SQL_C_WCHAR && is_ansi_driver( &stmt->hdr ))
+    {
+        SQLLEN data_len = buflen / sizeof(WCHAR) - 1;
+        char *data = malloc( data_len );
+        SQLRETURN ret;
+
+        ret = stmt->hdr.win32_funcs->SQLGetData( stmt->hdr.win32_handle,
+                column, SQL_C_CHAR, data, data_len, &data_len );
+        if (SUCCESS(ret) && data_len == -1)
+        {
+            if (retlen) *retlen = data_len;
+        }
+        else if (SUCCESS(ret))
+        {
+            data_len = MultiByteToWideChar( CP_ACP, 0, data, data_len, value, buflen / sizeof(WCHAR) - 1 );
+            ((WCHAR *)value)[data_len] = 0;
+            if (retlen) *retlen = data_len * sizeof(WCHAR);
+        }
+        free( data );
+        return ret;
+    }
+
+    return stmt->hdr.win32_funcs->SQLGetData( stmt->hdr.win32_handle, column, type, value, buflen, retlen );
 }
 
 /*************************************************************************
@@ -7090,7 +7118,32 @@ static SQLRETURN get_info_win32_w( struct connection *con, SQLUSMALLINT type, SQ
         case SQL_ACTIVE_CONNECTIONS:
         case SQL_ACTIVE_STATEMENTS:
         case SQL_ODBC_API_CONFORMANCE:
+        case SQL_CONCAT_NULL_BEHAVIOR:
         case SQL_TXN_CAPABLE:
+        case SQL_CONVERT_FUNCTIONS:
+        case SQL_NUMERIC_FUNCTIONS:
+        case SQL_STRING_FUNCTIONS:
+        case SQL_SYSTEM_FUNCTIONS:
+        case SQL_TIMEDATE_FUNCTIONS:
+        case SQL_CONVERT_BIGINT:
+        case SQL_CONVERT_BINARY:
+        case SQL_CONVERT_BIT:
+        case SQL_CONVERT_CHAR:
+        case SQL_CONVERT_DATE:
+        case SQL_CONVERT_DECIMAL:
+        case SQL_CONVERT_DOUBLE:
+        case SQL_CONVERT_FLOAT:
+        case SQL_CONVERT_INTEGER:
+        case SQL_CONVERT_LONGVARCHAR:
+        case SQL_CONVERT_NUMERIC:
+        case SQL_CONVERT_REAL:
+        case SQL_CONVERT_SMALLINT:
+        case SQL_CONVERT_TIME:
+        case SQL_CONVERT_TIMESTAMP:
+        case SQL_CONVERT_TINYINT:
+        case SQL_CONVERT_VARBINARY:
+        case SQL_CONVERT_VARCHAR:
+        case SQL_CONVERT_LONGVARBINARY:
             ret = con->hdr.win32_funcs->SQLGetInfo( con->hdr.win32_handle, type, value, buflen, retlen );
             break;
         case SQL_DRIVER_NAME:
@@ -7098,6 +7151,8 @@ static SQLRETURN get_info_win32_w( struct connection *con, SQLUSMALLINT type, SQ
         case SQL_DATA_SOURCE_READ_ONLY:
         case SQL_IDENTIFIER_QUOTE_CHAR:
         case SQL_SEARCH_PATTERN_ESCAPE:
+        case SQL_EXPRESSIONS_IN_ORDERBY:
+        case SQL_ORDER_BY_COLUMNS_IN_SELECT:
         {
             SQLSMALLINT lenA;
             SQLCHAR *strA;
@@ -7339,11 +7394,28 @@ static SQLRETURN statistics_win32_w( struct statement *stmt, SQLWCHAR *catalog, 
                                      SQLSMALLINT len2, SQLWCHAR *table, SQLSMALLINT len3, SQLUSMALLINT unique,
                                      SQLUSMALLINT reserved )
 {
+    SQLRETURN ret = SQL_ERROR;
+
     if (stmt->hdr.win32_funcs->SQLStatisticsW)
         return stmt->hdr.win32_funcs->SQLStatisticsW( stmt->hdr.win32_handle, catalog, len1, schema, len2, table,
                                                       len3, unique, reserved );
-    if (stmt->hdr.win32_funcs->SQLStatistics) FIXME( "Unicode to ANSI conversion not handled\n" );
-    return SQL_ERROR;
+    if (stmt->hdr.win32_funcs->SQLStatistics)
+    {
+        SQLCHAR *catalogA, *schemaA, *tableA;
+
+        catalogA = strnWtoA( catalog, len1 );
+        schemaA = strnWtoA( schema, len2 );
+        tableA = strnWtoA( table, len3 );
+
+        ret = stmt->hdr.win32_funcs->SQLStatistics( stmt->hdr.win32_handle, catalogA, SQL_NTS,
+                schemaA, SQL_NTS, tableA, SQL_NTS, unique, reserved );
+
+        free( catalogA );
+        free( schemaA );
+        free( tableA );
+    }
+
+    return ret;
 }
 
 /*************************************************************************
