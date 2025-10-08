@@ -1,6 +1,5 @@
-/* OLE DB Internal header
- *
- * Copyright 2009 Huw Davies
+/*
+ * Copyright 2025 Vibhav Pant
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -17,13 +16,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-HRESULT create_oledb_convert(IUnknown *outer, void **obj);
-HRESULT create_data_init(IUnknown *outer, void **obj);
-HRESULT create_error_object(IUnknown *outer, void **obj);
-HRESULT create_oledb_rowpos(IUnknown *outer, void **obj);
-HRESULT create_dslocator(IUnknown *outer, void **obj);
+#ifndef __WINE_ROMETADATA_PRIVATE__
+#define __WINE_ROMETADATA_PRIVATE__
 
-HRESULT get_data_source(IUnknown *outer, DWORD clsctx, LPCOLESTR initstring, REFIID riid,
-    IUnknown **datasource);
+extern HRESULT IMetaDataTables_create(IMetaDataTables **iface);
 
-extern HINSTANCE instance;
+#endif /* __WINE_ROMETADATA_PRIVATE__ */

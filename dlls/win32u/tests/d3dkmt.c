@@ -455,8 +455,7 @@ static void get_d3dkmt_resource_desc( LUID luid, HANDLE handle, BOOL expect_glob
     D3DKMT_HANDLE resource;
     NTSTATUS status;
 
-    todo_wine ok_ptr( handle, !=, NULL );
-    if (!handle) return;
+    ok_ptr( handle, !=, NULL );
 
     open_adapter.AdapterLuid = luid;
     status = D3DKMTOpenAdapterFromLuid(&open_adapter);
@@ -480,7 +479,7 @@ static void get_d3dkmt_resource_desc( LUID luid, HANDLE handle, BOOL expect_glob
         status = D3DKMTQueryResourceInfo( &query );
         ok_nt( STATUS_SUCCESS, status );
         if (size) ok_u4( query.PrivateRuntimeDataSize, ==, size );
-        else todo_wine ok( query.PrivateRuntimeDataSize == 0 || query.PrivateRuntimeDataSize == 0x68 /* NVIDIA */, "got %#x\n", query.PrivateRuntimeDataSize );
+        else ok( query.PrivateRuntimeDataSize == 0 || query.PrivateRuntimeDataSize == 0x68 /* NVIDIA */, "got %#x\n", query.PrivateRuntimeDataSize );
         ok_u4( query.TotalPrivateDriverDataSize, <, sizeof(driver_data) );
         ok_u4( query.ResourcePrivateDriverDataSize, <, sizeof(driver_data) );
         ok_u4( query.NumAllocations, ==, 1 );
@@ -501,7 +500,7 @@ static void get_d3dkmt_resource_desc( LUID luid, HANDLE handle, BOOL expect_glob
         ok_nt( STATUS_SUCCESS, status );
         check_d3dkmt_local( open.hResource, NULL );
         if (size) ok_u4( open.PrivateRuntimeDataSize, ==, size );
-        else todo_wine ok( open.PrivateRuntimeDataSize == 0 || open.PrivateRuntimeDataSize == 0x68 /* NVIDIA */, "got %#x\n", open.PrivateRuntimeDataSize );
+        else ok( open.PrivateRuntimeDataSize == 0 || open.PrivateRuntimeDataSize == 0x68 /* NVIDIA */, "got %#x\n", open.PrivateRuntimeDataSize );
         ok_u4( open.TotalPrivateDriverDataBufferSize, <, sizeof(driver_data) );
         ok_u4( open.ResourcePrivateDriverDataSize, <, sizeof(driver_data) );
         ok_u4( open.NumAllocations, ==, 1 );
@@ -519,7 +518,7 @@ static void get_d3dkmt_resource_desc( LUID luid, HANDLE handle, BOOL expect_glob
         status = D3DKMTQueryResourceInfoFromNtHandle( &query_nt );
         ok_nt( STATUS_SUCCESS, status );
         if (size) ok_u4( query_nt.PrivateRuntimeDataSize, ==, size );
-        else todo_wine ok( query_nt.PrivateRuntimeDataSize == 0 || query_nt.PrivateRuntimeDataSize == 0x68 /* NVIDIA */, "got %#x\n", query_nt.PrivateRuntimeDataSize );
+        else ok( query_nt.PrivateRuntimeDataSize == 0 || query_nt.PrivateRuntimeDataSize == 0x68 /* NVIDIA */, "got %#x\n", query_nt.PrivateRuntimeDataSize );
         ok_u4( query_nt.TotalPrivateDriverDataSize, <, sizeof(driver_data) );
         ok_u4( query_nt.ResourcePrivateDriverDataSize, <, sizeof(driver_data) );
         ok_u4( query_nt.NumAllocations, ==, 1 );
@@ -540,7 +539,7 @@ static void get_d3dkmt_resource_desc( LUID luid, HANDLE handle, BOOL expect_glob
         ok_nt( STATUS_SUCCESS, status );
         check_d3dkmt_local( open_nt.hResource, NULL );
         if (size) ok_u4( open_nt.PrivateRuntimeDataSize, ==, size );
-        else todo_wine ok( open_nt.PrivateRuntimeDataSize == 0 || open_nt.PrivateRuntimeDataSize == 0x68 /* NVIDIA */, "got %#x\n", open_nt.PrivateRuntimeDataSize );
+        else ok( open_nt.PrivateRuntimeDataSize == 0 || open_nt.PrivateRuntimeDataSize == 0x68 /* NVIDIA */, "got %#x\n", open_nt.PrivateRuntimeDataSize );
         ok_u4( open_nt.TotalPrivateDriverDataBufferSize, <, sizeof(driver_data) );
         ok_u4( open_nt.ResourcePrivateDriverDataSize, <, sizeof(driver_data) );
         ok_u4( open_nt.NumAllocations, ==, 1 );
@@ -1423,7 +1422,6 @@ static void test_D3DKMTQueryVideoMemoryInfo(void)
         query_memory_info.PhysicalAdapterIndex = 0;
         query_memory_info.MemorySegmentGroup = groups[i];
         status = D3DKMTQueryVideoMemoryInfo( &query_memory_info );
-        todo_wine_if( status == STATUS_INVALID_PARAMETER ) /* fails on Wine without a Vulkan adapter */
         ok( status == STATUS_SUCCESS, "Got unexpected return code %#lx.\n", status );
         ok( query_memory_info.Budget >= query_memory_info.AvailableForReservation,
             "Unexpected budget %I64u and reservation %I64u.\n", query_memory_info.Budget,
@@ -3363,12 +3361,12 @@ static struct vulkan_device *create_vulkan_device( LUID *luid )
 
         winetest_push_context( "export" );
         types = get_vulkan_external_image_types( dev->instance, physical_devices[i], VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT_KHR );
-        todo_wine ok( !(~types & expect_export_types), "got types %#x\n", types );
+        ok( !(~types & expect_export_types), "got types %#x\n", types );
         winetest_pop_context();
 
         winetest_push_context( "import" );
         types = get_vulkan_external_image_types( dev->instance, physical_devices[i], VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT_KHR );
-        todo_wine ok( !(~types & expect_import_types), "got types %#x\n", types );
+        ok( !(~types & expect_import_types), "got types %#x\n", types );
         winetest_pop_context();
     }
 
@@ -3397,15 +3395,8 @@ static struct vulkan_device *create_vulkan_device( LUID *luid )
 
     p_vkCreateDevice = (void *)p_vkGetInstanceProcAddr( dev->instance, "vkCreateDevice" );
     vr = p_vkCreateDevice( dev->physical_device, &create_info, NULL, &dev->device );
-    todo_wine ok_vk( VK_SUCCESS, vr );
-    todo_wine ok_ptr( dev->device, !=, VK_NULL_HANDLE );
-    if (dev->device == VK_NULL_HANDLE)
-    {
-        PFN_vkDestroyInstance p_vkDestroyInstance = (void *)p_vkGetInstanceProcAddr( dev->instance, "vkDestroyInstance" );
-        p_vkDestroyInstance( dev->instance, NULL );
-        free( dev );
-        return NULL;
-    }
+    ok_vk( VK_SUCCESS, vr );
+    ok_ptr( dev->device, !=, VK_NULL_HANDLE );
 
     return dev;
 }
@@ -4646,42 +4637,36 @@ static void test_shared_resources(void)
 
         case MAKETEST(4, 0, 0):
         {
-            if (!vulkan_exp) break;
             buf = export_vulkan_buffer( vulkan_exp, resource_size, NULL, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT, &handle );
             get_d3dkmt_resource_desc( luid, handle, FALSE, 0, runtime_desc );
             break;
         }
         case MAKETEST(4, 0, 1):
         {
-            if (!vulkan_exp) break;
             buf = export_vulkan_buffer( vulkan_exp, resource_size, NULL, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT, &handle );
             get_d3dkmt_resource_desc( luid, handle, TRUE, 0, runtime_desc );
             break;
         }
         case MAKETEST(4, 1, 0):
         {
-            if (!vulkan_exp) break;
             img = export_vulkan_image( vulkan_exp, width_1d, 1, array_1d, NULL, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT, &handle );
             get_d3dkmt_resource_desc( luid, handle, FALSE, 0, runtime_desc );
             break;
         }
         case MAKETEST(4, 2, 0):
         {
-            if (!vulkan_exp) break;
             img = export_vulkan_image( vulkan_exp, width_2d, height_2d, 1, NULL, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT, &handle );
             get_d3dkmt_resource_desc( luid, handle, FALSE, 0, runtime_desc );
             break;
         }
         case MAKETEST(4, 2, 1):
         {
-            if (!vulkan_exp) break;
             img = export_vulkan_image( vulkan_exp, width_2d, height_2d, 1, NULL, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT, &handle );
             get_d3dkmt_resource_desc( luid, handle, TRUE, 0, runtime_desc );
             break;
         }
         case MAKETEST(4, 3, 0):
         {
-            if (!vulkan_exp) break;
             img = export_vulkan_image( vulkan_exp, width_3d, height_3d, depth_3d, NULL, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT, &handle );
             get_d3dkmt_resource_desc( luid, handle, FALSE, 0, runtime_desc );
             break;

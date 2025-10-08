@@ -110,7 +110,6 @@ static void test_uninitialized(IAudioClient *ac)
 struct read_packets_data
 {
     UINT64 expected_dev_pos;
-    UINT32 period;
     BOOL discontinuity_at_0;
     BOOL discontinuity_at_later;
 };
@@ -250,13 +249,6 @@ static void read_packets(IAudioClient *ac, IAudioCaptureClient *acc, HANDLE hand
 
         winetest_pop_context();
     }
-
-    /* Here we should have basically emptied the buffer, but we allow one or two
-     * packets to arrive concurrently. */
-    hr = IAudioClient_GetCurrentPadding(ac, &padding);
-    ok(hr == S_OK, "GetCurrentPadding returns %08lx\n", hr);
-    ok(padding <= 2 * data->period, "GetCurrentPadding %u is larger then twice the period%u\n",
-            padding, data->period);
 }
 
 static void test_capture(IAudioClient *ac, HANDLE handle, WAVEFORMATEX *wfx)
@@ -264,10 +256,9 @@ static void test_capture(IAudioClient *ac, HANDLE handle, WAVEFORMATEX *wfx)
     struct read_packets_data packets_data;
     IAudioCaptureClient *acc;
     HRESULT hr;
-    UINT32 frames, next, pad, sum = 0;
+    UINT32 frames, next, pad, buffer_size, padding;
     BYTE *data;
     DWORD flags;
-    UINT64 pos, qpc;
     REFERENCE_TIME period;
 
     hr = IAudioClient_GetService(ac, &IID_IAudioCaptureClient, (void**)&acc);
@@ -309,7 +300,12 @@ static void test_capture(IAudioClient *ac, HANDLE handle, WAVEFORMATEX *wfx)
 
     hr = IAudioClient_GetDevicePeriod(ac, &period, NULL);
     ok(hr == S_OK, "GetDevicePeriod failed: %08lx\n", hr);
-    packets_data.period = MulDiv(period, wfx->nSamplesPerSec, 10000000); /* as in render.c */
+    period = MulDiv(period, wfx->nSamplesPerSec, 10000000); /* as in render.c */
+
+    /* GetBufferSize is not a multiple of the period size! */
+    hr = IAudioClient_GetBufferSize(ac, &buffer_size);
+    ok(hr == S_OK, "GetBufferSize failed: %08lx\n", hr);
+    trace("GetBufferSize %u period size %llu\n", buffer_size, period);
 
     hr = IAudioClient_Start(ac);
     ok(hr == S_OK, "Start on a stopped stream returns %08lx\n", hr);
@@ -320,209 +316,98 @@ static void test_capture(IAudioClient *ac, HANDLE handle, WAVEFORMATEX *wfx)
 
     read_packets(ac, acc, handle, 10, &packets_data);
 
+    /* Here we should have basically emptied the buffer, but we allow one or two
+     * packets to arrive concurrently. */
+    hr = IAudioClient_GetCurrentPadding(ac, &padding);
+    ok(hr == S_OK, "GetCurrentPadding returns %08lx\n", hr);
+    ok(padding <= 2 * period, "GetCurrentPadding %u is larger then twice the period %llu\n",
+            padding, period);
+
     todo_wine
     ok(packets_data.discontinuity_at_0, "No discontinuity at first packet\n");
     ok(!packets_data.discontinuity_at_later, "Discontinuity at later packet\n");
 
     winetest_pop_context();
+    winetest_push_context("sleep and read 10 packets");
 
-    sum = packets_data.expected_dev_pos;
+    /* Wait a bit, but not enough to fill the buffer, so we shouldn't miss anything. */
+    Sleep(70);
 
-    Sleep(350); /* for sure there's data now */
+    read_packets(ac, acc, handle, 10, &packets_data);
 
-    hr = IAudioClient_GetCurrentPadding(ac, &pad);
-    ok(hr == S_OK, "GetCurrentPadding call returns %08lx\n", hr);
+    hr = IAudioClient_GetCurrentPadding(ac, &padding);
+    ok(hr == S_OK, "GetCurrentPadding returns %08lx\n", hr);
+    ok(padding <= 2 * period, "GetCurrentPadding %u is larger then twice the period %llu\n",
+            padding, period);
 
-    /** GetNextPacketSize
-     * returns either 0 or one period worth of frames
-     * whereas GetCurrentPadding grows when input is not consumed. */
-    hr = IAudioCaptureClient_GetNextPacketSize(acc, &next);
-    ok(hr == S_OK, "IAudioCaptureClient_GetNextPacketSize returns %08lx\n", hr);
-    flaky_wine
-    ok(next <  pad, "GetNextPacketSize %u vs. GCP %u\n", next, pad);
+    ok(!packets_data.discontinuity_at_0, "Discontinuity at first packet\n");
+    ok(!packets_data.discontinuity_at_later, "Discontinuity at later packet\n");
 
-    hr = IAudioCaptureClient_GetBuffer(acc, &data, &frames, &flags, &pos, &qpc);
-    flaky_wine
-    ok(hr == S_OK, "Valid IAudioCaptureClient_GetBuffer returns %08lx\n", hr);
-    ok(next == frames, "GetNextPacketSize %u vs. GetBuffer %u\n", next, frames);
+    winetest_pop_context();
+    winetest_push_context("overrun and read 75 packets");
 
-    if(hr == S_OK){
-        UINT32 frames2 = frames;
-        UINT64 pos2, qpc2;
-        ok(frames, "Amount of frames locked is 0!\n");
-        ok(pos == sum, "Position %u expected %u\n", (UINT)pos, sum);
-
-        hr = IAudioCaptureClient_ReleaseBuffer(acc, 0);
-        ok(hr == S_OK, "Releasing 0 returns %08lx\n", hr);
-
-        /* GCP did not decrement, no data consumed */
-        hr = IAudioClient_GetCurrentPadding(ac, &frames);
-        ok(hr == S_OK, "GetCurrentPadding call returns %08lx\n", hr);
-        ok(frames == pad || frames == pad + next /* concurrent feeder */,
-           "GCP %u past ReleaseBuffer(0) initially %u\n", frames, pad);
-
-        /* should re-get the same data */
-        hr = IAudioCaptureClient_GetBuffer(acc, &data, &frames, &flags, &pos2, &qpc2);
-        ok(hr == S_OK, "Valid IAudioCaptureClient_GetBuffer returns %08lx\n", hr);
-        ok(frames2 == frames, "GetBuffer after ReleaseBuffer(0) %u/%u\n", frames2, frames);
-        ok(pos2 == pos, "Position after ReleaseBuffer(0) %u/%u\n", (UINT)pos2, (UINT)pos);
-        todo_wine_if(qpc2 != qpc)
-            /* FIXME: Some drivers fail */
-            ok(qpc2 == qpc, "HPC after ReleaseBuffer(0) %u vs. %u\n", (UINT)qpc2, (UINT)qpc);
-    }
-
-    /* trace after the GCP test because log output to MS-DOS console disturbs timing */
-    trace("Sleep.1 position %d pad %u flags %lx, amount of frames locked: %u\n",
-          hr==S_OK ? (UINT)pos : -1, pad, flags, frames);
-
-    if(hr == S_OK){
-        UINT32 frames2 = 0xabadcafe;
-        BYTE *data2 = (void*)0xdeadf00d;
-        flags = 0xabadcafe;
-
-        ok(pos == sum, "Position %u expected %u\n", (UINT)pos, sum);
-
-        pos = qpc = 0xdeadbeef;
-        hr = IAudioCaptureClient_GetBuffer(acc, &data2, &frames2, &flags, &pos, &qpc);
-        ok(hr == AUDCLNT_E_OUT_OF_ORDER, "Out of order IAudioCaptureClient_GetBuffer returns %08lx\n", hr);
-        ok(frames2 == 0xabadcafe, "Out of order frames changed to %x\n", frames2);
-        ok(broken(data2 == (void*)0xdeadf00d) /* <= win8 */ ||
-                data2 == NULL, "Out of order data changed to %p\n", data2);
-        ok(flags == 0xabadcafe, "Out of order flags changed to %lx\n", flags);
-        ok(pos == 0xdeadbeef, "Out of order position changed to %x\n", (UINT)pos);
-        ok(qpc == 0xdeadbeef, "Out of order timer changed to %x\n", (UINT)qpc);
-
-        hr = IAudioCaptureClient_ReleaseBuffer(acc, frames+1);
-        ok(hr == AUDCLNT_E_INVALID_SIZE, "Releasing buffer+1 returns %08lx\n", hr);
-
-        hr = IAudioCaptureClient_ReleaseBuffer(acc, 1);
-        ok(hr == AUDCLNT_E_INVALID_SIZE, "Releasing 1 returns %08lx\n", hr);
-
-        hr = IAudioClient_Reset(ac);
-        ok(hr == AUDCLNT_E_NOT_STOPPED, "Reset failed: %08lx\n", hr);
-    }
-
-    hr = IAudioCaptureClient_ReleaseBuffer(acc, frames);
-    ok(hr == S_OK, "Releasing buffer returns %08lx\n", hr);
-
-    if (frames) {
-        sum += frames;
-        hr = IAudioCaptureClient_ReleaseBuffer(acc, frames);
-        ok(hr == AUDCLNT_E_OUT_OF_ORDER, "Releasing buffer twice returns %08lx\n", hr);
-    }
-
-    /* GetBufferSize is not a multiple of the period size! */
-    hr = IAudioClient_GetBufferSize(ac, &next);
-    ok(hr == S_OK, "GetBufferSize failed: %08lx\n", hr);
-    trace("GetBufferSize %u period size %u\n", next, packets_data.period);
-
-    Sleep(600); /* overrun */
+    /* Now wait too much, to overrun the buffer. By swallowing enough packets
+     * we should eventually reach a discontinuity. We have a 500 ms buffer and
+     * normally the period is 10 ms, so 50 packets should be enough. Let's take
+     * a few more to stay safe. */
+    Sleep(600);
 
     hr = IAudioClient_GetCurrentPadding(ac, &pad);
     ok(hr == S_OK, "GetCurrentPadding call returns %08lx\n", hr);
+    /* Fails with CoreAudio. */
+    todo_if(pad != buffer_size)
+    ok(pad == buffer_size, "GCP %u vs. BufferSize %u\n", (UINT32)pad, buffer_size);
 
-    hr = IAudioCaptureClient_GetBuffer(acc, &data, &frames, &flags, &pos, &qpc);
-    flaky_wine
-    ok(hr == S_OK, "Valid IAudioCaptureClient_GetBuffer returns %08lx\n", hr);
+    read_packets(ac, acc, handle, 75, &packets_data);
 
-    trace("Overrun position %d pad %u flags %lx, amount of frames locked: %u\n",
-          hr==S_OK ? (UINT)pos : -1, pad, flags, frames);
+    /* Works with Pulse, but fails with ALSA and CoreAudio. */
+    todo_wine_if(!packets_data.discontinuity_at_0 && !packets_data.discontinuity_at_later)
+    ok(packets_data.discontinuity_at_0 || packets_data.discontinuity_at_later, "No discontinuity\n");
 
-    if(hr == S_OK){
-        if(flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY){
-            /* Native's position is one period further than what we read.
-             * Perhaps that's precisely the meaning of DATA_DISCONTINUITY:
-             * signal when the position jump left a gap. */
-            ok(pos >= sum + frames, "Position %u last %u frames %u\n", (UINT)pos, sum, frames);
-            sum = pos;
-        }else{ /* win10 */
-            ok(pos == sum, "Position %u last %u frames %u\n", (UINT)pos, sum, frames);
-        }
-
-        ok(pad == next, "GCP %u vs. BufferSize %u\n", (UINT32)pad, next);
-    }
-
-    hr = IAudioCaptureClient_ReleaseBuffer(acc, frames);
-    ok(hr == S_OK, "Releasing buffer returns %08lx\n", hr);
-    sum += frames;
-
-    hr = IAudioClient_GetCurrentPadding(ac, &pad);
-    ok(hr == S_OK, "GetCurrentPadding call returns %08lx\n", hr);
-
-    hr = IAudioCaptureClient_GetBuffer(acc, &data, &frames, &flags, &pos, &qpc);
-    flaky_wine
-    ok(hr == S_OK, "Valid IAudioCaptureClient_GetBuffer returns %08lx\n", hr);
-
-    trace("Cont'ed position %d pad %u flags %lx, amount of frames locked: %u\n",
-          hr==S_OK ? (UINT)pos : -1, pad, flags, frames);
-
-    if(hr == S_OK){
-        flaky_wine
-        ok(pos == sum, "Position %u expected %u\n", (UINT)pos, sum);
-        flaky_wine
-        ok(!flags, "flags %lu\n", flags);
-
-        hr = IAudioCaptureClient_ReleaseBuffer(acc, frames);
-        ok(hr == S_OK, "Releasing buffer returns %08lx\n", hr);
-        sum += frames;
-    }
+    winetest_pop_context();
+    winetest_push_context("stop, start and read 10 packets");
 
     hr = IAudioClient_Stop(ac);
     ok(hr == S_OK, "Stop on a started stream returns %08lx\n", hr);
 
+    hr = IAudioClient_Stop(ac);
+    ok(hr == S_FALSE, "Stop on a stopped stream returns %08lx\n", hr);
+
     hr = IAudioClient_Start(ac);
     ok(hr == S_OK, "Start on a stopped stream returns %08lx\n", hr);
 
-    hr = IAudioCaptureClient_GetBuffer(acc, &data, &frames, &flags, &pos, &qpc);
-    flaky_wine
-    ok(hr == S_OK, "Valid IAudioCaptureClient_GetBuffer returns %08lx\n", hr);
+    hr = IAudioClient_Start(ac);
+    ok(hr == AUDCLNT_E_NOT_STOPPED, "Start on a started stream returns %08lx\n", hr);
 
-    hr = IAudioClient_GetCurrentPadding(ac, &pad);
-    ok(hr == S_OK, "GetCurrentPadding call returns %08lx\n", hr);
+    read_packets(ac, acc, handle, 10, &packets_data);
 
-    trace("Restart position %d pad %u flags %lx, amount of frames locked: %u\n",
-          hr==S_OK ? (UINT)pos : -1, pad, flags, frames);
-    flaky_wine
-    ok(pad > sum, "restarted GCP %u\n", pad); /* GCP is still near buffer size */
+    /* Sometimes there is a discontinuity at the first packet. */
+    ok(!packets_data.discontinuity_at_later, "Discontinuity at later packet\n");
 
-    if(frames){
-        flaky_wine
-        ok(pos == sum, "Position %u expected %u\n", (UINT)pos, sum);
-        ok(!flags, "flags %lu\n", flags);
+    winetest_pop_context();
+    winetest_push_context("stop, reset, start and read 10 packets");
 
-        hr = IAudioCaptureClient_ReleaseBuffer(acc, frames);
-        ok(hr == S_OK, "Releasing buffer returns %08lx\n", hr);
-        sum += frames;
-    }
+    hr = IAudioClient_Reset(ac);
+    ok(hr == AUDCLNT_E_NOT_STOPPED, "Reset on a started stream returns %08lx\n", hr);
 
     hr = IAudioClient_Stop(ac);
     ok(hr == S_OK, "Stop on a started stream returns %08lx\n", hr);
 
     hr = IAudioClient_Reset(ac);
     ok(hr == S_OK, "Reset on a stopped stream returns %08lx\n", hr);
-    sum += pad - frames;
-
-    hr = IAudioClient_GetCurrentPadding(ac, &pad);
-    ok(hr == S_OK, "GetCurrentPadding call returns %08lx\n", hr);
-    ok(!pad, "reset GCP %u\n", pad);
-
-    flags = 0xabadcafe;
-    hr = IAudioCaptureClient_GetBuffer(acc, &data, &frames, &flags, &pos, &qpc);
-    ok(hr == AUDCLNT_S_BUFFER_EMPTY,
-       "Initial IAudioCaptureClient_GetBuffer returns %08lx\n", hr);
-
-    trace("Reset   position %d pad %u flags %lx, amount of frames locked: %u\n",
-          hr==S_OK ? (UINT)pos : -1, pad, flags, frames);
-
-    if(SUCCEEDED(hr))
-        IAudioCaptureClient_ReleaseBuffer(acc, frames);
 
     hr = IAudioClient_Start(ac);
     ok(hr == S_OK, "Start on a stopped stream returns %08lx\n", hr);
 
-    packets_data.expected_dev_pos = sum;
+    /* Device position is lost when resetting. */
+    packets_data.expected_dev_pos = UINT64_MAX;
 
     read_packets(ac, acc, handle, 10, &packets_data);
+
+    ok(!packets_data.discontinuity_at_0, "Discontinuity at first packet\n");
+    ok(!packets_data.discontinuity_at_later, "Discontinuity at later packet\n");
+
+    winetest_pop_context();
 
     IAudioCaptureClient_Release(acc);
 }
