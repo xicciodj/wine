@@ -121,6 +121,7 @@ struct opengl_funcs
     BOOL       (*p_wglSwapIntervalEXT)( int interval );
 #define USE_GL_FUNC(x) PFN_##x p_##x;
     ALL_EGL_FUNCS
+    ALL_EGL_EXT_FUNCS
     ALL_GL_FUNCS
     ALL_GL_EXT_FUNCS
 #undef USE_GL_FUNC
@@ -135,11 +136,23 @@ struct egl_platform
     BOOL                 force_pbuffer_formats;
 
     /* filled by win32u after init_egl_platform */
-    EGLDisplay  display;
-    UINT        config_count;
-    EGLConfig  *configs;
-    BOOL        has_EGL_EXT_present_opaque;
-    BOOL        has_EGL_EXT_pixel_format_float;
+    EGLDeviceEXT         device;
+    EGLDisplay           display;
+    UINT                 config_count;
+    EGLConfig           *configs;
+    BOOL                 has_EGL_EXT_present_opaque;
+    BOOL                 has_EGL_EXT_pixel_format_float;
+
+    /* WGL_WINE_query_renderer info */
+    UINT                 device_id;
+    UINT                 vendor_id;
+    BOOL                 accelerated;
+    UINT                 version[3];
+    UINT                 core_version;
+    UINT                 compat_version;
+    UINT                 video_memory;
+    const char          *device_name;
+    const char          *vendor_name;
 };
 
 struct opengl_drawable_funcs
