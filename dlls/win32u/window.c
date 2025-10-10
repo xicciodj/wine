@@ -5560,8 +5560,9 @@ HWND WINAPI NtUserCreateWindowEx( DWORD ex_style, UNICODE_STRING *class_name,
                                   UNICODE_STRING *version, UNICODE_STRING *window_name,
                                   DWORD style, INT x, INT y, INT cx, INT cy,
                                   HWND parent, HMENU menu, HINSTANCE class_instance, void *params,
-                                  DWORD flags, HINSTANCE instance, DWORD unk, BOOL ansi )
+                                  DWORD flags, HINSTANCE instance, const WCHAR *class, BOOL ansi )
 {
+    WCHAR base_nameW[MAX_ATOM_LEN + 1];
     UINT win_dpi, context;
     struct window_surface *surface;
     struct window_rects new_rects;
@@ -5573,9 +5574,9 @@ HWND WINAPI NtUserCreateWindowEx( DWORD ex_style, UNICODE_STRING *class_name,
     WND *win;
 
     TRACE( "ex_style %#x, class_name %s, version %s, window_name %s, style %#x, x %u, y %u, cx %u, cy %u, "
-           "parent %p, menu %p, class_instance %p, params %p, flags %#x, instance %p, unk %u, ansi %u\n",
+           "parent %p, menu %p, class_instance %p, params %p, flags %#x, instance %p, class %s, ansi %u\n",
            ex_style, debugstr_us(class_name), debugstr_us(version), debugstr_us(window_name), style, x, y, cx, cy,
-           parent, menu, class_instance, params, flags, instance, unk, ansi );
+           parent, menu, class_instance, params, flags, instance, debugstr_w(class), ansi );
 
     cs.lpCreateParams = params;
     cs.hInstance  = instance ? instance : class_instance;
@@ -5584,7 +5585,6 @@ HWND WINAPI NtUserCreateWindowEx( DWORD ex_style, UNICODE_STRING *class_name,
     cs.style      = style;
     cs.dwExStyle  = ex_style;
     cs.lpszName   = window_name ? window_name->Buffer : NULL;
-    cs.lpszClass  = class_name->Buffer;
     cs.x  = x;
     cs.y  = y;
     cs.cx = cx;
@@ -5664,6 +5664,17 @@ HWND WINAPI NtUserCreateWindowEx( DWORD ex_style, UNICODE_STRING *class_name,
     /* call the WH_CBT hook */
 
     release_win_ptr( win );
+
+    if (class && IS_INTRESOURCE(class)) cs.lpszClass = class;
+    else
+    {
+        UNICODE_STRING base_name;
+        base_name.Buffer = base_nameW;
+        base_name.MaximumLength = sizeof(base_nameW);
+        NtUserGetClassName( hwnd, FALSE, &base_name );
+        cs.lpszClass = base_name.Buffer;
+    }
+
     cbtc.hwndInsertAfter = HWND_TOP;
     cbtc.lpcs = &cs;
     if (call_hooks( WH_CBT, HCBT_CREATEWND, (WPARAM)hwnd, (LPARAM)&cbtc, sizeof(cbtc) ))

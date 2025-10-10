@@ -258,7 +258,6 @@ static void xembed_request_focus( Display *display, Window window, DWORD timesta
     xev.xclient.data.l[4] = 0;
 
     XSendEvent(display, window, False, NoEventMask, &xev);
-    XFlush( display );
 }
 
 /***********************************************************************
@@ -544,7 +543,10 @@ BOOL X11DRV_ProcessEvents( DWORD mask )
     free_event_data( &prev_event );
     XFlush( gdi_display );
     if (count) TRACE( "processed %d events\n", count );
-    return !check_fd_events( ConnectionNumber( data->display ), POLLIN );
+
+    if (check_fd_events( ConnectionNumber( data->display ), POLLIN )) return FALSE;
+    XFlush( data->display ); /* all events have been processed, flush any pending request */
+    return TRUE;
 }
 
 

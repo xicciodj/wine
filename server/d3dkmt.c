@@ -388,6 +388,30 @@ DECL_HANDLER(d3dkmt_object_create)
     release_object( object );
 }
 
+/* update a global d3dkmt object */
+DECL_HANDLER(d3dkmt_object_update)
+{
+    struct d3dkmt_object *object;
+    void *tmp, *runtime;
+    data_size_t size;
+
+    if (!(size = get_req_data_size())) runtime = NULL;
+    else if (!(runtime = memdup( get_req_data(), size ))) return;
+
+    if (req->global) object = d3dkmt_object_open( req->global, req->type );
+    else object = d3dkmt_object_open_shared( req->handle, req->type );
+    if (!object) goto done;
+
+    tmp = object->runtime;
+    object->runtime = runtime;
+    object->runtime_size = size;
+    runtime = tmp;
+    release_object( object );
+
+done:
+    free( runtime );
+}
+
 /* query a global d3dkmt object */
 DECL_HANDLER(d3dkmt_object_query)
 {
@@ -421,7 +445,7 @@ DECL_HANDLER(d3dkmt_object_open)
         reply->handle = handle;
         reply->global = object->global;
         reply->runtime_size = object->runtime_size;
-        if (runtime_size) set_reply_data( object->runtime, runtime_size );
+        if (runtime_size) set_reply_data( object->runtime, object->runtime_size );
     }
 
     release_object( object );
@@ -436,7 +460,7 @@ DECL_HANDLER(d3dkmt_share_objects)
     struct unicode_str name;
     struct object *root;
 
-    objattr = get_req_object_attributes( &sd, &name, &root );
+    if (!(objattr = get_req_object_attributes( &sd, &name, &root ))) return;
 
     if (req->resource)
     {
