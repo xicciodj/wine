@@ -778,55 +778,25 @@ failed:
 }
 
 
-static HICON get_icon_info( HICON icon, ICONINFO *ii )
-{
-    return icon && NtUserGetIconInfo( icon, ii, NULL, NULL, NULL, 0 ) ? icon : NULL;
-}
-
 /***********************************************************************
- *              fetch_icon_data
+ *              set_window_icon_data
  */
-static void fetch_icon_data( HWND hwnd, HICON icon_big, HICON icon_small )
+static void set_window_icon_data( struct x11drv_win_data *data, HICON icon, const ICONINFO *ii,
+                                  HICON icon_small, const ICONINFO *ii_small )
 {
-    struct x11drv_win_data *data;
-    ICONINFO ii, ii_small;
     HDC hDC;
     unsigned int size;
     unsigned long *bits;
     Pixmap icon_pixmap, mask_pixmap;
 
-    icon_big = get_icon_info( icon_big, &ii );
-    if (!icon_big)
-    {
-        icon_big = get_icon_info( (HICON)send_message( hwnd, WM_GETICON, ICON_BIG, 0 ), &ii );
-        if (!icon_big)
-            icon_big = get_icon_info( (HICON)NtUserGetClassLongPtrW( hwnd, GCLP_HICON ), &ii );
-        if (!icon_big)
-        {
-            icon_big = LoadImageW( 0, (const WCHAR *)IDI_WINLOGO, IMAGE_ICON, 0, 0,
-                                   LR_SHARED | LR_DEFAULTSIZE );
-            icon_big = get_icon_info( icon_big, &ii );
-        }
-    }
-
-    icon_small = get_icon_info( icon_small, &ii_small );
-    if (!icon_small)
-    {
-        icon_small = get_icon_info( (HICON)send_message( hwnd, WM_GETICON, ICON_SMALL, 0 ), &ii_small );
-        if (!icon_small)
-            icon_small = get_icon_info( (HICON)NtUserGetClassLongPtrW( hwnd, GCLP_HICONSM ), &ii_small );
-    }
-
-    if (!icon_big) return;
-
     hDC = NtGdiCreateCompatibleDC(0);
-    bits = get_bitmap_argb( hDC, ii.hbmColor, ii.hbmMask, &size );
+    bits = get_bitmap_argb( hDC, ii->hbmColor, ii->hbmMask, &size );
     if (bits && icon_small)
     {
         unsigned int size_small;
         unsigned long *bits_small, *new;
 
-        if ((bits_small = get_bitmap_argb( hDC, ii_small.hbmColor, ii_small.hbmMask, &size_small )) &&
+        if ((bits_small = get_bitmap_argb( hDC, ii_small->hbmColor, ii_small->hbmMask, &size_small )) &&
             (bits_small[0] != bits[0] || bits_small[1] != bits[1]))  /* size must be different */
         {
             if ((new = realloc( bits, (size + size_small) * sizeof(unsigned long) )))
@@ -837,33 +807,23 @@ static void fetch_icon_data( HWND hwnd, HICON icon_big, HICON icon_small )
             }
         }
         free( bits_small );
-        NtGdiDeleteObjectApp( ii_small.hbmColor );
-        NtGdiDeleteObjectApp( ii_small.hbmMask );
+        NtGdiDeleteObjectApp( ii_small->hbmColor );
+        NtGdiDeleteObjectApp( ii_small->hbmMask );
     }
 
-    if (!create_icon_pixmaps( hDC, &ii, &icon_pixmap, &mask_pixmap )) icon_pixmap = mask_pixmap = 0;
+    if (!create_icon_pixmaps( hDC, ii, &icon_pixmap, &mask_pixmap )) icon_pixmap = mask_pixmap = 0;
 
-    NtGdiDeleteObjectApp( ii.hbmColor );
-    NtGdiDeleteObjectApp( ii.hbmMask );
+    NtGdiDeleteObjectApp( ii->hbmColor );
+    NtGdiDeleteObjectApp( ii->hbmMask );
     NtGdiDeleteObjectApp( hDC );
 
-    if ((data = get_win_data( hwnd )))
-    {
-        if (data->icon_pixmap) XFreePixmap( gdi_display, data->icon_pixmap );
-        if (data->icon_mask) XFreePixmap( gdi_display, data->icon_mask );
-        free( data->icon_bits );
-        data->icon_pixmap = icon_pixmap;
-        data->icon_mask = mask_pixmap;
-        data->icon_bits = bits;
-        data->icon_size = size;
-        release_win_data( data );
-    }
-    else
-    {
-        if (icon_pixmap) XFreePixmap( gdi_display, icon_pixmap );
-        if (mask_pixmap) XFreePixmap( gdi_display, mask_pixmap );
-        free( bits );
-    }
+    if (data->icon_pixmap) XFreePixmap( gdi_display, data->icon_pixmap );
+    if (data->icon_mask) XFreePixmap( gdi_display, data->icon_mask );
+    free( data->icon_bits );
+    data->icon_pixmap = icon_pixmap;
+    data->icon_mask = mask_pixmap;
+    data->icon_bits = bits;
+    data->icon_size = size;
 }
 
 
@@ -1142,7 +1102,6 @@ static void make_owner_managed( HWND hwnd )
 
     if (!(owner = NtUserGetWindowRelative( hwnd, GW_OWNER ))) return;
     if (is_managed( owner )) return;
-    if (!is_managed( hwnd )) return;
 
     NtUserSetWindowPos( owner, 0, 0, 0, 0, 0, flags );
 }
@@ -1606,21 +1565,6 @@ static void window_set_managed( struct x11drv_win_data *data, BOOL new_managed )
     window_set_wm_state( data, wm_state, activate ); /* queue another WM_STATE request with the desired state */
 }
 
-
-/***********************************************************************
- *     map_window
- */
-static void map_window( HWND hwnd, DWORD new_style, BOOL activate )
-{
-    struct x11drv_win_data *data;
-
-    make_owner_managed( hwnd );
-
-    if (!(data = get_win_data( hwnd ))) return;
-    TRACE( "win %p/%lx\n", data->hwnd, data->whole_window );
-    window_set_wm_state( data, (new_style & WS_MINIMIZE) ? IconicState : NormalState, activate );
-    release_win_data( data );
-}
 
 static UINT window_update_client_state( struct x11drv_win_data *data )
 {
@@ -3068,8 +3012,6 @@ void X11DRV_SetParent( HWND hwnd, HWND parent, HWND old_parent )
     }
 done:
     release_win_data( data );
-
-    fetch_icon_data( hwnd, 0, 0 );
 }
 
 
@@ -3151,12 +3093,14 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
                               const struct window_rects *new_rects, struct window_surface *surface )
 {
     struct x11drv_win_data *data;
-    UINT new_style = NtUserGetWindowLongW( hwnd, GWL_STYLE ), old_style;
+    UINT ex_style = NtUserGetWindowLongW( hwnd, GWL_EXSTYLE ), new_style = NtUserGetWindowLongW( hwnd, GWL_STYLE ), old_style;
     struct window_rects old_rects;
-    BOOL was_fullscreen, activate = !(swp_flags & SWP_NOACTIVATE);
+    BOOL is_managed, was_fullscreen, activate = !(swp_flags & SWP_NOACTIVATE);
+
+    if ((is_managed = is_window_managed( hwnd, swp_flags, fullscreen ))) make_owner_managed( hwnd );
 
     if (!(data = get_win_data( hwnd ))) return;
-    if (is_window_managed( hwnd, swp_flags, fullscreen )) window_set_managed( data, TRUE );
+    if (is_managed) window_set_managed( data, TRUE );
 
     old_style = new_style & ~(WS_VISIBLE | WS_MINIMIZE | WS_MAXIMIZE);
     if (data->desired_state.wm_state != WithdrawnState) old_style |= WS_VISIBLE;
@@ -3170,6 +3114,9 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
 
     TRACE( "win %p/%lx new_rects %s style %08x flags %08x\n", hwnd, data->whole_window,
            debugstr_window_rects(new_rects), new_style, swp_flags );
+
+    /* layered windows are mapped only once their attributes are set */
+    if (ex_style & WS_EX_LAYERED && !data->layered && !IsRectEmpty( &new_rects->window )) new_style &= ~WS_VISIBLE;
 
     XFlush( gdi_display );  /* make sure painting is done before we move the window */
 
@@ -3218,16 +3165,7 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     {
         if (!(old_style & WS_VISIBLE))
         {
-            BOOL needs_icon = !data->icon_pixmap;
-            BOOL needs_map = TRUE;
-
-            /* layered windows are mapped only once their attributes are set */
-            if (NtUserGetWindowLongW( hwnd, GWL_EXSTYLE ) & WS_EX_LAYERED)
-                needs_map = data->layered || IsRectEmpty( &new_rects->window );
-            release_win_data( data );
-            if (needs_icon) fetch_icon_data( hwnd, 0, 0 );
-            if (needs_map) map_window( hwnd, new_style, activate );
-            return;
+            window_set_wm_state( data, (new_style & WS_MINIMIZE) ? IconicState : NormalState, activate );
         }
         else if ((swp_flags & SWP_STATECHANGED) && ((old_style ^ new_style) & WS_MINIMIZE))
         {
@@ -3309,26 +3247,17 @@ done:
 
 
 /**********************************************************************
- *		SetWindowIcon (X11DRV.@)
- *
- * hIcon or hIconSm has changed (or is being initialised for the
- * first time). Complete the X11 driver-specific initialisation
- * and set the window hints.
+ *		SetWindowIcons (X11DRV.@)
  */
-void X11DRV_SetWindowIcon( HWND hwnd, UINT type, HICON icon )
+void X11DRV_SetWindowIcons( HWND hwnd, HICON icon, const ICONINFO *ii, HICON icon_small, const ICONINFO *ii_small )
 {
     struct x11drv_win_data *data;
 
-    if (!(data = get_win_data( hwnd ))) return;
-    if (!data->whole_window) goto done;
-    release_win_data( data );  /* release the lock, fetching the icon requires sending messages */
-
-    if (type == ICON_BIG) fetch_icon_data( hwnd, icon, 0 );
-    else fetch_icon_data( hwnd, 0, icon );
+    TRACE( "hwnd %p, icon %p, ii %p, icon_small %p, ii_small %p\n", hwnd, icon, ii, icon_small, ii_small );
 
     if (!(data = get_win_data( hwnd ))) return;
+    set_window_icon_data( data, icon, ii, icon_small, ii_small );
     set_wm_hints( data );
-done:
     release_win_data( data );
 }
 
@@ -3371,18 +3300,6 @@ void X11DRV_SetLayeredWindowAttributes( HWND hwnd, COLORREF key, BYTE alpha, DWO
             sync_window_opacity( data->display, data->whole_window, alpha, flags );
 
         data->layered = TRUE;
-        if (data->desired_state.wm_state == WithdrawnState)  /* mapping is delayed until attributes are set */
-        {
-            DWORD style = NtUserGetWindowLongW( data->hwnd, GWL_STYLE );
-
-            if ((style & WS_VISIBLE) &&
-                ((style & WS_MINIMIZE) || is_window_rect_mapped( &data->rects.window )))
-            {
-                release_win_data( data );
-                map_window( hwnd, style, TRUE );
-                return;
-            }
-        }
         release_win_data( data );
     }
     else
@@ -3404,24 +3321,13 @@ void X11DRV_SetLayeredWindowAttributes( HWND hwnd, COLORREF key, BYTE alpha, DWO
 void X11DRV_UpdateLayeredWindow( HWND hwnd, BYTE alpha, UINT flags )
 {
     struct x11drv_win_data *data;
-    BOOL mapped;
 
     if (!(data = get_win_data( hwnd ))) return;
 
     if (data->whole_window)
         sync_window_opacity( data->display, data->whole_window, alpha, flags );
 
-    mapped = data->desired_state.wm_state != WithdrawnState;
     release_win_data( data );
-
-    /* layered windows are mapped only once their attributes are set */
-    if (!mapped)
-    {
-        DWORD style = NtUserGetWindowLongW( hwnd, GWL_STYLE );
-
-        if ((style & WS_VISIBLE) && ((style & WS_MINIMIZE) || is_window_rect_mapped( &data->rects.window )))
-            map_window( hwnd, style, TRUE );
-    }
 }
 
 

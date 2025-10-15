@@ -159,7 +159,7 @@ static const char *sarif_converter;
 static const char *compiler_rt;
 static const char *buildimage;
 static const char *runtest;
-static const char *install_sh;
+static const char *install;
 static const char *makedep;
 static const char *make_xftmpl;
 static const char *sfnt2fon;
@@ -288,9 +288,7 @@ static const char Usage[] =
 
 
 static void fatal_error( const char *msg, ... ) __attribute__ ((__format__ (__printf__, 1, 2)));
-static void fatal_perror( const char *msg, ... ) __attribute__ ((__format__ (__printf__, 1, 2)));
 static void output( const char *format, ... ) __attribute__ ((__format__ (__printf__, 1, 2)));
-static char *strmake( const char* fmt, ... ) __attribute__ ((__format__ (__printf__, 1, 2)));
 
 /*******************************************************************
  *         fatal_error
@@ -307,27 +305,6 @@ static void fatal_error( const char *msg, ... )
     }
     else fprintf( stderr, "makedep: error: " );
     vfprintf( stderr, msg, valist );
-    va_end( valist );
-    exit(1);
-}
-
-
-/*******************************************************************
- *         fatal_perror
- */
-static void fatal_perror( const char *msg, ... )
-{
-    va_list valist;
-    va_start( valist, msg );
-    if (input_file_name)
-    {
-        fprintf( stderr, "%s:", input_file_name );
-        if (input_line) fprintf( stderr, "%d:", input_line );
-        fprintf( stderr, " error: " );
-    }
-    else fprintf( stderr, "makedep: error: " );
-    vfprintf( stderr, msg, valist );
-    perror( " " );
     va_end( valist );
     exit(1);
 }
@@ -2056,26 +2033,6 @@ static void add_generated_sources( struct makefile *make )
 
 
 /*******************************************************************
- *         create_dir
- */
-static void create_dir( const char *dir )
-{
-    char *p, *path;
-
-    p = path = xstrdup( dir );
-    while ((p = strchr( p, '/' )))
-    {
-        *p = 0;
-        if (mkdir( path, 0755 ) == -1 && errno != EEXIST) fatal_perror( "mkdir %s", path );
-        *p++ = '/';
-        while (*p == '/') p++;
-    }
-    if (mkdir( path, 0755 ) == -1 && errno != EEXIST) fatal_perror( "mkdir %s", path );
-    free( path );
-}
-
-
-/*******************************************************************
  *         create_file_directories
  *
  * Create the base directories of all the files.
@@ -2092,7 +2049,7 @@ static void create_file_directories( const struct makefile *make, struct strarra
         *strrchr( dir, '/' ) = 0;
         strarray_add_uniq( &subdirs, dir );
     }
-    STRARRAY_FOR_EACH( dir, &subdirs ) create_dir( dir );
+    STRARRAY_FOR_EACH( dir, &subdirs ) mkdir_p( dir );
 }
 
 
@@ -2697,32 +2654,29 @@ static void output_install_commands( struct makefile *make, enum install_rules r
         case '1': case '2': case '3': case '4': case '5':
         case '6': case '7': case '8': case '9': /* arch-dependent program */
             arch = cmd->type - '0';
-            output( "\tSTRIPPROG=%s %s -m 644 $(INSTALL_PROGRAM_FLAGS) %s %s\n",
-                    strip_progs[arch], install_sh, cmd->file, dest );
+            output( "\t%s --strip-program=%s -m 644 $(INSTALL_PROGRAM_FLAGS)", install, strip_progs[arch] );
             break;
         case 'd':  /* data file */
         case 'D':  /* data file in source dir */
-            output( "\t%s -m 644 $(INSTALL_DATA_FLAGS) %s %s\n",
-                    install_sh, cmd->file, dest );
+            output( "\t%s -m 644 $(INSTALL_DATA_FLAGS)", install );
             break;
         case '0':  /* native arch program file */
         case 'p':  /* program file */
         case 't':  /* tools file */
-            output( "\tSTRIPPROG=\"$(STRIP)\" %s $(INSTALL_PROGRAM_FLAGS) %s %s\n",
-                    install_sh, cmd->file, dest );
+            output( "\t%s --strip-program=\"$(STRIP)\" $(INSTALL_PROGRAM_FLAGS)", install );
             break;
         case 's':  /* script */
         case 'S':  /* script in source dir */
-            output( "\t%s $(INSTALL_SCRIPT_FLAGS) %s %s\n",
-                    install_sh, cmd->file, dest );
+            output( "\t%s $(INSTALL_SCRIPT_FLAGS)", install );
             break;
         case 'y':  /* symlink */
-            output( "\t%s -d $(DESTDIR)%s && rm -f %s && %s %s %s\n",
-                    install_sh, cmd->dir, dest, ln_s, cmd->file, dest );
+            output( "\t%s -L", install );
             break;
         default:
             assert(0);
         }
+        if (cmd->dest) output( " %s $(DESTDIR)%s/%s\n", cmd->file, cmd->dir, cmd->dest );
+        else output( " -t $(DESTDIR)%s %s\n", cmd->dir, cmd->file );
         strarray_add( &make->uninstall_files, dest );
     }
 }
@@ -2742,6 +2696,7 @@ static void output_install_rules( struct makefile *make, enum install_rules rule
 
     output( "%s %s::", obj_dir_path( make, "install" ), obj_dir_path( make, install_targets[rules] ));
     output_filenames( targets );
+    output_filename( install );
     output( "\n" );
     output_install_commands( make, rules );
     strarray_add_uniq( &make->phony_targets, obj_dir_path( make, "install" ));
@@ -4523,7 +4478,7 @@ static void output_dependencies( struct makefile *make )
 {
     struct strarray ignore_files = empty_strarray;
 
-    if (make->obj_dir) create_dir( make->obj_dir );
+    if (make->obj_dir) mkdir_p( make->obj_dir );
 
     if (make == top_makefile) output_top_makefile( make );
     else output_stub_makefile( make );
@@ -4786,7 +4741,7 @@ int main( int argc, char *argv[] )
 
     buildimage  = root_src_dir_path( "tools/buildimage" );
     runtest     = root_src_dir_path( "tools/runtest" );
-    install_sh  = root_src_dir_path( "tools/install-sh" );
+    install     = tools_base_path( "install" );
     makedep     = tools_base_path( "makedep" );
     make_xftmpl = tools_base_path( "make_xftmpl" );
     sfnt2fon    = tools_path( "sfnt2fon" );

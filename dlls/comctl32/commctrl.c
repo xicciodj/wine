@@ -68,7 +68,6 @@
 #include "winerror.h"
 #include "winreg.h"
 #include "comctl32.h"
-#include "uxtheme.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(commctrl);
@@ -92,6 +91,7 @@ static const WORD wPattern55AA[] =
 
 static const WCHAR strCC32SubclassInfo[] = L"CC32SubclassInfo";
 
+#if __WINE_COMCTL32_VERSION == 6
 static void unregister_versioned_classes(void)
 {
 #define VERSION "6.0.2600.2982!"
@@ -111,9 +111,11 @@ static void unregister_versioned_classes(void)
 
 #undef VERSION
 }
+#endif /* __WINE_COMCTL32_VERSION == 6 */
 
 BOOL WINAPI RegisterClassNameW(const WCHAR *class)
 {
+#if __WINE_COMCTL32_VERSION == 6
     static const struct
     {
         const WCHAR nameW[16];
@@ -142,6 +144,7 @@ BOOL WINAPI RegisterClassNameW(const WCHAR *class)
         if (res < 0) max = pos - 1;
         else min = pos + 1;
     }
+#endif /* __WINE_COMCTL32_VERSION == 6 */
 
     return FALSE;
 }
@@ -197,7 +200,9 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
             PROGRESS_Register ();
             REBAR_Register ();
             STATUS_Register ();
+#if __WINE_COMCTL32_VERSION == 6
             SYSLINK_Register ();
+#endif
             TAB_Register ();
             TOOLBAR_Register ();
             TOOLTIPS_Register ();
@@ -224,7 +229,6 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
             PROGRESS_Unregister ();
             REBAR_Unregister ();
             STATUS_Unregister ();
-            SYSLINK_Unregister ();
             TAB_Unregister ();
             TOOLBAR_Unregister ();
             TOOLTIPS_Unregister ();
@@ -232,7 +236,11 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
             TREEVIEW_Unregister ();
             UPDOWN_Unregister ();
 
+#if __WINE_COMCTL32_VERSION == 6
+            SYSLINK_Unregister ();
+
             unregister_versioned_classes ();
+#endif /* __WINE_COMCTL32_VERSION == 6 */
 
             /* delete local pattern brush */
             DeleteObject (COMCTL32_hPattern55AABrush);
@@ -943,6 +951,7 @@ CreateToolbar (HWND hwnd, DWORD style, UINT wID, INT nBitmaps,
 }
 
 
+#if __WINE_COMCTL32_VERSION == 6
 /***********************************************************************
  *		DllInstall (COMCTL32.@)
  *
@@ -957,6 +966,7 @@ HRESULT WINAPI DllInstall(BOOL bInstall, LPCWSTR cmdline)
     TRACE("(%u, %s): stub\n", bInstall, debugstr_w(cmdline));
     return S_OK;
 }
+#endif /* __WINE_COMCTL32_VERSION == 6 */
 
 /***********************************************************************
  * _TrackMouseEvent [COMCTL32.@]
@@ -1616,6 +1626,7 @@ LRESULT WINAPI SetPathWordBreakProc(HWND hwnd, BOOL bSet)
         (LPARAM)(bSet ? PathWordBreakProc : NULL));
 }
 
+#if __WINE_COMCTL32_VERSION == 6
 /***********************************************************************
  * DrawShadowText [COMCTL32.@]
  *
@@ -1697,6 +1708,7 @@ HRESULT WINAPI LoadIconMetric(HINSTANCE hinst, const WCHAR *name, int size, HICO
 
     return LoadIconWithScaleDown(hinst, name, cx, cy, icon);
 }
+#endif /* __WINE_COMCTL32_VERSION == 6 */
 
 static const WCHAR strMRUList[] = L"MRUList";
 

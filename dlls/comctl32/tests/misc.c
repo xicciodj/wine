@@ -39,6 +39,7 @@ static INT (WINAPI * pStr_GetPtrW)(LPCWSTR, LPWSTR, INT);
 static BOOL (WINAPI * pStr_SetPtrW)(LPWSTR, LPCWSTR);
 
 static HRESULT (WINAPI *pDllGetVersion)(DLLVERSIONINFO *);
+static BOOL (WINAPI *pRegisterClassNameW)(const WCHAR *class_name);
 static BOOL (WINAPI *pSetWindowSubclass)(HWND, SUBCLASSPROC, UINT_PTR, DWORD_PTR);
 static BOOL (WINAPI *pRemoveWindowSubclass)(HWND, SUBCLASSPROC, UINT_PTR);
 static LRESULT (WINAPI *pDefSubclassProc)(HWND, UINT, WPARAM, LPARAM);
@@ -95,6 +96,7 @@ static BOOL InitFunctionPtrs(void)
     COMCTL32_GET_PROC(236, Str_SetPtrW)
 
     pDllGetVersion = (void *)GetProcAddress(hComctl32, "DllGetVersion");
+    pRegisterClassNameW = (void *)GetProcAddress(hComctl32, "RegisterClassNameW");
 
     return TRUE;
 }
@@ -113,6 +115,7 @@ static BOOL init_functions_v6(void)
     COMCTL32_GET_PROC(413, DefSubclassProc)
 
     pDllGetVersion = (void *)GetProcAddress(hComctl32, "DllGetVersion");
+    pRegisterClassNameW = (void *)GetProcAddress(hComctl32, "RegisterClassNameW");
 
     return TRUE;
 }
@@ -401,9 +404,7 @@ static void check_class( const char *name, int must_exist, UINT style, UINT igno
         HWND hwnd;
         DWORD objid;
 
-        todo_wine_if(!strcmp(name, "SysLink") && !must_exist && !v6)
         ok( must_exist, "System class %s should %sexist\n", name, must_exist ? "" : "NOT " );
-        if (!must_exist) return;
 
         todo_wine_if(!strcmp(name, "ScrollBar") || (!strcmp(name, "tooltips_class32") && v6))
         ok( !(~wc.style & style & ~ignore), "System class %s is missing bits %x (%08x/%08x)\n",
@@ -1292,14 +1293,72 @@ static void test_WM_SETFONT(void)
 
 static void test_version(BOOL v6)
 {
+    static const char *v6_only_exports[] =
+    {
+        "DllInstall",
+        "DrawShadowText",
+        "DPA_GetSize",
+        "DSA_Clone",
+        "DSA_GetSize",
+        "GetWindowSubclass",
+        "HIMAGELIST_QueryInterface",
+        "ImageList_CoCreateInstance",
+        "ImageList_WriteEx",
+        "LoadIconMetric",
+        "LoadIconWithScaleDown",
+        "TaskDialog",
+        "TaskDialogIndirect",
+    };
     DLLVERSIONINFO info;
+    HMODULE module;
+    unsigned int i;
     HRESULT hr;
+    void *proc;
 
     info.cbSize = sizeof(info);
     hr = pDllGetVersion(&info);
     ok(hr == S_OK, "DllGetVersion failed, hr %#lx.\n", hr);
 
     ok(info.dwMajorVersion == (v6 ? 6 : 5), "Got unexpected major version %lu.\n", info.dwMajorVersion);
+
+    module = GetModuleHandleW(L"comctl32.dll");
+    for (i = 0; i < ARRAY_SIZE(v6_only_exports); i++)
+    {
+        proc = GetProcAddress(module, v6_only_exports[i]);
+        if (v6)
+            ok(!!proc, "Get %s failed.\n", v6_only_exports[i]);
+        else
+            todo_wine_if(!strcmp(v6_only_exports[i], "HIMAGELIST_QueryInterface"))
+            ok(!proc, "Get %s succeeded.\n", v6_only_exports[i]);
+    }
+}
+
+static void test_RegisterClassNameW(BOOL v6)
+{
+    static const WCHAR *class_names[] =
+    {
+        L"Button",
+        L"ComboBox",
+        L"ComboLBox",
+        L"Edit",
+        L"ListBox",
+        L"Static",
+    };
+    unsigned int i;
+    BOOL ret;
+
+    winetest_push_context("v%d", v6 ? 6 : 5);
+
+    for (i = 0; i < ARRAY_SIZE(class_names); i++)
+    {
+        ret = pRegisterClassNameW(class_names[i]);
+        if (v6)
+            ok(ret, "RegisterClassNameW %s failed, error %lu.\n", wine_dbgstr_w(class_names[i]), GetLastError());
+        else
+            ok(!ret, "RegisterClassNameW %s succeeded.\n", wine_dbgstr_w(class_names[i]));
+    }
+
+    winetest_pop_context();
 }
 
 START_TEST(misc)
@@ -1317,6 +1376,7 @@ START_TEST(misc)
     test_WM_STYLECHANGED();
     test_WM_SETFONT();
     test_version(FALSE);
+    test_RegisterClassNameW(FALSE);
 
     FreeLibrary(hComctl32);
 
@@ -1334,6 +1394,7 @@ START_TEST(misc)
     test_WM_STYLECHANGED();
     test_WM_SETFONT();
     test_version(TRUE);
+    test_RegisterClassNameW(TRUE);
 
     unload_v6_module(ctx_cookie, hCtx);
     FreeLibrary(hComctl32);
