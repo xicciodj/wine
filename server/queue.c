@@ -802,8 +802,7 @@ static inline int get_hardware_msg_bit( unsigned int message )
     if (message == WM_INPUT_DEVICE_CHANGE || message == WM_INPUT) return QS_RAWINPUT;
     if (message == WM_MOUSEMOVE || message == WM_NCMOUSEMOVE) return QS_MOUSEMOVE;
     if (message >= WM_KEYFIRST && message <= WM_KEYLAST) return QS_KEY;
-    if (message == WM_WINE_CLIPCURSOR) return QS_RAWINPUT;
-    if (message == WM_WINE_SETCURSOR) return QS_RAWINPUT;
+    if (message >= WM_WINE_FIRST_DRIVER_MSG && message <= WM_WINE_LAST_DRIVER_MSG) return QS_HARDWARE;
     return QS_MOUSEBUTTON;
 }
 
@@ -2692,12 +2691,6 @@ static int check_hw_message_filter( user_handle_t win, unsigned int msg_code,
     }
 }
 
-/* is this message an internal driver notification message */
-static inline BOOL is_internal_hardware_message( unsigned int message )
-{
-    return (message >= WM_WINE_FIRST_DRIVER_MSG && message <= WM_WINE_LAST_DRIVER_MSG);
-}
-
 /* find a hardware message for the given queue */
 static int get_hardware_message( struct thread *thread, unsigned int hw_id, user_handle_t filter_win,
                                  unsigned int first, unsigned int last, unsigned int flags,
@@ -2802,9 +2795,10 @@ static int get_hardware_message( struct thread *thread, unsigned int hw_id, user
 
         data->hw_id = msg->unique_id;
         set_reply_data( msg->data, msg->data_size );
-        if ((get_hardware_msg_bit( msg->msg ) & (QS_RAWINPUT | QS_POINTER) && (flags & PM_REMOVE)) ||
-            is_internal_hardware_message( msg->msg ))
-            release_hardware_message( current->queue, data->hw_id );
+
+        if (msg_bit == QS_HARDWARE) flags |= PM_REMOVE; /* always remove internal hardware messages right away */
+        else if (!(msg_bit & (QS_RAWINPUT | QS_POINTER))) flags &= ~PM_REMOVE; /* wait for accept_hardware_message request */
+        if (flags & PM_REMOVE) release_hardware_message( current->queue, data->hw_id );
         return 1;
     }
     /* nothing found, clear the hardware queue bits */
@@ -4070,7 +4064,7 @@ DECL_HANDLER(get_rawinput_buffer)
 {
     const size_t align = is_machine_64bit( current->process->machine ) ? 7 : 3;
     data_size_t buffer_size = get_reply_max_size() & ~align;
-    struct thread_input *input = current->queue->input;
+    struct msg_queue *queue = current->queue;
     struct message *msg, *next_msg;
     int count = 0;
     char *buffer;
@@ -4083,7 +4077,7 @@ DECL_HANDLER(get_rawinput_buffer)
 
     if (!req->read_data)
     {
-        LIST_FOR_EACH_ENTRY( msg, &input->msg_list, struct message, entry )
+        LIST_FOR_EACH_ENTRY( msg, &queue->input->msg_list, struct message, entry )
         {
             if (msg->msg == WM_INPUT)
             {
@@ -4101,7 +4095,7 @@ DECL_HANDLER(get_rawinput_buffer)
 
         reply->next_size = get_reply_max_size();
 
-        LIST_FOR_EACH_ENTRY_SAFE( msg, next_msg, &input->msg_list, struct message, entry )
+        LIST_FOR_EACH_ENTRY_SAFE( msg, next_msg, &queue->input->msg_list, struct message, entry )
         {
             if (msg->msg == WM_INPUT)
             {
@@ -4131,6 +4125,7 @@ DECL_HANDLER(get_rawinput_buffer)
 
         if (!next_size)
         {
+            clear_queue_bits( queue, QS_RAWINPUT | (list_empty( &queue->input->msg_list ) ? QS_HARDWARE : 0) );
             if (count) next_size = sizeof(RAWINPUT);
             else reply->next_size = 0;
         }

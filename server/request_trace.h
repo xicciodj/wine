@@ -3396,6 +3396,7 @@ static void dump_get_inproc_alert_fd_reply( const struct get_inproc_alert_fd_rep
 static void dump_d3dkmt_object_create_request( const struct d3dkmt_object_create_request *req )
 {
     fprintf( stderr, " type=%08x", req->type );
+    fprintf( stderr, ", fd=%d", req->fd );
     dump_varargs_bytes( ", runtime=", cur_size );
 }
 
@@ -3409,7 +3410,6 @@ static void dump_d3dkmt_object_update_request( const struct d3dkmt_object_update
 {
     fprintf( stderr, " type=%08x", req->type );
     fprintf( stderr, ", global=%08x", req->global );
-    fprintf( stderr, ", handle=%04x", req->handle );
     dump_varargs_bytes( ", runtime=", cur_size );
 }
 

@@ -26,6 +26,7 @@
 
 #include <dlfcn.h>
 #include <pthread.h>
+#include <unistd.h>
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -227,8 +228,8 @@ static void init_shared_resource_path( const WCHAR *name, UNICODE_STRING *str )
     str->Length = str->MaximumLength - sizeof(WCHAR);
 
     memcpy( str->Buffer + str->Length / sizeof(WCHAR), name, (len + 1) * sizeof(WCHAR) );
-    str->MaximumLength += len;
-    str->Length += len;
+    str->MaximumLength += len * sizeof(WCHAR);
+    str->Length += len * sizeof(WCHAR);
 }
 
 static HANDLE create_shared_resource_handle( D3DKMT_HANDLE local, const VkExportMemoryWin32HandleInfoKHR *info )
@@ -269,6 +270,7 @@ static HANDLE open_shared_resource_from_name( const WCHAR *name )
 static VkResult win32u_vkAllocateMemory( VkDevice client_device, const VkMemoryAllocateInfo *client_alloc_info,
                                          const VkAllocationCallbacks *allocator, VkDeviceMemory *ret )
 {
+    VkImportMemoryFdInfoKHR fd_info = {.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR};
     VkMemoryAllocateInfo *alloc_info = (VkMemoryAllocateInfo *)client_alloc_info; /* cast away const, chain has been copied in the thunks */
     VkBaseOutStructure **next, *prev = (VkBaseOutStructure *)alloc_info;
     struct vulkan_device *device = vulkan_device_from_handle( client_device );
@@ -354,13 +356,15 @@ static VkResult win32u_vkAllocateMemory( VkDevice client_device, const VkMemoryA
             break;
         }
 
-        if (!memory->local)
+        if ((fd_info.fd = d3dkmt_object_get_fd( memory->local )) < 0)
         {
             free( memory );
             return VK_ERROR_INVALID_EXTERNAL_HANDLE;
         }
 
-        FIXME( "Importing memory handle not yet implemented!\n" );
+        fd_info.handleType = get_host_external_memory_type();
+        fd_info.pNext = alloc_info->pNext;
+        alloc_info->pNext = &fd_info;
     }
 
     if ((res = device->p_vkAllocateMemory( device->host.device, alloc_info, NULL, &host_device_memory )))
@@ -372,9 +376,27 @@ static VkResult win32u_vkAllocateMemory( VkDevice client_device, const VkMemoryA
 
     if (export_info)
     {
-        FIXME( "Exporting memory handle not yet implemented!\n" );
+        if (!memory->local)
+        {
+            VkMemoryGetFdInfoKHR get_fd_info = {.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR, .memory = host_device_memory};
+            int fd = -1;
 
-        if (!memory->local && !(memory->local = d3dkmt_create_resource( nt_shared ? NULL : &memory->global ))) goto failed;
+            switch ((get_fd_info.handleType = get_host_external_memory_type()))
+            {
+            case VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT:
+            case VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT:
+                if ((res = device->p_vkGetMemoryFdKHR( device->host.device, &get_fd_info, &fd ))) goto failed;
+                break;
+            default:
+                FIXME( "Unsupported handle type %#x\n", get_fd_info.handleType );
+                break;
+            }
+
+            memory->local = d3dkmt_create_resource( fd, nt_shared ? NULL : &memory->global );
+            close( fd );
+
+            if (!memory->local) goto failed;
+        }
         if (nt_shared && !(memory->shared = create_shared_resource_handle( memory->local, &export_win32 ))) goto failed;
     }
 
@@ -387,6 +409,7 @@ static VkResult win32u_vkAllocateMemory( VkDevice client_device, const VkMemoryA
     return VK_SUCCESS;
 
 failed:
+    WARN( "Failed to allocate memory, res %d\n", res );
     device->p_vkFreeMemory( device->host.device, host_device_memory, NULL );
     if (memory->local) d3dkmt_destroy_resource( memory->local );
     free( memory );
