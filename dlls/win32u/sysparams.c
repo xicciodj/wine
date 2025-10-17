@@ -2131,7 +2131,7 @@ static BOOL update_display_cache_from_registry( UINT64 serial )
     HKEY hkey;
     BOOL ret;
 
-    /* If user driver did initialize the registry, then exit */
+    /* If user driver didn't initialize the registry, then exit */
     if (!enum_key && !(enum_key = reg_open_ascii_key( NULL, enum_keyA )))
         return FALSE;
     if (!video_key && !(video_key = reg_open_ascii_key( NULL, devicemap_video_keyA )))
@@ -7612,6 +7612,27 @@ BOOL get_vulkan_uuid_from_luid( const LUID *luid, GUID *uuid )
             *uuid = gpu->vulkan_uuid;
             break;
         }
+    }
+
+    unlock_display_devices();
+    return found;
+}
+
+/* Find the Vulkan LUID corresponding to a device UUID */
+BOOL get_luid_from_vulkan_uuid( const GUID *uuid, LUID *luid, UINT32 *node_mask )
+{
+    BOOL found = FALSE;
+    struct gpu *gpu;
+
+    if (!lock_display_devices( FALSE )) return FALSE;
+
+    LIST_FOR_EACH_ENTRY( gpu, &gpus, struct gpu, entry )
+    {
+        if (!IsEqualGUID( uuid, &gpu->vulkan_uuid )) continue;
+        *luid = gpu->luid;
+        *node_mask = 1;
+        found = TRUE;
+        break;
     }
 
     unlock_display_devices();

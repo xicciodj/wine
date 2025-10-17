@@ -1617,6 +1617,8 @@ static UINT window_update_client_config( struct x11drv_win_data *data )
     static const UINT fullscreen_mask = (1 << NET_WM_STATE_MAXIMIZED) | (1 << NET_WM_STATE_FULLSCREEN);
     UINT old_style = NtUserGetWindowLongW( data->hwnd, GWL_STYLE ), flags;
     RECT rect, old_rect = data->rects.window, new_rect;
+    unsigned int old_generation, generation;
+    long old_monitors[4], monitors[4];
 
     if (!data->managed) return 0; /* unmanaged windows are managed by the Win32 side */
     if (is_virtual_desktop()) return 0; /* ignore window manager config changes in virtual desktop mode */
@@ -1626,6 +1628,18 @@ static UINT window_update_client_config( struct x11drv_win_data *data )
     if (data->net_wm_state_serial) return 0; /* another _NET_WM_STATE update is pending, wait for it to complete */
     if (data->mwm_hints_serial) return 0; /* another MWM_HINT update is pending, wait for it to complete */
     if (data->configure_serial) return 0; /* another config update is pending, wait for it to complete */
+
+    /* Ignore fullscreen config changes when it's still on the same monitor. This is needed because
+     * adding __NET_WM_STATE_FULLSCREEN will make WMs move the window to cover exactly the monitor
+     * rect. If the application sets a visible rect slightly larger than the monitor rect and insists
+     * on changing to the rect that it previously set when the rect is changed by the WM, then the
+     * window rect will be repeatedly changed by the WM and the application, causing a flickering effect */
+    if (data->is_fullscreen)
+    {
+        xinerama_get_fullscreen_monitors( &data->rects.visible, &old_generation, old_monitors );
+        xinerama_get_fullscreen_monitors( &data->current_state.rect, &generation, monitors );
+        if (!memcmp( old_monitors, monitors, sizeof(monitors) )) return 0;
+    }
 
     if ((old_style & WS_CAPTION) == WS_CAPTION || !data->is_fullscreen)
     {
@@ -3086,6 +3100,17 @@ BOOL X11DRV_GetWindowStyleMasks( HWND hwnd, UINT style, UINT ex_style, UINT *sty
 }
 
 
+static BOOL get_desired_wm_state( DWORD style, const struct window_rects *rects )
+{
+    if (style & WS_VISIBLE)
+    {
+        if (style & WS_MINIMIZE) return IconicState;
+        if (is_window_rect_mapped( &rects->window )) return NormalState;
+    }
+    return WithdrawnState;
+}
+
+
 /***********************************************************************
  *		WindowPosChanged   (X11DRV.@)
  */
@@ -3093,7 +3118,7 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
                               const struct window_rects *new_rects, struct window_surface *surface )
 {
     struct x11drv_win_data *data;
-    UINT ex_style = NtUserGetWindowLongW( hwnd, GWL_EXSTYLE ), new_style = NtUserGetWindowLongW( hwnd, GWL_STYLE ), old_style;
+    UINT ex_style = NtUserGetWindowLongW( hwnd, GWL_EXSTYLE ), new_style = NtUserGetWindowLongW( hwnd, GWL_STYLE );
     struct window_rects old_rects;
     BOOL is_managed, was_fullscreen, activate = !(swp_flags & SWP_NOACTIVATE);
 
@@ -3101,11 +3126,6 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
 
     if (!(data = get_win_data( hwnd ))) return;
     if (is_managed) window_set_managed( data, TRUE );
-
-    old_style = new_style & ~(WS_VISIBLE | WS_MINIMIZE | WS_MAXIMIZE);
-    if (data->desired_state.wm_state != WithdrawnState) old_style |= WS_VISIBLE;
-    if (data->desired_state.wm_state == IconicState) old_style |= WS_MINIMIZE;
-    if (data->desired_state.net_wm_state & (1 << NET_WM_STATE_MAXIMIZED)) old_style |= WS_MAXIMIZE;
 
     old_rects = data->rects;
     was_fullscreen = data->is_fullscreen;
@@ -3128,18 +3148,6 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
         return;
     }
 
-    if (old_style & WS_VISIBLE)
-    {
-        if (((swp_flags & SWP_HIDEWINDOW) && !(new_style & WS_VISIBLE)) ||
-            (!(new_style & WS_MINIMIZE) && !is_window_rect_mapped( &new_rects->window ) && is_window_rect_mapped( &old_rects.window )))
-        {
-            window_set_wm_state( data, WithdrawnState, FALSE );
-            release_win_data( data );
-            if (was_fullscreen) NtUserClipCursor( NULL );
-            if (!(data = get_win_data( hwnd ))) return;
-        }
-    }
-
     /* don't change position if we are about to minimize or maximize a managed window */
     if (!(data->managed && (swp_flags & SWP_STATECHANGED) && (new_style & (WS_MINIMIZE|WS_MAXIMIZE))))
     {
@@ -3160,27 +3168,20 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
 #endif
     }
 
-    if ((new_style & WS_VISIBLE) &&
-        ((new_style & WS_MINIMIZE) || is_window_rect_mapped( &new_rects->window )))
+    window_set_wm_state( data, get_desired_wm_state( new_style, new_rects ), activate );
+    if (!data->wm_state_serial && data->pending_state.wm_state != WithdrawnState)
     {
-        if (!(old_style & WS_VISIBLE))
-        {
-            window_set_wm_state( data, (new_style & WS_MINIMIZE) ? IconicState : NormalState, activate );
-        }
-        else if ((swp_flags & SWP_STATECHANGED) && ((old_style ^ new_style) & WS_MINIMIZE))
-        {
-            window_set_wm_state( data, (new_style & WS_MINIMIZE) ? IconicState : NormalState, activate );
-            update_net_wm_states( data );
-        }
-        else
-        {
-            if (swp_flags & (SWP_FRAMECHANGED|SWP_STATECHANGED)) set_wm_hints( data );
-            update_net_wm_states( data );
-        }
+        if (swp_flags & (SWP_FRAMECHANGED | SWP_STATECHANGED)) set_wm_hints( data );
+        update_net_wm_states( data );
     }
+
+    /* if window was fullscreen and is being hidden, release cursor clipping */
+    was_fullscreen &= data->desired_state.wm_state != NormalState;
 
     XFlush( data->display );  /* make sure changes are done before we start painting again */
     release_win_data( data );
+
+    if (was_fullscreen) NtUserClipCursor( NULL );
 }
 
 /* check if the window icon should be hidden (i.e. moved off-screen) */
