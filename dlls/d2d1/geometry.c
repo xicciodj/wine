@@ -4312,9 +4312,11 @@ static HRESULT STDMETHODCALLTYPE d2d_ellipse_geometry_Outline(ID2D1EllipseGeomet
 static HRESULT STDMETHODCALLTYPE d2d_ellipse_geometry_ComputeArea(ID2D1EllipseGeometry *iface,
         const D2D1_MATRIX_3X2_F *transform, float tolerance, float *area)
 {
-    FIXME("iface %p, transform %p, tolerance %.8e, area %p stub!\n", iface, transform, tolerance, area);
+    struct d2d_geometry *geometry = impl_from_ID2D1EllipseGeometry(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, transform %p, tolerance %.8e, area %p.\n", iface, transform, tolerance, area);
+
+    return d2d_geometry_compute_area(&geometry->ID2D1Geometry_iface, transform, tolerance, area);
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_ellipse_geometry_ComputeLength(ID2D1EllipseGeometry *iface,
@@ -5086,9 +5088,11 @@ static HRESULT STDMETHODCALLTYPE d2d_rounded_rectangle_geometry_Outline(ID2D1Rou
 static HRESULT STDMETHODCALLTYPE d2d_rounded_rectangle_geometry_ComputeArea(ID2D1RoundedRectangleGeometry *iface,
         const D2D1_MATRIX_3X2_F *transform, float tolerance, float *area)
 {
-    FIXME("iface %p, transform %p, tolerance %.8e, area %p stub!\n", iface, transform, tolerance, area);
+    struct d2d_geometry *geometry = impl_from_ID2D1RoundedRectangleGeometry(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, transform %p, tolerance %.8e, area %p.\n", iface, transform, tolerance, area);
+
+    return d2d_geometry_compute_area(&geometry->ID2D1Geometry_iface, transform, tolerance, area);
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_rounded_rectangle_geometry_ComputeLength(ID2D1RoundedRectangleGeometry *iface,
@@ -5399,9 +5403,16 @@ static HRESULT STDMETHODCALLTYPE d2d_transformed_geometry_Simplify(ID2D1Transfor
 static HRESULT STDMETHODCALLTYPE d2d_transformed_geometry_Tessellate(ID2D1TransformedGeometry *iface,
         const D2D1_MATRIX_3X2_F *transform, float tolerance, ID2D1TessellationSink *sink)
 {
-    FIXME("iface %p, transform %p, tolerance %.8e, sink %p stub!\n", iface, transform, tolerance, sink);
+    struct d2d_geometry *geometry = impl_from_ID2D1TransformedGeometry(iface);
+    D2D1_MATRIX_3X2_F g;
 
-    return E_NOTIMPL;
+    TRACE("iface %p, transform %p, tolerance %.8e, sink %p.\n", iface, transform, tolerance, sink);
+
+    g = geometry->transform;
+    if (transform)
+        d2d_matrix_multiply(&g, transform);
+
+    return ID2D1Geometry_Tessellate(geometry->u.transformed.src_geometry, transform, tolerance, sink);
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_transformed_geometry_CombineWithGeometry(ID2D1TransformedGeometry *iface,

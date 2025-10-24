@@ -21481,17 +21481,6 @@ printf "%s\n" "#define HAVE_SCHED_SETAFFINITY 1" >>confdefs.h
 fi
 
 
-ac_fn_c_check_type "$LINENO" "request_sense" "ac_cv_type_request_sense" "#include <linux/cdrom.h>
-"
-if test "x$ac_cv_type_request_sense" = xyes
-then :
-
-printf "%s\n" "#define HAVE_REQUEST_SENSE 1" >>confdefs.h
-
-
-fi
-
-
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether we can use re-entrant gethostbyname_r Linux style" >&5
 printf %s "checking whether we can use re-entrant gethostbyname_r Linux style... " >&6; }
 if test ${wine_cv_linux_gethostbyname_r_6+y}
@@ -21558,18 +21547,6 @@ printf "%s\n" "#define HAVE_STRUCT_SOCKADDR_UN_SUN_LEN 1" >>confdefs.h
 fi
 
 
-ac_fn_c_check_member "$LINENO" "scsireq_t" "cmd" "ac_cv_member_scsireq_t_cmd" "#include <sys/types.h>
-#ifdef HAVE_SCSI_SG_H
-#include <scsi/sg.h>
-#endif
-"
-if test "x$ac_cv_member_scsireq_t_cmd" = xyes
-then :
-
-printf "%s\n" "#define HAVE_SCSIREQ_T_CMD 1" >>confdefs.h
-
-
-fi
 ac_fn_c_check_member "$LINENO" "sg_io_hdr_t" "interface_id" "ac_cv_member_sg_io_hdr_t_interface_id" "#include <sys/types.h>
 #ifdef HAVE_SCSI_SG_H
 #include <scsi/sg.h>

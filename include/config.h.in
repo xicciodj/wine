@@ -351,9 +351,6 @@
 /* Define to 1 if you have the <pwd.h> header file. */
 #undef HAVE_PWD_H
 
-/* Define to 1 if the system has the type 'request_sense'. */
-#undef HAVE_REQUEST_SENSE
-
 /* Define if you have the resolver library and header */
 #undef HAVE_RESOLV
 
@@ -374,9 +371,6 @@
 
 /* Define to 1 if you have the 'sched_yield' function. */
 #undef HAVE_SCHED_YIELD
-
-/* Define to 1 if 'cmd' is a member of 'scsireq_t'. */
-#undef HAVE_SCSIREQ_T_CMD
 
 /* Define to 1 if you have the <scsi/scsi.h> header file. */
 #undef HAVE_SCSI_SCSI_H

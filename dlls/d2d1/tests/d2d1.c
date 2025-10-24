@@ -15528,30 +15528,24 @@ static void test_compute_geometry_area(BOOL d3d11)
     ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
 
     hr = ID2D1EllipseGeometry_ComputeArea(ellipse_geometry, NULL, 0.01f, &area);
-    todo_wine
     ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-    if (hr == S_OK)
-        ok(compare_float(area, 156.9767f, 3), "Unexpected value %.8e.\n", area); /* Only win7 needs increased ulps. */
+    todo_wine
+    ok(compare_float(area, 156.9767f, 2), "Unexpected value %.8e.\n", area); /* Only win7 needs increased ulps. */
 
     hr = ID2D1EllipseGeometry_ComputeArea(ellipse_geometry, NULL, 200.0f, &area);
-    todo_wine
     ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-    if (hr == S_OK)
-        ok(compare_float(area, 100.0f, 2), "Unexpected value %.8e.\n", area); /* Only win7 needs increased ulps. */
+    ok(compare_float(area, 100.0f, 2), "Unexpected value %.8e.\n", area); /* Only win7 needs increased ulps. */
 
     set_matrix_identity(&matrix);
     scale_matrix(&matrix, 1.0f, 2.0f);
     hr = ID2D1EllipseGeometry_ComputeArea(ellipse_geometry, &matrix, 0.01f, &area);
-    todo_wine
     ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-    if (hr == S_OK)
-        ok(compare_float(area, 314.12088f, 2), "Unexpected value %.8e.\n", area); /* Only win7 needs increased ulps. */
+    todo_wine_if(sizeof(void *) == 8)
+    ok(compare_float(area, 314.12088f, 2), "Unexpected value %.8e.\n", area); /* Only win7 needs increased ulps. */
 
     hr = ID2D1EllipseGeometry_ComputeArea(ellipse_geometry, &matrix, 200.0f, &area);
-    todo_wine
     ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-    if (hr == S_OK)
-        ok(compare_float(area, 200.0f, 1), "Unexpected value %.8e.\n", area); /* Only win7 needs increased ulps. */
+    ok(compare_float(area, 200.0f, 1), "Unexpected value %.8e.\n", area); /* Only win7 needs increased ulps. */
 
     ID2D1EllipseGeometry_Release(ellipse_geometry);
 
@@ -16446,11 +16440,11 @@ START_TEST(d2d1)
     queue_test(test_bitmap_map);
     queue_test(test_bitmap_create);
     queue_test(test_effect_custom_pixel_shader);
-    queue_test(test_get_effect_properties);
+    queue_d3d10_test(test_get_effect_properties);
     queue_test(test_effect_vertex_buffer);
-    queue_test(test_compute_geometry_area);
+    queue_d3d10_test(test_compute_geometry_area);
     queue_test(test_wic_target_format);
-    queue_test(test_effect_blob_property);
+    queue_d3d10_test(test_effect_blob_property);
     queue_test(test_get_dxgi_device);
     queue_test(test_no_target);
     queue_test(test_mesh);
