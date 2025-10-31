@@ -1483,7 +1483,7 @@ WINE_NOTICE_WITH(pcsclite,[test "x$PCSCLITE_LIBS" = x],
 dnl **** Check for inotify ****
 if test "x$with_inotify" != "xno"
 then
-    WINE_PACKAGE_FLAGS(INOTIFY,[libinotify],,,,
+    WINE_PACKAGE_FLAGS(INOTIFY,[libinotify],[-linotify],,,
         [AC_CHECK_HEADERS([sys/inotify.h])
          AC_CHECK_LIB(inotify,inotify_add_watch,[:],[INOTIFY_LIBS=""],[$INOTIFY_LIBS])])
 fi
@@ -2133,6 +2133,8 @@ AC_CHECK_FUNCS(\
 	posix_fadvise \
 	posix_fallocate \
 	prctl \
+	process_vm_readv \
+	process_vm_writev \
 	sched_getcpu \
 	sched_yield \
 	setproctitle \
