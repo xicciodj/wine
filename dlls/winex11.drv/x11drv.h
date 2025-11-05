@@ -63,8 +63,9 @@ typedef int Status;
 #include "windef.h"
 #include "winbase.h"
 #include "ntgdi.h"
+#include "shlobj.h"
+#include "wine/unixlib.h"
 #include "wine/gdi_driver.h"
-#include "unixlib.h"
 #include "wine/list.h"
 #include "wine/debug.h"
 #include "mwm.h"
@@ -251,6 +252,7 @@ extern void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hi
                                      const struct window_rects *new_rects, struct window_surface *surface );
 extern BOOL X11DRV_SystemParametersInfo( UINT action, UINT int_param, void *ptr_param,
                                          UINT flags );
+extern LRESULT X11DRV_WintabProc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, void *buffer );
 extern void X11DRV_ThreadDetach(void);
 
 /* X11 driver internal functions */
@@ -894,13 +896,6 @@ static inline BOOL is_window_rect_mapped( const RECT *rect )
             max( rect->right, rect->left + 1 ) > virtual_rect.left &&
             max( rect->bottom, rect->top + 1 ) > virtual_rect.top);
 }
-
-/* unixlib interface */
-
-extern NTSTATUS x11drv_tablet_attach_queue( void *arg );
-extern NTSTATUS x11drv_tablet_get_packet( void *arg );
-extern NTSTATUS x11drv_tablet_load_info( void *arg );
-extern NTSTATUS x11drv_tablet_info( void *arg );
 
 /* GDI helpers */
 

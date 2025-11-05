@@ -212,6 +212,9 @@ struct wave
     LONG ref;
     UINT id;
 
+    HRESULT (CALLBACK *callback)(HANDLE handle, HANDLE user_data);
+    HANDLE user_data;
+
     fluid_sample_t *fluid_sample;
 
     WAVEFORMATEX format;
@@ -231,6 +234,8 @@ static void wave_release(struct wave *wave)
     ULONG ref = InterlockedDecrement(&wave->ref);
     if (!ref)
     {
+        if (wave->callback)
+            wave->callback(wave, wave->user_data);
         delete_fluid_sample(wave->fluid_sample);
         free(wave);
     }
@@ -646,7 +651,8 @@ static HRESULT WINAPI synth_Close(IDirectMusicSynth8 *iface)
     LIST_FOR_EACH_ENTRY_SAFE(voice, next, &This->voices, struct voice, entry)
     {
         list_remove(&voice->entry);
-        wave_release(voice->wave);
+        if (voice->wave)
+            wave_release(voice->wave);
         free(voice);
     }
 
@@ -873,8 +879,10 @@ static HRESULT synth_download_wave(struct synth *This, DMUS_DOWNLOADINFO *info, 
         return FLUID_FAILED;
     }
 
+    /* Although the doc says there should be 8-frame padding around the data,
+     * FluidSynth doesn't actually require this since version 1.0.8. */
     fluid_sample_set_sound_data(wave->fluid_sample, wave->samples, NULL, wave->sample_count,
-            wave->format.nSamplesPerSec, TRUE);
+            wave->format.nSamplesPerSec, FALSE);
 
     EnterCriticalSection(&This->cs);
     list_add_tail(&This->waves, &wave->entry);
@@ -940,7 +948,6 @@ static HRESULT WINAPI synth_Unload(IDirectMusicSynth8 *iface, HANDLE handle,
     struct wave *wave;
 
     TRACE("(%p)->(%p, %p, %p)\n", This, handle, callback, user_data);
-    if (callback) FIXME("Unload callbacks not implemented\n");
 
     EnterCriticalSection(&This->cs);
     LIST_FOR_EACH_ENTRY(instrument, &This->instruments, struct instrument, entry)
@@ -959,6 +966,8 @@ static HRESULT WINAPI synth_Unload(IDirectMusicSynth8 *iface, HANDLE handle,
     {
         if (wave == handle)
         {
+            wave->callback = callback;
+            wave->user_data = user_data;
             list_remove(&wave->entry);
             LeaveCriticalSection(&This->cs);
 
@@ -1120,6 +1129,7 @@ static HRESULT WINAPI synth_Render(IDirectMusicSynth8 *iface, short *buffer,
 {
     struct synth *This = impl_from_IDirectMusicSynth8(iface);
     struct event *event, *next;
+    struct voice *voice;
     int chan;
 
     TRACE("(%p, %p, %ld, %I64d)\n", This, buffer, length, position);
@@ -1173,6 +1183,21 @@ static HRESULT WINAPI synth_Render(IDirectMusicSynth8 *iface, short *buffer,
     LeaveCriticalSection(&This->cs);
 
     if (length) fluid_synth_write_s16(This->fluid_synth, length, buffer, 0, 2, buffer, 1, 2);
+
+    /* fluid_synth_write_s16() does not update the voice status, so we have to
+     * trigger the update manually */
+    fluid_synth_get_active_voice_count(This->fluid_synth);
+
+    LIST_FOR_EACH_ENTRY(voice, &This->voices, struct voice, entry)
+    {
+        if (fluid_voice_is_playing(voice->fluid_voice))
+            continue;
+        if (!voice->wave)
+            continue;
+        wave_release(voice->wave);
+        voice->wave = NULL;
+    }
+
     return S_OK;
 }
 
@@ -1899,7 +1924,11 @@ static int synth_preset_noteon(fluid_preset_t *fluid_preset, fluid_synth_t *flui
     {
         if (voice->fluid_voice == fluid_voice)
         {
-            wave_release(voice->wave);
+            if (voice->wave)
+            {
+                wave_release(voice->wave);
+                voice->wave = NULL;
+            }
             break;
         }
     }
@@ -1930,11 +1959,8 @@ static int synth_preset_noteon(fluid_preset_t *fluid_preset, fluid_synth_t *flui
         else
             FIXME("Unsupported loop type %lu\n", loop->ulType);
 
-        /* When copy_data is TRUE, fluid_sample_set_sound_data() adds
-            * 8-frame padding around the sample data. Offset the loop points
-            * to compensate for this. */
-        fluid_voice_gen_set(fluid_voice, GEN_STARTLOOPADDROFS, 8 + loop->ulStart);
-        fluid_voice_gen_set(fluid_voice, GEN_ENDLOOPADDROFS, 8 + loop->ulStart + loop->ulLength);
+        fluid_voice_gen_set(fluid_voice, GEN_STARTLOOPADDROFS, loop->ulStart);
+        fluid_voice_gen_set(fluid_voice, GEN_ENDLOOPADDROFS, loop->ulStart + loop->ulLength);
     }
     fluid_voice_gen_set(fluid_voice, GEN_OVERRIDEROOTKEY, region->wave_sample.usUnityNote);
     fluid_voice_gen_set(fluid_voice, GEN_FINETUNE, region->wave_sample.sFineTune);
