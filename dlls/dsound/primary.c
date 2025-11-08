@@ -110,46 +110,35 @@ static DWORD DSOUND_FindSpeakerConfig(IMMDevice *mmdevice, int channels)
 static HRESULT DSOUND_WaveFormat(DirectSoundDevice *device, IAudioClient *client,
 				 BOOL forcewave, WAVEFORMATEX **wfx)
 {
-    WAVEFORMATEXTENSIBLE *retwfe = NULL;
     WAVEFORMATEX *w;
     HRESULT hr;
 
     if (!forcewave) {
-        WAVEFORMATEXTENSIBLE *mixwfe;
-        hr = IAudioClient_GetMixFormat(client, (WAVEFORMATEX**)&mixwfe);
+        WAVEFORMATEXTENSIBLE *mixwfe, wfe;
 
+        hr = IAudioClient_GetMixFormat(client, (WAVEFORMATEX**)&mixwfe);
         if (FAILED(hr))
             return hr;
 
-        if (mixwfe->Format.nChannels < device->num_speakers) {
+        wfe = *mixwfe;
+        CoTaskMemFree(mixwfe);
+
+        wfe.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+        wfe.SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+        wfe.Samples.wValidBitsPerSample = wfe.Format.wBitsPerSample = 32;
+
+        if (wfe.Format.nChannels < device->num_speakers) {
             device->speaker_config = DSOUND_FindSpeakerConfig(device->mmdevice, mixwfe->Format.nChannels);
             DSOUND_ParseSpeakerConfig(device);
         } else if (mixwfe->Format.nChannels > device->num_speakers) {
-            mixwfe->Format.nChannels = device->num_speakers;
-            mixwfe->Format.nBlockAlign = mixwfe->Format.nChannels * mixwfe->Format.wBitsPerSample / 8;
-            mixwfe->Format.nAvgBytesPerSec = mixwfe->Format.nSamplesPerSec * mixwfe->Format.nBlockAlign;
-            mixwfe->dwChannelMask = speaker_config_to_channel_mask(device->speaker_config);
+            wfe.Format.nChannels = device->num_speakers;
+            wfe.dwChannelMask = speaker_config_to_channel_mask(device->speaker_config);
         }
 
-        if (!IsEqualGUID(&mixwfe->SubFormat, &KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
-            WAVEFORMATEXTENSIBLE testwfe = *mixwfe;
+        wfe.Format.nBlockAlign = wfe.Format.nChannels * wfe.Format.wBitsPerSample / 8;
+        wfe.Format.nAvgBytesPerSec = wfe.Format.nSamplesPerSec * wfe.Format.nBlockAlign;
 
-            testwfe.SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
-            testwfe.Samples.wValidBitsPerSample = testwfe.Format.wBitsPerSample = 32;
-            testwfe.Format.nBlockAlign = testwfe.Format.nChannels * testwfe.Format.wBitsPerSample / 8;
-            testwfe.Format.nAvgBytesPerSec = testwfe.Format.nSamplesPerSec * testwfe.Format.nBlockAlign;
-
-            if (FAILED(IAudioClient_IsFormatSupported(client, AUDCLNT_SHAREMODE_SHARED, &testwfe.Format, (WAVEFORMATEX**)&retwfe)))
-                w = DSOUND_CopyFormat(&mixwfe->Format);
-            else if (retwfe)
-                w = DSOUND_CopyFormat(&retwfe->Format);
-            else
-                w = DSOUND_CopyFormat(&testwfe.Format);
-            CoTaskMemFree(retwfe);
-            retwfe = NULL;
-        } else
-            w = DSOUND_CopyFormat(&mixwfe->Format);
-        CoTaskMemFree(mixwfe);
+        w = DSOUND_CopyFormat(&wfe.Format);
     } else if (device->primary_pwfx->wFormatTag == WAVE_FORMAT_PCM ||
                device->primary_pwfx->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
         WAVEFORMATEX *wi = device->primary_pwfx;
@@ -180,16 +169,6 @@ static HRESULT DSOUND_WaveFormat(DirectSoundDevice *device, IAudioClient *client
     if (!w)
         return DSERR_OUTOFMEMORY;
 
-    hr = IAudioClient_IsFormatSupported(client, AUDCLNT_SHAREMODE_SHARED, w, (WAVEFORMATEX**)&retwfe);
-    if (retwfe) {
-        memcpy(w, retwfe, sizeof(WAVEFORMATEX) + retwfe->Format.cbSize);
-        CoTaskMemFree(retwfe);
-    }
-    if (FAILED(hr)) {
-        WARN("IsFormatSupported failed: %08lx\n", hr);
-        free(w);
-        return hr;
-    }
     *wfx = w;
     return S_OK;
 }
@@ -306,7 +285,8 @@ HRESULT DSOUND_ReopenDevice(DirectSoundDevice *device, BOOL forcewave)
 
     hres = IAudioClient_Initialize(client,
             AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_NOPERSIST |
-            AUDCLNT_STREAMFLAGS_EVENTCALLBACK, 800000, 0, wfx, NULL);
+            AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
+            800000, 0, wfx, NULL);
     if(FAILED(hres)){
         IAudioClient_Release(client);
         ERR("Initialize failed: %08lx\n", hres);

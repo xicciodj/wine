@@ -216,9 +216,6 @@ struct wave
     HANDLE user_data;
 
     fluid_sample_t *fluid_sample;
-
-    WAVEFORMATEX format;
-    UINT sample_count;
     short samples[];
 };
 
@@ -823,6 +820,9 @@ static HRESULT synth_download_wave(struct synth *This, DMUS_DOWNLOADINFO *info, 
     DMUS_WAVEDATA *wave_data = (DMUS_WAVEDATA *)(data + offsets[wave_info->ulWaveDataIdx]);
     struct wave *wave;
     UINT sample_count;
+    short *samples;
+    size_t size;
+    int i;
 
     if (TRACE_ON(dmsynth))
     {
@@ -841,34 +841,31 @@ static HRESULT synth_download_wave(struct synth *This, DMUS_DOWNLOADINFO *info, 
     if (wave_info->WaveformatEx.wFormatTag != WAVE_FORMAT_PCM) return DMUS_E_NOTPCM;
 
     sample_count = wave_data->cbSize / wave_info->WaveformatEx.nBlockAlign;
-    if (!(wave = calloc(1, offsetof(struct wave, samples[sample_count])))) return E_OUTOFMEMORY;
+    size = wave_info->WaveformatEx.nBlockAlign == 2 ? sizeof(struct wave)
+            : offsetof(struct wave, samples[sample_count]);
+    if (!(wave = calloc(1, size))) return E_OUTOFMEMORY;
     wave->ref = 1;
     wave->id = info->dwDLId;
-    wave->format = wave_info->WaveformatEx;
-    wave->sample_count = sample_count;
 
+    samples = wave->samples;
     if (wave_info->WaveformatEx.nBlockAlign == 1)
     {
-        while (sample_count--)
+        for (i = 0; i < sample_count; ++i)
         {
-            short sample = (wave_data->byData[sample_count] - 0x80) << 8;
-            wave->samples[sample_count] = sample;
+            short sample = (wave_data->byData[i] - 0x80) << 8;
+            wave->samples[i] = sample;
         }
     }
     else if (wave_info->WaveformatEx.nBlockAlign == 2)
     {
-        while (sample_count--)
-        {
-            short sample = ((short *)wave_data->byData)[sample_count];
-            wave->samples[sample_count] = sample;
-        }
+        samples = (short *)wave_data->byData;
     }
     else if (wave_info->WaveformatEx.nBlockAlign == 4)
     {
-        while (sample_count--)
+        for (i = 0; i < sample_count; ++i)
         {
-            short sample = ((UINT *)wave_data->byData)[sample_count] >> 16;
-            wave->samples[sample_count] = sample;
+            short sample = ((UINT *)wave_data->byData)[i] >> 16;
+            wave->samples[i] = sample;
         }
     }
 
@@ -881,8 +878,8 @@ static HRESULT synth_download_wave(struct synth *This, DMUS_DOWNLOADINFO *info, 
 
     /* Although the doc says there should be 8-frame padding around the data,
      * FluidSynth doesn't actually require this since version 1.0.8. */
-    fluid_sample_set_sound_data(wave->fluid_sample, wave->samples, NULL, wave->sample_count,
-            wave->format.nSamplesPerSec, FALSE);
+    fluid_sample_set_sound_data(wave->fluid_sample, samples, NULL, sample_count,
+            wave_info->WaveformatEx.nSamplesPerSec, FALSE);
 
     EnterCriticalSection(&This->cs);
     list_add_tail(&This->waves, &wave->entry);
@@ -922,6 +919,7 @@ static HRESULT WINAPI synth_Download(IDirectMusicSynth8 *iface, HANDLE *ret_hand
     case DMUS_DOWNLOADINFO_INSTRUMENT2:
         return synth_download_instrument(This, info, offsets, data, ret_handle);
     case DMUS_DOWNLOADINFO_WAVE:
+        *ret_free = FALSE;
         return synth_download_wave(This, info, offsets, data, ret_handle);
     case DMUS_DOWNLOADINFO_WAVEARTICULATION:
         FIXME("Download type DMUS_DOWNLOADINFO_WAVEARTICULATION not yet supported\n");
