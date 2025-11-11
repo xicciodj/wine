@@ -1631,9 +1631,8 @@ static UINT window_update_client_state( struct x11drv_win_data *data )
         }
         else if (old_style & (WS_MINIMIZE | WS_MAXIMIZE))
         {
-            BOOL activate = (old_style & (WS_MINIMIZE | WS_VISIBLE)) == (WS_MINIMIZE | WS_VISIBLE);
             TRACE( "restoring win %p/%lx\n", data->hwnd, data->whole_window );
-            return MAKELONG(SC_RESTORE, activate);
+            return SC_RESTORE;
         }
     }
     if (!(old_style & WS_MINIMIZE) && (new_style & WS_MINIMIZE))
@@ -3031,10 +3030,10 @@ void X11DRV_SetCapture( HWND hwnd, UINT flags )
         if (!(data = get_win_data( NtUserGetAncestor( hwnd, GA_ROOT )))) return;
         if (data->whole_window)
         {
-            XFlush( gdi_display );
             XGrabPointer( data->display, data->whole_window, False,
                           PointerMotionMask | ButtonPressMask | ButtonReleaseMask,
                           GrabModeAsync, GrabModeAsync, None, None, CurrentTime );
+            XFlush( data->display );
             thread_data->grab_hwnd = data->hwnd;
         }
         release_win_data( data );
@@ -3042,7 +3041,6 @@ void X11DRV_SetCapture( HWND hwnd, UINT flags )
     else  /* release capture */
     {
         if (!(data = get_win_data( thread_data->grab_hwnd ))) return;
-        XFlush( gdi_display );
         XUngrabPointer( data->display, CurrentTime );
         XFlush( data->display );
         thread_data->grab_hwnd = NULL;
