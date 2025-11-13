@@ -2798,6 +2798,7 @@ void X11DRV_SystrayDockInit( HWND hwnd )
         systray_atom = XInternAtom( display, systray_buffer, False );
     }
     XSelectInput( display, root_window, StructureNotifyMask | PropertyChangeMask );
+    XFlush( display );
 }
 
 
@@ -2821,7 +2822,11 @@ BOOL X11DRV_SystrayDockRemove( HWND hwnd )
 
     if ((data = get_win_data( hwnd )))
     {
-        if ((ret = data->embedded)) window_set_wm_state( data, WithdrawnState, FALSE );
+        if ((ret = data->embedded))
+        {
+            window_set_wm_state( data, WithdrawnState, FALSE );
+            XFlush( data->display );
+        }
         release_win_data( data );
     }
 
@@ -2901,6 +2906,7 @@ BOOL X11DRV_SystrayDockInsert( HWND hwnd, UINT cx, UINT cy, void *icon )
     ev.xclient.data.l[3] = 0;
     ev.xclient.data.l[4] = 0;
     XSendEvent( display, systray_window, False, NoEventMask, &ev );
+    XFlush( display );
 
     return TRUE;
 }
@@ -3590,6 +3596,7 @@ void X11DRV_FlashWindowEx( FLASHWINFO *pfinfo )
 
         XSendEvent( data->display, DefaultRootWindow( data->display ), False,
                     SubstructureNotifyMask, &xev );
+        XFlush( data->display );
     }
     release_win_data( data );
 }
