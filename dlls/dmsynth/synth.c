@@ -1178,6 +1178,9 @@ static HRESULT WINAPI synth_Render(IDirectMusicSynth8 *iface, short *buffer,
             fluid_synth_get_program(This->fluid_synth, chan, &sfont_id, &bank_num, &preset_num);
             fluid_synth_program_select(This->fluid_synth, chan, sfont_id, bank_num, event->midi[1]);
             break;
+        case MIDI_CHANNEL_PRESSURE:
+            fluid_synth_channel_pressure(This->fluid_synth, chan, event->midi[1]);
+            break;
         case MIDI_PITCH_BEND_CHANGE:
             fluid_synth_pitch_bend(This->fluid_synth, chan, event->midi[1] | (event->midi[2] << 7));
             break;
@@ -1633,8 +1636,8 @@ static BOOL set_gen_from_connection(fluid_voice_t *fluid_voice, const CONNECTION
         return FALSE;
     }
 
-    /* SF2 / FluidSynth use 0.1% as "Sustain Level" unit, DLS2 uses percent, meaning is also reversed */
-    if (gen == GEN_MODENVSUSTAIN || gen == GEN_VOLENVSUSTAIN) value = 1000 - conn->lScale * 10 / 65536.;
+    /* SF2 / FluidSynth "Sustain Level" meaning is reversed */
+    if (gen == GEN_MODENVSUSTAIN || gen == GEN_VOLENVSUSTAIN) value = 1000 - conn->lScale / 65536.;
     /* FIXME: SF2 and FluidSynth use 1200 * log2(f / 8.176) for absolute freqs,
      * whereas DLS2 uses (1200 * log2(f / 440.) + 6900) * 65536. The values
      * are very close but not strictly identical and we may need a conversion.
@@ -1717,12 +1720,13 @@ static void add_mod_from_connection(fluid_voice_t *fluid_voice, const CONNECTION
     fluid_mod_set_source2(mod, src2, flags2);
     fluid_mod_set_dest(mod, gen);
 
-    /* SF2 / FluidSynth use 0.1% as "Sustain Level" unit, DLS2 uses percent, meaning is also reversed */
-    if (gen == GEN_MODENVSUSTAIN || gen == GEN_VOLENVSUSTAIN) value = 1000 - conn->lScale * 10 / 65536.;
+    /* SF2 / FluidSynth "Sustain Level" meaning is reversed */
+    if (gen == GEN_MODENVSUSTAIN || gen == GEN_VOLENVSUSTAIN) value = -conn->lScale / 65536.;
     /* FIXME: SF2 and FluidSynth use 1200 * log2(f / 8.176) for absolute freqs,
      * whereas DLS2 uses (1200 * log2(f / 440.) + 6900) * 65536. The values
      * are very close but not strictly identical and we may need a conversion.
      */
+    else if (gen == GEN_MODLFOTOVOL && src1 == FLUID_MOD_CHANNELPRESSURE) value = conn->lScale / 655360.;
     else if (conn->lScale == 0x80000000) value = -32768;
     else value = conn->lScale / 65536.;
     fluid_mod_set_amount(mod, value);
@@ -1767,7 +1771,7 @@ static void set_default_voice_connections(fluid_voice_t *fluid_voice)
         {.usDestination = CONN_DST_EG1_ATTACKTIME, .lScale = ABS_TIME_MS(0)},
         {.usDestination = CONN_DST_EG1_HOLDTIME, .lScale = ABS_TIME_MS(0)},
         {.usDestination = CONN_DST_EG1_DECAYTIME, .lScale = ABS_TIME_MS(0)},
-        {.usDestination = CONN_DST_EG1_SUSTAINLEVEL, .lScale = 100 * 65536},
+        {.usDestination = CONN_DST_EG1_SUSTAINLEVEL, .lScale = 1000 * 65536},
         {.usDestination = CONN_DST_EG1_RELEASETIME, .lScale = ABS_TIME_MS(0)},
         /* FIXME: {.usDestination = CONN_DST_EG1_SHUTDOWNTIME, .lScale = ABS_TIME_MS(15)}, */
         {.usSource = CONN_SRC_KEYONVELOCITY, .usDestination = CONN_DST_EG1_ATTACKTIME, .lScale = 0},
@@ -1779,7 +1783,7 @@ static void set_default_voice_connections(fluid_voice_t *fluid_voice)
         {.usDestination = CONN_DST_EG2_ATTACKTIME, .lScale = ABS_TIME_MS(0)},
         {.usDestination = CONN_DST_EG2_HOLDTIME, .lScale = ABS_TIME_MS(0)},
         {.usDestination = CONN_DST_EG2_DECAYTIME, .lScale = ABS_TIME_MS(0)},
-        {.usDestination = CONN_DST_EG2_SUSTAINLEVEL, .lScale = 100 * 65536},
+        {.usDestination = CONN_DST_EG2_SUSTAINLEVEL, .lScale = 1000 * 65536},
         {.usDestination = CONN_DST_EG2_RELEASETIME, .lScale = ABS_TIME_MS(0)},
         {.usSource = CONN_SRC_KEYONVELOCITY, .usDestination = CONN_DST_EG2_ATTACKTIME, .lScale = 0},
         {.usSource = CONN_SRC_KEYNUMBER, .usDestination = CONN_DST_EG2_DECAYTIME, .lScale = 0},
