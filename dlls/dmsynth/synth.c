@@ -44,7 +44,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(dmsynth);
 #define CONN_TRN_BIPOLAR (1<<4)
 #define CONN_TRN_INVERT  (1<<5)
 
-#define CONN_TRANSFORM(src, ctrl, dst) (((src) & 0x3f) << 10) | (((ctrl) & 0x3f) << 4) | ((dst) & 0xf)
+#define CONN_TRANSFORM(src, ctrl, dst) ((((src) & 0x3f) << 10) | (((ctrl) & 0x3f) << 4) | ((dst) & 0xf))
 
 #define BASE_GAIN 60.
 #define CENTER_PAN_GAIN -30.10
@@ -164,7 +164,7 @@ static void dump_dmus_region(DMUS_REGION *region)
     TRACE("   - cbSize        = %lu\n", region->WSMP.cbSize);
     TRACE("   - usUnityNote   = %u\n", region->WSMP.usUnityNote);
     TRACE("   - sFineTune     = %u\n", region->WSMP.sFineTune);
-    TRACE("   - lAttenuation  = %lu\n", region->WSMP.lAttenuation);
+    TRACE("   - lAttenuation  = %ld\n", region->WSMP.lAttenuation);
     TRACE("   - fulOptions    = %#lx\n", region->WSMP.fulOptions);
     TRACE("   - cSampleLoops  = %lu\n", region->WSMP.cSampleLoops);
     for (i = 0; i < region->WSMP.cSampleLoops; i++)
@@ -1586,6 +1586,7 @@ static BOOL gen_from_connection(const CONNECTION *conn, UINT *gen)
     case CONN_DST_EG1_DECAYTIME: *gen = GEN_VOLENVDECAY; return TRUE;
     case CONN_DST_EG1_SUSTAINLEVEL: *gen = GEN_VOLENVSUSTAIN; return TRUE;
     case CONN_DST_EG1_RELEASETIME: *gen = GEN_VOLENVRELEASE; return TRUE;
+    case CONN_DST_EG1_SHUTDOWNTIME: return FALSE;
     case CONN_DST_GAIN: *gen = GEN_ATTENUATION; return TRUE;
     case CONN_DST_PITCH: *gen = GEN_PITCH; return TRUE;
     default: FIXME("Unsupported connection %s\n", debugstr_connection(conn)); return FALSE;
@@ -1598,7 +1599,11 @@ static BOOL set_gen_from_connection(fluid_voice_t *fluid_voice, const CONNECTION
     UINT gen;
 
     if (conn->usControl != CONN_SRC_NONE) return FALSE;
-    if (conn->usTransform != CONN_TRN_NONE) return FALSE;
+    if (conn->usTransform != CONN_TRN_NONE)
+    {
+        if (conn->usTransform != CONN_TRANSFORM(CONN_TRN_BIPOLAR, CONN_TRN_NONE, CONN_TRN_NONE)) return FALSE;
+        if (conn->usSource != CONN_SRC_LFO && conn->usSource != CONN_SRC_VIBRATO) return FALSE;
+    }
 
     if (conn->usSource == CONN_SRC_NONE)
     {
@@ -1773,7 +1778,7 @@ static void set_default_voice_connections(fluid_voice_t *fluid_voice)
         {.usDestination = CONN_DST_EG1_DECAYTIME, .lScale = ABS_TIME_MS(0)},
         {.usDestination = CONN_DST_EG1_SUSTAINLEVEL, .lScale = 1000 * 65536},
         {.usDestination = CONN_DST_EG1_RELEASETIME, .lScale = ABS_TIME_MS(0)},
-        /* FIXME: {.usDestination = CONN_DST_EG1_SHUTDOWNTIME, .lScale = ABS_TIME_MS(15)}, */
+        {.usDestination = CONN_DST_EG1_SHUTDOWNTIME, .lScale = ABS_TIME_MS(15)},
         {.usSource = CONN_SRC_KEYONVELOCITY, .usDestination = CONN_DST_EG1_ATTACKTIME, .lScale = 0},
         {.usSource = CONN_SRC_KEYNUMBER, .usDestination = CONN_DST_EG1_DECAYTIME, .lScale = 0},
         {.usSource = CONN_SRC_KEYNUMBER, .usDestination = CONN_DST_EG1_HOLDTIME, .lScale = 0},
@@ -1991,10 +1996,13 @@ static int synth_preset_noteon(fluid_preset_t *fluid_preset, fluid_synth_t *flui
         add_voice_connections(fluid_voice, &articulation->list, articulation->connections);
     LIST_FOR_EACH_ENTRY(articulation, &region->articulations, struct articulation, entry)
         add_voice_connections(fluid_voice, &articulation->list, articulation->connections);
+    fluid_voice_gen_incr(voice->fluid_voice, GEN_ATTENUATION,
+            region->wave_sample.lAttenuation / -65536.);
     /* Unlike FluidSynth, native applies the gain limit after the panning. At
      * least for the center pan we can replicate this by applying a panning
      * attenuation here. */
     fluid_voice_gen_incr(voice->fluid_voice, GEN_ATTENUATION, -CENTER_PAN_GAIN);
+    fluid_voice_gen_set(voice->fluid_voice, GEN_EXCLUSIVECLASS, region->group);
     fluid_synth_start_voice(synth->fluid_synth, fluid_voice);
 
     LeaveCriticalSection(&synth->cs);
