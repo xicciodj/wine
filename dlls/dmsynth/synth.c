@@ -1519,48 +1519,6 @@ static int synth_preset_get_num(fluid_preset_t *fluid_preset)
     return preset->patch;
 }
 
-static void find_region_no_fallback(struct synth *synth, int patch, int key, int vel,
-        struct instrument **out_instrument, struct region **out_region)
-{
-    struct instrument *instrument;
-    struct region *region;
-
-    *out_instrument = NULL;
-    *out_region = NULL;
-
-    LIST_FOR_EACH_ENTRY(instrument, &synth->instruments, struct instrument, entry)
-    {
-        if (instrument->patch == patch)
-            break;
-    }
-
-    if (&instrument->entry == &synth->instruments)
-        return;
-
-    *out_instrument = instrument;
-
-    LIST_FOR_EACH_ENTRY(region, &instrument->regions, struct region, entry)
-    {
-        if (key < region->key_range.usLow || key > region->key_range.usHigh) continue;
-        if (vel < region->vel_range.usLow || vel > region->vel_range.usHigh) continue;
-        *out_region = region;
-        break;
-    }
-}
-
-static void find_region(struct synth *synth, int patch, int key, int vel,
-        struct instrument **out_instrument, struct region **out_region)
-{
-    find_region_no_fallback(synth, patch, key, vel, out_instrument, out_region);
-    if (!*out_region && (patch & F_INSTRUMENT_DRUMS))
-        find_region_no_fallback(synth, F_INSTRUMENT_DRUMS, key, vel, out_instrument, out_region);
-
-    if (!*out_instrument)
-        WARN("Could not find instrument with patch %#x\n", patch);
-    else if (!*out_region)
-        WARN("Failed to find instrument matching note / velocity\n");
-}
-
 static BOOL gen_from_connection(const CONNECTION *conn, UINT *gen)
 {
     switch (conn->usDestination)
@@ -1910,41 +1868,19 @@ static void set_default_voice_connections(fluid_voice_t *fluid_voice)
     add_voice_connections(fluid_voice, &list, connections);
 }
 
-static int synth_preset_noteon(fluid_preset_t *fluid_preset, fluid_synth_t *fluid_synth, int chan, int key, int vel)
+static int play_region(struct synth *synth, struct instrument *instrument, struct region *region,
+        int chan, int key, int vel)
 {
-    struct preset *preset = fluid_preset_get_data(fluid_preset);
-    struct synth *synth = preset->synth;
     struct articulation *articulation;
-    struct instrument *instrument;
     fluid_voice_t *fluid_voice;
-    struct region *region;
     struct voice *voice;
     struct wave *wave;
-    UINT patch;
-
-    TRACE("(%p, %p, %u, %u, %u)\n", fluid_preset, fluid_synth, chan, key, vel);
-
-    EnterCriticalSection(&synth->cs);
-
-    patch = preset->patch;
-    patch |= (preset->bank << 8) & 0x007f00;
-    patch |= (preset->bank << 9) & 0x7f0000;
-    if (chan == 9)
-        patch |= F_INSTRUMENT_DRUMS;
-
-    find_region(synth, patch, key, vel, &instrument, &region);
-    if (!region)
-    {
-        LeaveCriticalSection(&synth->cs);
-        return FLUID_FAILED;
-    }
 
     wave = region->wave;
 
     if (!(fluid_voice = fluid_synth_alloc_voice(synth->fluid_synth, wave->fluid_sample, chan, key, vel)))
     {
         WARN("Failed to allocate FluidSynth voice\n");
-        LeaveCriticalSection(&synth->cs);
         return FLUID_FAILED;
     }
 
@@ -1964,10 +1900,7 @@ static int synth_preset_noteon(fluid_preset_t *fluid_preset, fluid_synth_t *flui
     if (&voice->entry == &synth->voices)
     {
         if (!(voice = calloc(1, sizeof(struct voice))))
-        {
-            LeaveCriticalSection(&synth->cs);
             return FLUID_FAILED;
-        }
         voice->fluid_voice = fluid_voice;
         list_add_tail(&synth->voices, &voice->entry);
     }
@@ -2004,6 +1937,84 @@ static int synth_preset_noteon(fluid_preset_t *fluid_preset, fluid_synth_t *flui
     fluid_voice_gen_incr(voice->fluid_voice, GEN_ATTENUATION, -CENTER_PAN_GAIN);
     fluid_voice_gen_set(voice->fluid_voice, GEN_EXCLUSIVECLASS, region->group);
     fluid_synth_start_voice(synth->fluid_synth, fluid_voice);
+
+    return FLUID_OK;
+}
+
+static int play_instrument_no_fallback(struct synth *synth, int chan, int patch, int key, int vel,
+        struct instrument **out_instrument, struct region **out_region)
+{
+    struct instrument *instrument;
+    struct region *region;
+
+    *out_instrument = NULL;
+    *out_region = NULL;
+
+    LIST_FOR_EACH_ENTRY(instrument, &synth->instruments, struct instrument, entry)
+    {
+        if (instrument->patch == patch)
+            break;
+    }
+
+    if (&instrument->entry == &synth->instruments)
+        return FLUID_FAILED;
+
+    *out_instrument = instrument;
+
+    LIST_FOR_EACH_ENTRY(region, &instrument->regions, struct region, entry)
+    {
+        if (key < region->key_range.usLow || key > region->key_range.usHigh) continue;
+        if (vel < region->vel_range.usLow || vel > region->vel_range.usHigh) continue;
+        *out_region = region;
+        if (FLUID_OK != play_region(synth, instrument, region, chan, key, vel))
+            return FLUID_FAILED;
+    }
+
+    if (&region->entry == &instrument->regions)
+        return FLUID_FAILED;
+
+    return FLUID_OK;
+}
+
+static int play_instrument(struct synth *synth, int chan, int patch, int key, int vel)
+{
+    struct instrument *instrument;
+    struct region *region;
+    int result;
+
+    result = play_instrument_no_fallback(synth, chan, patch, key, vel, &instrument, &region);
+    if (!region && (patch & F_INSTRUMENT_DRUMS))
+        result = play_instrument_no_fallback(synth, chan, F_INSTRUMENT_DRUMS, key, vel, &instrument, &region);
+
+    if (!instrument)
+        WARN("Could not find instrument with patch %#x\n", patch);
+    else if (!region)
+        WARN("Failed to find instrument matching note / velocity\n");
+
+    return result;
+}
+
+static int synth_preset_noteon(fluid_preset_t *fluid_preset, fluid_synth_t *fluid_synth, int chan, int key, int vel)
+{
+    struct preset *preset = fluid_preset_get_data(fluid_preset);
+    struct synth *synth = preset->synth;
+    UINT patch;
+
+    TRACE("(%p, %p, %u, %u, %u)\n", fluid_preset, fluid_synth, chan, key, vel);
+
+    EnterCriticalSection(&synth->cs);
+
+    patch = preset->patch;
+    patch |= (preset->bank << 8) & 0x007f00;
+    patch |= (preset->bank << 9) & 0x7f0000;
+    if (chan == 9)
+        patch |= F_INSTRUMENT_DRUMS;
+
+    if (FLUID_OK != play_instrument(synth, chan, patch, key, vel))
+    {
+        LeaveCriticalSection(&synth->cs);
+        return FLUID_FAILED;
+    }
 
     LeaveCriticalSection(&synth->cs);
 
