@@ -77,6 +77,7 @@ struct wgl_context
     int                     format;             /* pixel format of the context */
     struct opengl_drawable *draw;               /* currently bound draw surface */
     struct opengl_drawable *read;               /* currently bound read surface */
+    GLenum                  error;              /* wrapped GL error */
 };
 
 /* interface between opengl32 and win32u */
@@ -155,6 +156,8 @@ struct egl_platform
     UINT                 video_memory;
     const char          *device_name;
     const char          *vendor_name;
+    GUID                 device_uuid;
+    GUID                 driver_uuid;
 };
 
 struct opengl_drawable_funcs
