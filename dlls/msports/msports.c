@@ -1,5 +1,7 @@
 /*
- * Copyright 2025 Tim Clem
+ * Microsoft Serial Controller Driver API implementation
+ *
+ * Copyright 2025 Stefan Brüns
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -16,8 +18,22 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define WINE_FILEDESCRIPTION_STR "Wine runtime library"
-#define WINE_FILENAME_STR "vcruntime140_1.dll"
-#define WINE_FILEVERSION 14,50,35719,0
+#include "windef.h"
+#include "wine/debug.h"
 
-#include "wine/wine_common_ver.rc"
+WINE_DEFAULT_DEBUG_CHANNEL(msports);
+
+DECLARE_HANDLE(HCOMDB);
+
+LONG WINAPI ComDBClose(HCOMDB hComDB)
+{
+    FIXME("stub\n");
+    return ERROR_INVALID_PARAMETER;
+}
+
+LONG WINAPI ComDBOpen(HCOMDB *phComDB)
+{
+    FIXME("stub\n");
+    *phComDB = INVALID_HANDLE_VALUE;
+    return ERROR_ACCESS_DENIED;
+}
