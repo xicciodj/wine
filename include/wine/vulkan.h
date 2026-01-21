@@ -287,6 +287,12 @@ typedef struct _XDisplay Display;
 #define VK_EXT_BLEND_OPERATION_ADVANCED_EXTENSION_NAME "VK_EXT_blend_operation_advanced"
 #define VK_NV_FRAGMENT_COVERAGE_TO_COLOR_SPEC_VERSION 1
 #define VK_NV_FRAGMENT_COVERAGE_TO_COLOR_EXTENSION_NAME "VK_NV_fragment_coverage_to_color"
+#define VK_KHR_ACCELERATION_STRUCTURE_SPEC_VERSION 13
+#define VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME "VK_KHR_acceleration_structure"
+#define VK_KHR_RAY_TRACING_PIPELINE_SPEC_VERSION 1
+#define VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME "VK_KHR_ray_tracing_pipeline"
+#define VK_KHR_RAY_QUERY_SPEC_VERSION 1
+#define VK_KHR_RAY_QUERY_EXTENSION_NAME "VK_KHR_ray_query"
 #define VK_NV_FRAMEBUFFER_MIXED_SAMPLES_SPEC_VERSION 1
 #define VK_NV_FRAMEBUFFER_MIXED_SAMPLES_EXTENSION_NAME "VK_NV_framebuffer_mixed_samples"
 #define VK_NV_FILL_RECTANGLE_SPEC_VERSION 1
@@ -537,6 +543,8 @@ typedef struct _XDisplay Display;
 #define VK_NV_FRAGMENT_SHADING_RATE_ENUMS_EXTENSION_NAME "VK_NV_fragment_shading_rate_enums"
 #define VK_NV_RAY_TRACING_MOTION_BLUR_SPEC_VERSION 1
 #define VK_NV_RAY_TRACING_MOTION_BLUR_EXTENSION_NAME "VK_NV_ray_tracing_motion_blur"
+#define VK_EXT_MESH_SHADER_SPEC_VERSION 1
+#define VK_EXT_MESH_SHADER_EXTENSION_NAME "VK_EXT_mesh_shader"
 #define VK_EXT_YCBCR_2PLANE_444_FORMATS_SPEC_VERSION 1
 #define VK_EXT_YCBCR_2PLANE_444_FORMATS_EXTENSION_NAME "VK_EXT_ycbcr_2plane_444_formats"
 #define VK_EXT_FRAGMENT_DENSITY_MAP_2_SPEC_VERSION 1
@@ -926,14 +934,6 @@ typedef struct _XDisplay Display;
 #define VK_STD_VULKAN_VIDEO_CODEC_AV1_DECODE_EXTENSION_NAME "VK_STD_vulkan_video_codec_av1_decode"
 #define VK_STD_VULKAN_VIDEO_CODEC_AV1_ENCODE_SPEC_VERSION VK_STD_VULKAN_VIDEO_CODEC_AV1_ENCODE_API_VERSION_1_0_0
 #define VK_STD_VULKAN_VIDEO_CODEC_AV1_ENCODE_EXTENSION_NAME "VK_STD_vulkan_video_codec_av1_encode"
-#define VK_KHR_ACCELERATION_STRUCTURE_SPEC_VERSION 13
-#define VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME "VK_KHR_acceleration_structure"
-#define VK_KHR_RAY_TRACING_PIPELINE_SPEC_VERSION 1
-#define VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME "VK_KHR_ray_tracing_pipeline"
-#define VK_KHR_RAY_QUERY_SPEC_VERSION 1
-#define VK_KHR_RAY_QUERY_EXTENSION_NAME "VK_KHR_ray_query"
-#define VK_EXT_MESH_SHADER_SPEC_VERSION 1
-#define VK_EXT_MESH_SHADER_EXTENSION_NAME "VK_EXT_mesh_shader"
 
 #define VK_MAKE_VERSION(major, minor, patch) \
     ((((uint32_t)(major)) << 22U) | (((uint32_t)(minor)) << 12U) | ((uint32_t)(patch)))
@@ -4537,8 +4537,8 @@ static const VkPipelineCreateFlagBits2 VK_PIPELINE_CREATE_2_EARLY_RETURN_ON_FAIL
 static const VkPipelineCreateFlagBits2 VK_PIPELINE_CREATE_2_EARLY_RETURN_ON_FAILURE_BIT_KHR = 0x00000200ull;
 static const VkPipelineCreateFlagBits2 VK_PIPELINE_CREATE_2_LINK_TIME_OPTIMIZATION_BIT_EXT = 0x00000400ull;
 static const VkPipelineCreateFlagBits2 VK_PIPELINE_CREATE_2_LIBRARY_BIT_KHR = 0x00000800ull;
-static const VkPipelineCreateFlagBits2 VK_PIPELINE_CREATE_2_RAY_TRACING_SKIP_TRIANGLES_BIT_KHR = 0x00001000ull;
 static const VkPipelineCreateFlagBits2 VK_PIPELINE_CREATE_2_RAY_TRACING_SKIP_BUILT_IN_PRIMITIVES_BIT_KHR = 0x00001000ull;
+static const VkPipelineCreateFlagBits2 VK_PIPELINE_CREATE_2_RAY_TRACING_SKIP_TRIANGLES_BIT_KHR = 0x00001000ull;
 static const VkPipelineCreateFlagBits2 VK_PIPELINE_CREATE_2_RAY_TRACING_SKIP_AABBS_BIT_KHR = 0x00002000ull;
 static const VkPipelineCreateFlagBits2 VK_PIPELINE_CREATE_2_RAY_TRACING_NO_NULL_ANY_HIT_SHADERS_BIT_KHR = 0x00004000ull;
 static const VkPipelineCreateFlagBits2 VK_PIPELINE_CREATE_2_RAY_TRACING_NO_NULL_CLOSEST_HIT_SHADERS_BIT_KHR = 0x00008000ull;
@@ -21638,6 +21638,7 @@ VkResult VKAPI_CALL vkWriteMicromapsPropertiesEXT(VkDevice device, uint32_t micr
 #define ALL_VK_INSTANCE_FUNCS \
     USE_VK_FUNC(vkCreateDebugReportCallbackEXT) \
     USE_VK_FUNC(vkCreateDebugUtilsMessengerEXT) \
+    USE_VK_FUNC(vkCreateDevice) \
     USE_VK_FUNC(vkCreateHeadlessSurfaceEXT) \
     USE_VK_FUNC(vkCreateMacOSSurfaceMVK) \
     USE_VK_FUNC(vkCreateMetalSurfaceEXT) \
@@ -21649,15 +21650,13 @@ VkResult VKAPI_CALL vkWriteMicromapsPropertiesEXT(VkDevice device, uint32_t micr
     USE_VK_FUNC(vkDestroyDebugUtilsMessengerEXT) \
     USE_VK_FUNC(vkDestroyInstance) \
     USE_VK_FUNC(vkDestroySurfaceKHR) \
-    USE_VK_FUNC(vkEnumeratePhysicalDeviceGroups) \
-    USE_VK_FUNC(vkEnumeratePhysicalDeviceGroupsKHR) \
-    USE_VK_FUNC(vkEnumeratePhysicalDevices) \
-    USE_VK_FUNC(vkSubmitDebugUtilsMessageEXT) \
-    USE_VK_FUNC(vkCreateDevice) \
     USE_VK_FUNC(vkEnumerateDeviceExtensionProperties) \
     USE_VK_FUNC(vkEnumerateDeviceLayerProperties) \
+    USE_VK_FUNC(vkEnumeratePhysicalDeviceGroups) \
+    USE_VK_FUNC(vkEnumeratePhysicalDeviceGroupsKHR) \
     USE_VK_FUNC(vkEnumeratePhysicalDeviceQueueFamilyPerformanceCountersByRegionARM) \
     USE_VK_FUNC(vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR) \
+    USE_VK_FUNC(vkEnumeratePhysicalDevices) \
     USE_VK_FUNC(vkGetPhysicalDeviceCalibrateableTimeDomainsEXT) \
     USE_VK_FUNC(vkGetPhysicalDeviceCalibrateableTimeDomainsKHR) \
     USE_VK_FUNC(vkGetPhysicalDeviceCooperativeMatrixFlexibleDimensionsPropertiesNV) \
@@ -21713,7 +21712,8 @@ VkResult VKAPI_CALL vkWriteMicromapsPropertiesEXT(VkDevice device, uint32_t micr
     USE_VK_FUNC(vkGetPhysicalDeviceVideoFormatPropertiesKHR) \
     USE_VK_FUNC(vkGetPhysicalDeviceWaylandPresentationSupportKHR) \
     USE_VK_FUNC(vkGetPhysicalDeviceWin32PresentationSupportKHR) \
-    USE_VK_FUNC(vkGetPhysicalDeviceXlibPresentationSupportKHR)
+    USE_VK_FUNC(vkGetPhysicalDeviceXlibPresentationSupportKHR) \
+    USE_VK_FUNC(vkSubmitDebugUtilsMessageEXT)
 
 #define ALL_VK_CLIENT_INSTANCE_EXTS \
     USE_VK_EXT(VK_EXT_debug_report) \
