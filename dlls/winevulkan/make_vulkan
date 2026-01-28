@@ -457,9 +457,11 @@ class Type(object):
         return None
 
     @staticmethod
-    def all(klass, which=lambda t: True, sort=True, by_name=False):
-        types = filter(lambda t: type(t) is klass and which(t), Type.types.values())
-        return sorted(types, key=lambda type: (0 if by_name else -type.order, type.name)) if sort else types
+    def all(klass, which=lambda t: True, by_name=False, required=True):
+        types = filter(lambda t: t.is_required() if required else True, Type.types.values())
+        klass = [klass] if type(klass) not in (list, tuple) else klass
+        types = filter(lambda t: type(t) in klass and which(t), types)
+        return sorted(types, key=lambda type: (0 if by_name else -type.order, type.name))
 
 
 class Flags(Type):
@@ -646,14 +648,15 @@ class Function(Type):
         return Function(alias.type, func_name, alias.params)
 
     @staticmethod
-    def from_xml(command):
+    def from_xml(command, pointer=False):
         proto = command.find("proto")
         func_name = proto.find("name").text
-        func_type = proto.find("type").text
+        func_type = innertext(proto).replace(func_name, "").replace('\n', '').strip()
 
         params = filter(is_api_supported, command.findall("param"))
         params = [Parameter.from_xml(param) for param in params]
-        return Function(func_type, func_name, params)
+        klass = FunctionPointer if pointer else Function
+        return klass(func_type, func_name, params)
 
     def is_core(self):
         return not self.extensions or any(ext.is_core for ext in self.extensions)
@@ -706,13 +709,13 @@ class Function(Type):
 
     def needs_exposing(self):
         # The function needs exposed if at-least one extension isn't both UNSUPPORTED and UNEXPOSED
-        return self.is_required() and (not self.extensions or any(ext.is_exposed for ext in self.extensions))
+        return not self.extensions or any(ext.is_exposed for ext in self.extensions)
 
     def is_host_instance(self):
-        return self.is_required() and self.dispatch and self.is_instance()
+        return self.dispatch and self.is_instance()
 
     def is_host_device(self):
-        return self.is_required() and self.dispatch and self.is_device()
+        return self.dispatch and self.is_device()
 
     def is_client_instance(self):
         return self.needs_exposing() and self.is_instance()
@@ -730,34 +733,17 @@ class Function(Type):
         return self.name in PERF_CRITICAL_FUNCTIONS
 
     def gen_params(self):
-        return ", ".join(p.as_param() for p in self.params)
+        return ", ".join(p.as_param() for p in self.params) if len(self.params) else "void"
 
     def gen_pointer(self):
-        return f"typedef {self.type} (VKAPI_PTR *PFN_{self.name})({self.gen_params()});\n"
+        name = self.name[4:] if self.name.startswith('PFN_') else self.name
+        return f"typedef {self.type} (VKAPI_PTR *PFN_{name})({self.gen_params()});\n"
 
     def gen_prototype(self):
         return f"{self.type} VKAPI_CALL {self.name}({self.gen_params()});\n"
 
     def gen_wrapper(self):
         return f"{self.type} wine_{self.name}({self.gen_params()});\n"
-
-    def loader_body(self):
-        body = "    struct {0}_params params;\n".format(self.name)
-        if not self.is_perf_critical():
-            body += "    NTSTATUS status;\n"
-        for p in self.params:
-            body += "    params.{0} = {0};\n".format(p.name)
-
-        # Call the Unix function.
-        if self.is_perf_critical():
-            body += "    UNIX_CALL({0}, &params);\n".format(self.name)
-        else:
-            body += "    status = UNIX_CALL({0}, &params);\n".format(self.name)
-            body += "    assert(!status && \"{0}\");\n".format(self.name)
-
-        if self.type != "void":
-            body += "    return params.result;\n"
-        return body
 
     def body(self, conv, conversions, params_prefix=""):
         body = ""
@@ -867,7 +853,7 @@ class Function(Type):
         spec += "\n"
         return spec
 
-    def thunk(self, conversions, prefix=None, conv=False):
+    def gen_unix_thunk(self, conversions, prefix=None, conv=False):
         thunk = ""
         if not conv:
             thunk += "#ifdef _WIN64\n"
@@ -893,11 +879,27 @@ class Function(Type):
         thunk += "\n"
         return thunk
 
-    def loader_thunk(self):
-        thunk = f"{self.type} WINAPI {self.name}({self.gen_params()})\n"
-        thunk += "{\n"
-        thunk += self.loader_body()
-        thunk += "}\n\n"
+    def gen_thunk(self):
+        thunk  = f"{self.type} WINAPI {self.name}({self.gen_params()})\n"
+        thunk += u"{\n"
+        thunk += f"    struct {self.name}_params params;\n"
+
+        if not self.is_perf_critical():
+            thunk += u"    NTSTATUS status;\n"
+        for p in self.params:
+            thunk += f"    params.{p.name} = {p.name};\n"
+
+        # Call the Unix function.
+        if self.is_perf_critical():
+            thunk += f"    UNIX_CALL({self.name}, &params);\n"
+        else:
+            thunk += f"    status = UNIX_CALL({self.name}, &params);\n"
+            thunk += f"    assert(!status && \"{self.name}\");\n"
+
+        if self.type != "void":
+            thunk += u"    return params.result;\n"
+
+        thunk += u"}\n\n"
         return thunk
 
     def trace(self, message=None, trace_func=None, params_prefix="", conv=False):
@@ -934,30 +936,16 @@ class Function(Type):
         return f"{cast}thunk{bitness}_{self.name}"
 
 
-class FunctionPointer(Type):
-    def __init__(self, name, value):
-        Type.__init__(self, name)
-        self.value = value
+class FunctionPointer(Function):
+    def __init__(self, type, name, params):
+        Function.__init__(self, type, name, params)
 
     @staticmethod
-    def from_xml(xml):
-        proto = xml.find("proto")
-        name = proto.find("name").text
-        return_type = " ".join(innertext(proto).replace(name, "").split())
-
-        params = [" ".join(innertext(p).split()) for p in xml.findall("param")]
-
-        value = "typedef {} (VKAPI_PTR *{})(".format(return_type, name)
-        if params:
-            value += ", ".join(params)
-        else:
-            value += "void"
-        value += ");"
-
-        return FunctionPointer(name, value)
+    def from_xml(command):
+        return Function.from_xml(command, pointer=True)
 
     def definition(self):
-        return self.value + '\n'
+        return self.gen_pointer() + '\n'
 
 
 class Handle(Type):
@@ -1303,6 +1291,12 @@ class VkMember(VkVariable):
                         name=name_elem.text, array_lens=array_lens, dyn_array_len=dyn_array_len, optional=optional,
                         values=values, object_type=object_type, bit_width=bit_width, returnedonly=returnedonly,
                         selection=selection, selector=selector)
+
+    def is_next(self):
+        return self.name == "pNext"
+
+    def is_type(self):
+        return self.name == "sType"
 
     def get_dyn_array_len(self, prefix, conv):
         if isinstance(self.dyn_array_len, int):
@@ -1775,10 +1769,14 @@ class Record(Type):
         self.returnedonly = returnedonly
         self.structextends = structextends.split(",") if structextends else []
         self._struct_extensions = None
+        self.chain_type = None
+        self.chain_next = None
 
         for m in self.members:
-            if m.name == "sType":
-                self.struct_type = m.values
+            if m.is_type():
+                self.chain_type = m
+            if m.is_next():
+                self.chain_next = m
             m.parent = self
 
     @staticmethod
@@ -1838,22 +1836,20 @@ class Record(Type):
         """ Check if struct contains extensions chain that needs to be converted """
 
         stripped = STRUCT_CHAIN_CONVERSIONS.get(self.name, {}).get("strip", [])
-        struct_extensions = filter(lambda s: s.struct_type not in stripped, self.struct_extensions)
+        struct_extensions = filter(lambda s: s.chain_type.values not in stripped, self.struct_extensions)
 
         if direction == Direction.INPUT and self.name in STRUCT_CHAIN_CONVERSIONS:
             return any(struct_extensions)
 
-        if not "pNext" in self.members:
+        if not self.chain_next:
             return False
-        is_const = self.members[self.members.index("pNext")].is_const()
+        is_const = self.chain_next.is_const()
         # VkOpticalFlowSessionCreateInfoNV is missing const in its pNext pointer
         if self.name in ["VkOpticalFlowSessionCreateInfoNV",
                          "VkDescriptorBufferBindingInfoEXT"]:
             is_const = True
 
         for e in struct_extensions:
-            if not e.is_required():
-                continue
             if e.needs_conversion(conv, Unwrap.HOST, direction, is_const, check_extensions=False):
                 return True
             if direction == Direction.INPUT:
@@ -1886,7 +1882,10 @@ class Record(Type):
             if self.name == m.type_name:
                 continue
 
-            if m.name == "pNext":
+            if m.is_generic_handle() and not check_extensions:
+                continue
+
+            if m.is_next():
                 # pNext is a pointer, so it always needs conversion
                 if conv and direction == Direction.INPUT:
                     return True
@@ -1976,28 +1975,21 @@ class StructConversionFunction(object):
 
     def member_needs_copy(self, struct, m):
         if self.direction == Direction.OUTPUT:
-            if m.name in ["sType", "pNext"]:
+            if m.is_type() or m.is_next():
                 return False
             if self.const and not m.is_pointer():
                 return False
             if m.is_const() and not m.needs_conversion(self.conv, self.unwrap, Direction.OUTPUT, self.const):
                 return False
         else:
-            if m.name == "pNext":
+            if m.is_type() or m.is_next():
                 return True
-            if m.name != "sType" and struct.returnedonly and not m.needs_conversion(
+            if struct.returnedonly and not m.needs_conversion(
                     self.conv, self.unwrap, Direction.INPUT, self.const):
                 return False
         return True
 
     def definition(self, conversions):
-        """ Helper function for generating a struct conversion function. """
-
-        # It doesn't make sense to generate conversion functions for non-struct variables
-        # which aren't in arrays, as this should be handled by the copy() function
-        if not isinstance(self.operand, Record):
-            return ""
-
         body = ""
 
         if not self.conv:
@@ -2068,8 +2060,8 @@ class StructConversionFunction(object):
         for m in self.operand.members:
             if not self.member_needs_copy(self.operand, m):
                 continue
-            if m.name == "pNext" and (needs_extensions or self.conv):
-                body += "    out->pNext = NULL;\n"
+            if m.is_next() and (needs_extensions or self.conv):
+                body += f"    out->{m.name} = NULL;\n"
                 continue
 
             if m.selection:
@@ -2081,11 +2073,11 @@ class StructConversionFunction(object):
 
         if needs_extensions:
             if self.conv and self.direction == Direction.INPUT:
-                body += "\n    for (in_header = UlongToPtr(in->pNext); in_header; in_header = UlongToPtr(in_header->pNext))\n"
+                body += f"\n    for (in_header = UlongToPtr(in->{self.operand.chain_next.name}); in_header; in_header = UlongToPtr(in_header->{self.operand.chain_next.name}))\n"
             else:
-                body += "\n    for (in_header = (void *)in->pNext; in_header; in_header = (void *)in_header->pNext)\n"
+                body += f"\n    for (in_header = (void *)in->{self.operand.chain_next.name}; in_header; in_header = (void *)in_header->{self.operand.chain_next.name})\n"
             body += "    {\n"
-            body += "        switch (in_header->sType)\n"
+            body += f"        switch (in_header->{self.operand.chain_type.name})\n"
             body += "        {\n"
 
             ident = "            "
@@ -2097,9 +2089,6 @@ class StructConversionFunction(object):
                 body += ident + "break;\n"
 
             for ext in self.operand.struct_extensions:
-                if not ext.is_required():
-                    continue
-
                 if self.direction == Direction.OUTPUT and not any([self.member_needs_copy(ext, m) for m in ext.members]):
                     continue
 
@@ -2111,44 +2100,47 @@ class StructConversionFunction(object):
                     in_type = "const " + ext.name
                     out_type = win_type
 
-                body += f"        case {ext.struct_type}:\n"
+                body += f"        case {ext.chain_type.values}:\n"
                 body += u"        {\n"
                 if self.direction == Direction.INPUT:
                     body += f"            {out_type} *out_ext = conversion_context_alloc(ctx, sizeof(*out_ext));\n"
                 elif self.conv:
-                    body += f"            {out_type} *out_ext = find_next_struct32(out_header, {ext.struct_type});\n"
+                    body += f"            {out_type} *out_ext = find_next_struct32(out_header, {ext.chain_type.values});\n"
                 else:
-                    body += f"            {out_type} *out_ext = find_next_struct(out_header, {ext.struct_type});\n"
+                    body += f"            {out_type} *out_ext = find_next_struct(out_header, {ext.chain_type.values});\n"
 
-                if any(self.member_needs_copy(ext, m) for m in ext.members if m.name not in ("sType", "pNext")):
+                if any(self.member_needs_copy(ext, m) for m in ext.members if not m.is_type() and not m.is_next()):
                     body += f"            {in_type} *in_ext = ({in_type} *)in_header;\n"
 
                 for m in ext.members:
-                    if m.name == "sType":
-                        body += f"            out_ext->sType = {ext.struct_type};\n"
+                    if m.is_type():
+                        body += f"            out_ext->{m.name} = {ext.chain_type.values};\n"
                         continue
                     if not self.member_needs_copy(ext, m):
                         continue
-                    if m.name == "pNext":
-                        body += u"            out_ext->pNext = NULL;\n"
+                    if m.is_next():
+                        body += f"            out_ext->{m.name} = NULL;\n"
+                        continue
+                    if m.is_generic_handle():
+                        body += f"            out_ext->{m.name} = in_ext->{m.name};\n"
                         continue
                     body += ident + m.copy("in_ext->", "out_ext->", self.direction, self.conv, Unwrap.HOST, self.const, conversions)
 
                 if self.direction == Direction.INPUT:
-                    body += ident + "out_header->pNext = (void *)out_ext;\n"
+                    body += ident + f"out_header->{ext.chain_next.name} = (void *)out_ext;\n"
                 body += ident + "out_header = (void *)out_ext;\n"
                 body += ident + "break;\n"
                 body += "        }\n"
 
             body += "        default:\n"
             if self.direction == Direction.INPUT:
-                body += ident + "FIXME(\"Unhandled sType %u.\\n\", in_header->sType);\n"
+                body += ident + f"FIXME(\"Unhandled {self.operand.chain_type.name} %u.\\n\", in_header->{self.operand.chain_type.name});\n"
             body += "            break;\n"
             body += "        }\n"
             body += "    }\n"
-        elif self.conv and self.direction == Direction.INPUT and "pNext" in self.operand.members:
-            body += "    if (in->pNext)\n"
-            body += "        FIXME(\"Unexpected pNext\\n\");\n"
+        elif self.conv and self.direction == Direction.INPUT and self.operand.chain_next:
+            body += f"    if (in->{self.operand.chain_next.name})\n"
+            body += f"        FIXME(\"Unexpected {self.operand.chain_next.name}\\n\");\n"
 
         body += "}\n"
         if not self.conv:
@@ -2213,7 +2205,7 @@ class ArrayConversionFunction(object):
             return_type = self.type
 
         needs_copy = not self.array.is_struct() or self.direction != Direction.INPUT or \
-            not self.array.struct.returnedonly or "pNext" in self.array.struct.members
+            not self.array.struct.returnedonly or self.array.struct.chain_next
 
         # Generate function prototype.
         if return_type:
@@ -2378,8 +2370,8 @@ class Generator(object):
         conversions = []
 
         for func in Type.all(Function, Function.needs_thunk):
-            thunks += func.thunk(conversions, prefix="thunk64_")
-            thunks += func.thunk(conversions, prefix="thunk32_", conv=True)
+            thunks += func.gen_unix_thunk(conversions, prefix="thunk64_")
+            thunks += func.gen_unix_thunk(conversions, prefix="thunk32_", conv=True)
 
         # iterate over each of the conversion function dependencies first
         def enum_conversions(conversions, seen=set()):
@@ -2394,7 +2386,7 @@ class Generator(object):
         for definition, conversion in enum_conversions(conversions):
             if isinstance(conversion, StructConversionFunction):
                 for e in conversion.operand.struct_extensions:
-                    if not e.is_required() or not e.needs_win32_type():
+                    if not e.needs_win32_type():
                         continue
                     win32_structs.append(e)
                 if conversion.operand.needs_win32_type():
@@ -2411,9 +2403,7 @@ class Generator(object):
         f.write("{\n")
         f.write("    switch(type)\n")
         f.write("    {\n")
-        for handle in Type.all(Handle, by_name=True):
-            if not handle.is_required() or not handle.is_wrapped():
-                continue
+        for handle in Type.all(Handle, Handle.is_wrapped, by_name=True):
             f.write("    case {}:\n".format(handle.object_type))
             if handle.is_dispatchable():
                 f.write("        return (uint64_t) (uintptr_t) ")
@@ -2433,9 +2423,7 @@ class Generator(object):
         f.write("BOOL wine_vk_is_type_wrapped(VkObjectType type)\n")
         f.write("{\n")
         f.write("    return FALSE")
-        for handle in Type.all(Handle, by_name=True):
-            if not handle.is_required() or not handle.is_wrapped():
-                continue
+        for handle in Type.all(Handle, Handle.is_wrapped, by_name=True):
             f.write(" ||\n        type == {}".format(handle.object_type))
         f.write(";\n")
         f.write("}\n\n")
@@ -2491,7 +2479,7 @@ class Generator(object):
         f.write("WINE_DEFAULT_DEBUG_CHANNEL(vulkan);\n\n")
 
         for func in Type.all(Function, Function.needs_loader_thunk):
-            f.write(func.loader_thunk())
+            f.write(func.gen_thunk())
 
         f.write("static const struct vulkan_func vk_device_dispatch_table[] =\n{\n")
         for func in Type.all(Function, Function.is_client_device):
@@ -2612,24 +2600,15 @@ class Generator(object):
         f.write("typedef struct _XDisplay Display;\n")
         f.write("#endif\n")
 
-        # The overall strategy is to define independent constants and datatypes,
-        # prior to complex structures and function calls to avoid forward declarations.
-        for const in Type.all(Constant, sort=False):
-            # For now just generate things we may not need. The amount of parsing needed
-            # to get some of the info is tricky as you need to figure out which structure
-            # references a certain constant.
-            f.write(const.definition())
+        for type in Type.all((Constant, Define), required=False):
+            f.write(type.definition())
         f.write("\n")
-
-        for define in Type.all(Define, sort=False):
-            f.write(define.definition())
 
         for handle in Type.all(Handle, by_name=True):
             # For backward compatibility also create definitions for aliases.
             # These types normally don't get pulled in as we use the new types
             # even in legacy functions if they are aliases.
-            if handle.is_required():
-                 f.write(handle.definition())
+            f.write(handle.definition())
         f.write("\n")
 
         for flags in Type.all(Flags):
@@ -2638,31 +2617,18 @@ class Generator(object):
 
         # Define enums, this includes values for some of the bitmask types as well.
         for enum in Type.all(Enum, by_name=True):
-            if enum.is_required():
-                f.write(enum.definition())
+            f.write(enum.definition())
 
-        f.write("typedef struct VkDebugUtilsMessengerCallbackDataEXT VkDebugUtilsMessengerCallbackDataEXT;\n")
+        for type in Type.all((Record, FunctionPointer)):
+            if type.name != "SECURITY_ATTRIBUTES":
+                f.write(type.definition())
 
-        for fp in Type.all(FunctionPointer, by_name=True):
-            if fp.is_required():
-                f.write(fp.definition())
-        f.write("\n")
-
-        # This generates both structures and unions. Since structures
-        # may depend on other structures/unions, we need a list of
-        # decoupled structs.
-        # Note: unions are stored in structs for dependency reasons,
-        # see comment in parsing section.
-        for struct in Type.all(Record):
-            if struct.is_required() and struct.name != "SECURITY_ATTRIBUTES":
-                f.write(struct.definition())
-
-        for func in Type.all(Function, Function.is_required):
+        for func in Type.all(Function):
             f.write(func.gen_pointer())
         f.write("\n")
 
         f.write("#ifndef VK_NO_PROTOTYPES\n")
-        for func in Type.all(Function, Function.is_required):
+        for func in Type.all(Function):
             f.write(func.gen_prototype())
         f.write("#endif /* VK_NO_PROTOTYPES */\n\n")
 
@@ -2708,7 +2674,7 @@ class Generator(object):
         f.write("@ stdcall -private vk_icdGetInstanceProcAddr(ptr str)\n")
         f.write("@ stdcall -private vk_icdGetPhysicalDeviceProcAddr(ptr str)\n")
         f.write("@ stdcall -private vk_icdNegotiateLoaderICDInterfaceVersion(ptr)\n")
-        for func in Type.all(Function, Function.is_core):
+        for func in Type.all(Function, Function.is_core, required=False):
             f.write(func.spec())
         f.write("@ stdcall -private DllRegisterServer()\n")
         f.write("@ stdcall -private DllUnregisterServer()\n")
@@ -2716,7 +2682,7 @@ class Generator(object):
     def generate_vulkan_loader_spec(self, f):
         self._generate_copyright(f, spec_file=True)
 
-        for func in Type.all(Function, Function.is_core):
+        for func in Type.all(Function, Function.is_core, required=False):
             f.write(func.spec(symbol=f"winevulkan.{func.name}"))
 
     def _match_object_types(self):
@@ -2728,8 +2694,6 @@ class Generator(object):
             object_types[object_name] = value.name
 
         for handle in Type.all(Handle):
-            if not handle.is_required():
-                continue
             handle.object_type = object_types.get(handle.name.upper())
             if not handle.object_type:
                 LOGGER.warning("No object type found for {}".format(handle.name))
