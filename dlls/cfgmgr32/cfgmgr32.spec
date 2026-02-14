@@ -46,8 +46,8 @@
 @ stub CM_Duplicate_PowerScheme
 @ stub CM_Enable_DevNode
 @ stub CM_Enable_DevNode_Ex
-@ stdcall CM_Enumerate_Classes(long ptr long) setupapi.CM_Enumerate_Classes
-@ stub CM_Enumerate_Classes_Ex
+@ stdcall CM_Enumerate_Classes(long ptr long)
+@ stdcall CM_Enumerate_Classes_Ex(long ptr long ptr)
 @ stub CM_Enumerate_EnumeratorsA
 @ stub CM_Enumerate_EnumeratorsW
 @ stub CM_Enumerate_Enumerators_ExA
@@ -64,10 +64,10 @@
 @ stub CM_Free_Resource_Conflict_Handle
 @ stdcall CM_Get_Child(ptr long long) setupapi.CM_Get_Child
 @ stdcall CM_Get_Child_Ex(ptr long long ptr) setupapi.CM_Get_Child_Ex
-@ stub CM_Get_Class_Key_NameA
-@ stub CM_Get_Class_Key_NameW
-@ stub CM_Get_Class_Key_Name_ExA
-@ stub CM_Get_Class_Key_Name_ExW
+@ stdcall CM_Get_Class_Key_NameA(ptr ptr ptr long)
+@ stdcall CM_Get_Class_Key_NameW(ptr ptr ptr long)
+@ stdcall CM_Get_Class_Key_Name_ExA(ptr ptr ptr long ptr)
+@ stdcall CM_Get_Class_Key_Name_ExW(ptr ptr ptr long ptr)
 @ stub CM_Get_Class_NameA
 @ stub CM_Get_Class_NameW
 @ stub CM_Get_Class_Name_ExA
@@ -176,10 +176,10 @@
 @ stub CM_Move_DevNode
 @ stub CM_Move_DevNode_Ex
 @ stub CM_Next_Range
-@ stub CM_Open_Class_KeyA
-@ stub CM_Open_Class_KeyW
-@ stub CM_Open_Class_Key_ExA
-@ stub CM_Open_Class_Key_ExW
+@ stdcall CM_Open_Class_KeyA(ptr str long long ptr long)
+@ stdcall CM_Open_Class_KeyW(ptr wstr long long ptr long)
+@ stdcall CM_Open_Class_Key_ExA(ptr str long long ptr long ptr)
+@ stdcall CM_Open_Class_Key_ExW(ptr wstr long long ptr long ptr)
 @ stdcall CM_Open_DevNode_Key(long long long long ptr long) setupapi.CM_Open_DevNode_Key
 @ stub CM_Open_DevNode_Key_Ex
 @ stub CM_Open_Device_Interface_KeyA
