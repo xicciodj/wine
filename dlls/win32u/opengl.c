@@ -166,7 +166,7 @@ static void opengl_drawable_flush( struct opengl_drawable *drawable, int interva
     if (interval != drawable->interval)
     {
         drawable->interval = interval;
-        flags = GL_FLUSH_INTERVAL;
+        flags |= GL_FLUSH_INTERVAL;
     }
 
     if (flags) drawable->funcs->flush( drawable, flags );
@@ -1417,7 +1417,11 @@ static struct opengl_drawable *get_window_unused_drawable( HWND hwnd, int format
      * window, each drawing to the same back/front buffers. We cannot do that because host
      * OpenGL usually doesn't allow multiple contexts to use the same surface at the same time.
      */
-    if (!drawable) driver_funcs->p_surface_create( hwnd, format, &drawable );
+    if (!drawable)
+    {
+        driver_funcs->p_surface_create( hwnd, format, &drawable );
+        if (drawable && drawable->client) add_window_client_surface( hwnd, drawable->client );
+    }
 
     TRACE( "hwnd %p, drawable %s\n", hwnd, debugstr_opengl_drawable( drawable ) );
     return drawable;
@@ -1852,7 +1856,7 @@ static BOOL context_sync_drawables( struct opengl_context *context, HDC draw_hdc
         if (new_read != new_draw) opengl_drawable_set_context( new_draw, context );
 
         opengl_drawable_flush( new_read, new_read->interval, 0 );
-        opengl_drawable_flush( new_draw, new_draw->interval, GL_FLUSH_PRESENT );
+        opengl_drawable_flush( new_draw, new_draw->interval, 0 );
     }
 
     if (ret)
@@ -1874,9 +1878,9 @@ static BOOL context_sync_drawables( struct opengl_context *context, HDC draw_hdc
     return ret;
 }
 
-static void push_internal_context( struct opengl_context *context, HDC hdc, int format )
+static void push_internal_context( struct opengl_context *context, struct opengl_drawable *drawable, int format )
 {
-    TRACE( "context %p, hdc %p\n", context, hdc );
+    TRACE( "context %p, drawable %s\n", context, debugstr_opengl_drawable( drawable ));
 
     if (!context->internal_context)
     {
@@ -1884,7 +1888,7 @@ static void push_internal_context( struct opengl_context *context, HDC hdc, int 
         if (!context->internal_context) ERR( "Failed to create internal context\n" );
     }
 
-    driver_funcs->p_make_current( context->draw, context->read, context->internal_context );
+    driver_funcs->p_make_current( drawable, drawable, context->internal_context );
 }
 
 static void pop_internal_context( struct opengl_context *context )
@@ -2170,11 +2174,12 @@ static BOOL win32u_wglBindTexImageARB( HPBUFFERARB client_pbuffer, int buffer )
         return ret;
 
     funcs->p_glGetIntegerv( binding_from_target( pbuffer->texture_target ), &prev_texture );
-    push_internal_context( NtCurrentTeb()->glContext, pbuffer->hdc, format );
+    push_internal_context( NtCurrentTeb()->glContext, pbuffer->drawable, format );
 
     /* Make sure that the prev_texture is set as the current texture state isn't shared
      * between contexts. After that copy the pbuffer texture data. */
     funcs->p_glBindTexture( pbuffer->texture_target, prev_texture );
+    funcs->p_glReadBuffer( source );
     funcs->p_glCopyTexImage2D( pbuffer->texture_target, 0, pbuffer->texture_format, 0, 0,
                                         pbuffer->width, pbuffer->height, 0 );
 
@@ -2735,6 +2740,8 @@ static void display_funcs_init(void)
     display_funcs.p_context_create = win32u_context_create;
     display_funcs.p_context_destroy = win32u_context_destroy;
     display_funcs.p_context_reset = win32u_context_reset;
+
+    register_extension( wgl_extensions, ARRAY_SIZE(wgl_extensions), "WGL_ARB_multisample" );
 
     register_extension( wgl_extensions, ARRAY_SIZE(wgl_extensions), "WGL_ARB_pixel_format" );
     display_funcs.p_wglChoosePixelFormatARB      = (void *)1; /* never called */

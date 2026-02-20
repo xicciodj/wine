@@ -48,10 +48,10 @@
 @ stub CM_Enable_DevNode_Ex
 @ stdcall CM_Enumerate_Classes(long ptr long)
 @ stdcall CM_Enumerate_Classes_Ex(long ptr long ptr)
-@ stub CM_Enumerate_EnumeratorsA
-@ stub CM_Enumerate_EnumeratorsW
-@ stub CM_Enumerate_Enumerators_ExA
-@ stub CM_Enumerate_Enumerators_ExW
+@ stdcall CM_Enumerate_EnumeratorsA(long ptr ptr long)
+@ stdcall CM_Enumerate_EnumeratorsW(long ptr ptr long)
+@ stdcall CM_Enumerate_Enumerators_ExA(long ptr ptr long ptr)
+@ stdcall CM_Enumerate_Enumerators_ExW(long ptr ptr long ptr)
 @ stub CM_Find_Range
 @ stub CM_First_Range
 @ stub CM_Free_Log_Conf
@@ -72,12 +72,12 @@
 @ stub CM_Get_Class_NameW
 @ stub CM_Get_Class_Name_ExA
 @ stub CM_Get_Class_Name_ExW
-@ stub CM_Get_Class_PropertyW
-@ stub CM_Get_Class_Property_ExW
+@ stdcall CM_Get_Class_PropertyW(ptr ptr ptr ptr long long)
+@ stdcall CM_Get_Class_Property_ExW(ptr ptr ptr ptr long long ptr)
 @ stdcall CM_Get_Class_Property_Keys(ptr ptr ptr long) setupapi.CM_Get_Class_Property_Keys
 @ stdcall CM_Get_Class_Property_Keys_Ex(ptr ptr ptr long ptr) setupapi.CM_Get_Class_Property_Keys_Ex
-@ stdcall CM_Get_Class_Registry_PropertyA(ptr long ptr ptr long long ptr) setupapi.CM_Get_Class_Registry_PropertyA
-@ stdcall CM_Get_Class_Registry_PropertyW(ptr long ptr ptr long long ptr) setupapi.CM_Get_Class_Registry_PropertyW
+@ stdcall CM_Get_Class_Registry_PropertyA(ptr long ptr ptr long long ptr)
+@ stdcall CM_Get_Class_Registry_PropertyW(ptr long ptr ptr long long ptr)
 @ stub CM_Get_Depth
 @ stub CM_Get_Depth_Ex
 @ stub CM_Get_DevNode_Custom_PropertyA
@@ -182,10 +182,10 @@
 @ stdcall CM_Open_Class_Key_ExW(ptr wstr long long ptr long ptr)
 @ stdcall CM_Open_DevNode_Key(long long long long ptr long) setupapi.CM_Open_DevNode_Key
 @ stub CM_Open_DevNode_Key_Ex
-@ stub CM_Open_Device_Interface_KeyA
-@ stub CM_Open_Device_Interface_KeyW
-@ stub CM_Open_Device_Interface_Key_ExA
-@ stub CM_Open_Device_Interface_Key_ExW
+@ stdcall CM_Open_Device_Interface_KeyA(str long long ptr long)
+@ stdcall CM_Open_Device_Interface_KeyW(wstr long long ptr long)
+@ stdcall CM_Open_Device_Interface_Key_ExA(str long long ptr long ptr)
+@ stdcall CM_Open_Device_Interface_Key_ExW(wstr long long ptr long ptr)
 @ stub CM_Query_And_Remove_SubTreeA
 @ stub CM_Query_And_Remove_SubTreeW
 @ stub CM_Query_And_Remove_SubTree_ExA
