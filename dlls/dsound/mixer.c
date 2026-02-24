@@ -372,16 +372,16 @@ static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, UINT count, LONG64 *
     }
 
     for(i = 0; i < count; ++i) {
-        UINT int_fir_steps = (freqAcc_start + i * dsb->freqAdjustNum) * dsbfirstep / dsb->freqAdjustDen;
-        float total_fir_steps = (freqAcc_start + i * dsb->freqAdjustNum) * dsbfirstep / (float)dsb->freqAdjustDen;
-        UINT ipos = int_fir_steps / dsbfirstep;
+        LONG64 ipos_num = freqAcc_start + i * dsb->freqAdjustNum;
+        UINT ipos = ipos_num / dsb->freqAdjustDen;
 
-        UINT idx = (ipos + 1) * dsbfirstep - int_fir_steps - 1;
-        float rem = int_fir_steps + 1.0 - total_fir_steps;
+        UINT idx_num = ipos_num % dsb->freqAdjustDen * dsbfirstep;
+        UINT idx = dsbfirstep - 1 - idx_num / dsb->freqAdjustDen;
+        float rem = 1.0f - idx_num % dsb->freqAdjustDen / (float)dsb->freqAdjustDen;
 
         int fir_used = 0;
         while (idx < fir_len - 1) {
-            fir_copy[fir_used++] = fir[idx] * (1.0 - rem) + fir[idx + 1] * rem;
+            fir_copy[fir_used++] = fir[idx] * (1.0f - rem) + fir[idx + 1] * rem;
             idx += dsb->firstep;
         }
 
