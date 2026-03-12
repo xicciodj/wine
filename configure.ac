@@ -589,6 +589,10 @@ This is an error since --enable-archs=$wine_arch was requested.])])
 
     AS_VAR_IF([wine_arch],[$extra_arch],[],[AS_VAR_APPEND([PE_ARCHS],[" $wine_arch"])])
 
+    case "$target" in
+      *mingw*|*-windows-gnu) enable_cppabi="$enable_cppabi,$wine_arch" ;;
+    esac
+
     WINE_TRY_PE_CFLAGS([-fno-strict-aliasing])
     dnl clang needs to be told to fail on unknown options
     WINE_TRY_PE_CFLAGS([-Werror=unknown-warning-option],[CFLAGS="$CFLAGS -Werror=unknown-warning-option"])
@@ -1252,6 +1256,8 @@ then
 fi
 
 WINE_EXTLIB_FLAGS(CAPSTONE, capstone, capstone, "-I\$(top_srcdir)/libs/capstone/include")
+WINE_EXTLIB_FLAGS(CXX, c++, "c++ \$(CXXABI_PE_LIBS) msvcp140 vcruntime140")
+WINE_EXTLIB_FLAGS(CXXABI, c++abi, "c++abi \$(UNWIND_PE_LIBS) c++", "-I\$(top_srcdir)/libs/c++abi/include")
 WINE_EXTLIB_FLAGS(FAUDIO, faudio, "faudio mfplat mfreadwrite mfuuid propsys", "-I\$(top_srcdir)/libs/faudio/include")
 WINE_EXTLIB_FLAGS(FLUIDSYNTH, fluidsynth, "fluidsynth", "-I\$(top_srcdir)/libs/fluidsynth/include")
 WINE_EXTLIB_FLAGS(GSM, gsm, gsm, "-I\$(top_srcdir)/libs/gsm/inc")
@@ -1264,6 +1270,7 @@ WINE_EXTLIB_FLAGS(MUSL, musl, musl)
 WINE_EXTLIB_FLAGS(PNG, png, "png \$(ZLIB_PE_LIBS)", "-I\$(top_srcdir)/libs/png")
 WINE_EXTLIB_FLAGS(TIFF, tiff, "tiff \$(ZLIB_PE_LIBS)", "-I\$(top_srcdir)/libs/tiff/libtiff")
 WINE_EXTLIB_FLAGS(TOMCRYPT, tomcrypt, tomcrypt, "-I\$(top_srcdir)/libs/tomcrypt/src/headers -DLTC_NO_PROTOTYPES -DLTC_SOURCE")
+WINE_EXTLIB_FLAGS(UNWIND, unwind, unwind, "-I\$(top_srcdir)/libs/unwind/include")
 WINE_EXTLIB_FLAGS(VKD3D, vkd3d, vkd3d, "-I\$(top_srcdir)/libs/vkd3d/include")
 WINE_EXTLIB_FLAGS(XML2, xml2, xml2, "-I\$(top_srcdir)/libs/xml2/include -DLIBXML_STATIC")
 WINE_EXTLIB_FLAGS(XSLT, xslt, xslt, "-I\$(top_srcdir)/libs/xslt/libxslt -I\$(top_srcdir)/libs/xslt -DLIBXSLT_STATIC")
@@ -2423,6 +2430,8 @@ esac
 
 dnl *** Check for modules to disable by default
 
+enable_cppabi=${enable_cppabi:-no}
+enable_unwind=${enable_unwind:-$enable_cppabi}
 enable_vcruntime140_1=${enable_vcruntime140_1:-x86_64,arm64ec}
 
 if test -n "$PE_ARCHS"
@@ -2437,6 +2446,8 @@ else
     enable_wow64cpu=${enable_wow64cpu:-no}
     enable_xtajit64=${enable_xtajit64:-no}
     enable_compiler_rt=${enable_compiler_rt:-no}
+    dnl Disable modules that need C++
+    enable_dmsynth=${enable_dmsynth:-no}
 fi
 
 dnl Disable some programs for other PE archs
@@ -3539,6 +3550,8 @@ WINE_CONFIG_MAKEFILE(dlls/xtajit64)
 WINE_CONFIG_MAKEFILE(fonts)
 WINE_CONFIG_MAKEFILE(include)
 WINE_CONFIG_MAKEFILE(libs/adsiid)
+WINE_CONFIG_MAKEFILE(libs/c++)
+WINE_CONFIG_MAKEFILE(libs/c++abi)
 WINE_CONFIG_MAKEFILE(libs/capstone)
 WINE_CONFIG_MAKEFILE(libs/compiler-rt)
 WINE_CONFIG_MAKEFILE(libs/dmoguids)
@@ -3561,6 +3574,7 @@ WINE_CONFIG_MAKEFILE(libs/strmiids)
 WINE_CONFIG_MAKEFILE(libs/strsafe)
 WINE_CONFIG_MAKEFILE(libs/tiff)
 WINE_CONFIG_MAKEFILE(libs/tomcrypt)
+WINE_CONFIG_MAKEFILE(libs/unwind)
 WINE_CONFIG_MAKEFILE(libs/uuid)
 WINE_CONFIG_MAKEFILE(libs/vkd3d)
 WINE_CONFIG_MAKEFILE(libs/wbemuuid)

@@ -724,6 +724,8 @@ XML2_PE_LIBS
 XML2_PE_CFLAGS
 VKD3D_PE_LIBS
 VKD3D_PE_CFLAGS
+UNWIND_PE_LIBS
+UNWIND_PE_CFLAGS
 TOMCRYPT_PE_LIBS
 TOMCRYPT_PE_CFLAGS
 TIFF_PE_LIBS
@@ -748,6 +750,10 @@ FLUIDSYNTH_PE_LIBS
 FLUIDSYNTH_PE_CFLAGS
 FAUDIO_PE_LIBS
 FAUDIO_PE_CFLAGS
+CXXABI_PE_LIBS
+CXXABI_PE_CFLAGS
+CXX_PE_LIBS
+CXX_PE_CFLAGS
 CAPSTONE_PE_LIBS
 CAPSTONE_PE_CFLAGS
 MINGW_PKG_CONFIG
@@ -1663,6 +1669,8 @@ enable_xtajit64
 enable_fonts
 enable_include
 enable_adsiid
+enable_cpp
+enable_cppabi
 enable_capstone
 enable_compiler_rt
 enable_dmoguids
@@ -1685,6 +1693,7 @@ enable_strmiids
 enable_strsafe
 enable_tiff
 enable_tomcrypt
+enable_unwind
 enable_uuid
 enable_vkd3d
 enable_wbemuuid
@@ -1836,6 +1845,10 @@ OBJC
 OBJCFLAGS
 CAPSTONE_PE_CFLAGS
 CAPSTONE_PE_LIBS
+CXX_PE_CFLAGS
+CXX_PE_LIBS
+CXXABI_PE_CFLAGS
+CXXABI_PE_LIBS
 FAUDIO_PE_CFLAGS
 FAUDIO_PE_LIBS
 FLUIDSYNTH_PE_CFLAGS
@@ -1860,6 +1873,8 @@ TIFF_PE_CFLAGS
 TIFF_PE_LIBS
 TOMCRYPT_PE_CFLAGS
 TOMCRYPT_PE_LIBS
+UNWIND_PE_CFLAGS
+UNWIND_PE_LIBS
 VKD3D_PE_CFLAGS
 VKD3D_PE_LIBS
 XML2_PE_CFLAGS
@@ -2640,6 +2655,14 @@ Some influential environment variables:
               version
   CAPSTONE_PE_LIBS
               Linker flags for the PE capstone, overriding the bundled version
+  CXX_PE_CFLAGS
+              C compiler flags for the PE c++, overriding the bundled version
+  CXX_PE_LIBS Linker flags for the PE c++, overriding the bundled version
+  CXXABI_PE_CFLAGS
+              C compiler flags for the PE c++abi, overriding the bundled
+              version
+  CXXABI_PE_LIBS
+              Linker flags for the PE c++abi, overriding the bundled version
   FAUDIO_PE_CFLAGS
               C compiler flags for the PE faudio, overriding the bundled
               version
@@ -2691,6 +2714,11 @@ Some influential environment variables:
               version
   TOMCRYPT_PE_LIBS
               Linker flags for the PE tomcrypt, overriding the bundled version
+  UNWIND_PE_CFLAGS
+              C compiler flags for the PE unwind, overriding the bundled
+              version
+  UNWIND_PE_LIBS
+              Linker flags for the PE unwind, overriding the bundled version
   VKD3D_PE_CFLAGS
               C compiler flags for the PE vkd3d, overriding the bundled
               version
@@ -8826,6 +8854,10 @@ else case e in #(
 esac
 fi
 
+    case "$target" in
+      *mingw*|*-windows-gnu) enable_cppabi="$enable_cppabi,$wine_arch" ;;
+    esac
+
     { as_ac_var=`printf "%s\n" "ac_cv_${wine_arch}_cflags_-fno-strict-aliasing" | sed "$as_sed_sh"`
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether $CC supports -fno-strict-aliasing" >&5
 printf %s "checking whether $CC supports -fno-strict-aliasing... " >&6; }
@@ -14920,6 +14952,40 @@ fi
 printf "%s\n" "$as_me:${as_lineno-$LINENO}: capstone cflags: $CAPSTONE_PE_CFLAGS" >&5
 printf "%s\n" "$as_me:${as_lineno-$LINENO}: capstone libs: $CAPSTONE_PE_LIBS" >&5
 
+if ${CXX_PE_LIBS:+false} :
+then :
+  CXX_PE_LIBS="c++ \$(CXXABI_PE_LIBS) msvcp140 vcruntime140"
+   if ${CXX_PE_CFLAGS:+false} :
+then :
+  CXX_PE_CFLAGS=
+else case e in #(
+  e) enable_cpp=no ;;
+esac
+fi
+else case e in #(
+  e) enable_cpp=no ;;
+esac
+fi
+printf "%s\n" "$as_me:${as_lineno-$LINENO}: c++ cflags: $CXX_PE_CFLAGS" >&5
+printf "%s\n" "$as_me:${as_lineno-$LINENO}: c++ libs: $CXX_PE_LIBS" >&5
+
+if ${CXXABI_PE_LIBS:+false} :
+then :
+  CXXABI_PE_LIBS="c++abi \$(UNWIND_PE_LIBS) c++"
+   if ${CXXABI_PE_CFLAGS:+false} :
+then :
+  CXXABI_PE_CFLAGS="-I\$(top_srcdir)/libs/c++abi/include"
+else case e in #(
+  e) enable_cppabi=no ;;
+esac
+fi
+else case e in #(
+  e) enable_cppabi=no ;;
+esac
+fi
+printf "%s\n" "$as_me:${as_lineno-$LINENO}: c++abi cflags: $CXXABI_PE_CFLAGS" >&5
+printf "%s\n" "$as_me:${as_lineno-$LINENO}: c++abi libs: $CXXABI_PE_LIBS" >&5
+
 if ${FAUDIO_PE_LIBS:+false} :
 then :
   FAUDIO_PE_LIBS="faudio mfplat mfreadwrite mfuuid propsys"
@@ -15123,6 +15189,23 @@ esac
 fi
 printf "%s\n" "$as_me:${as_lineno-$LINENO}: tomcrypt cflags: $TOMCRYPT_PE_CFLAGS" >&5
 printf "%s\n" "$as_me:${as_lineno-$LINENO}: tomcrypt libs: $TOMCRYPT_PE_LIBS" >&5
+
+if ${UNWIND_PE_LIBS:+false} :
+then :
+  UNWIND_PE_LIBS=unwind
+   if ${UNWIND_PE_CFLAGS:+false} :
+then :
+  UNWIND_PE_CFLAGS="-I\$(top_srcdir)/libs/unwind/include"
+else case e in #(
+  e) enable_unwind=no ;;
+esac
+fi
+else case e in #(
+  e) enable_unwind=no ;;
+esac
+fi
+printf "%s\n" "$as_me:${as_lineno-$LINENO}: unwind cflags: $UNWIND_PE_CFLAGS" >&5
+printf "%s\n" "$as_me:${as_lineno-$LINENO}: unwind libs: $UNWIND_PE_LIBS" >&5
 
 if ${VKD3D_PE_LIBS:+false} :
 then :
@@ -23171,6 +23254,8 @@ fi ;;
 esac
 
 
+enable_cppabi=${enable_cppabi:-no}
+enable_unwind=${enable_unwind:-$enable_cppabi}
 enable_vcruntime140_1=${enable_vcruntime140_1:-x86_64,arm64ec}
 
 if test -n "$PE_ARCHS"
@@ -23185,6 +23270,7 @@ else
     enable_wow64cpu=${enable_wow64cpu:-no}
     enable_xtajit64=${enable_xtajit64:-no}
     enable_compiler_rt=${enable_compiler_rt:-no}
+        enable_dmsynth=${enable_dmsynth:-no}
 fi
 
 enable_conhost=${enable_conhost:-$HOST_ARCH}
@@ -24282,6 +24368,8 @@ wine_fn_config_makefile dlls/xtajit64 enable_xtajit64
 wine_fn_config_makefile fonts enable_fonts
 wine_fn_config_makefile include enable_include
 wine_fn_config_makefile libs/adsiid enable_adsiid
+wine_fn_config_makefile libs/c++ enable_cpp
+wine_fn_config_makefile libs/c++abi enable_cppabi
 wine_fn_config_makefile libs/capstone enable_capstone
 wine_fn_config_makefile libs/compiler-rt enable_compiler_rt
 wine_fn_config_makefile libs/dmoguids enable_dmoguids
@@ -24304,6 +24392,7 @@ wine_fn_config_makefile libs/strmiids enable_strmiids
 wine_fn_config_makefile libs/strsafe enable_strsafe
 wine_fn_config_makefile libs/tiff enable_tiff
 wine_fn_config_makefile libs/tomcrypt enable_tomcrypt
+wine_fn_config_makefile libs/unwind enable_unwind
 wine_fn_config_makefile libs/uuid enable_uuid
 wine_fn_config_makefile libs/vkd3d enable_vkd3d
 wine_fn_config_makefile libs/wbemuuid enable_wbemuuid
@@ -24529,7 +24618,7 @@ dlls/wineandroid.drv/wine-debug.apk: dlls/wineandroid.drv/build.gradle ${wine_sr
 	mv dlls/wineandroid.drv/build/outputs/apk/wine-debug.apk \$@"
 
 
-EXTERNAL_SUBDIRS="libs/capstone libs/faudio libs/fluidsynth libs/gsm libs/jpeg libs/jxr libs/lcms2 libs/ldap libs/mpg123 libs/musl libs/png libs/tiff libs/tomcrypt libs/vkd3d libs/xml2 libs/xslt libs/zlib libs/compiler-rt"
+EXTERNAL_SUBDIRS="libs/capstone libs/c++ libs/c++abi libs/faudio libs/fluidsynth libs/gsm libs/jpeg libs/jxr libs/lcms2 libs/ldap libs/mpg123 libs/musl libs/png libs/tiff libs/tomcrypt libs/unwind libs/vkd3d libs/xml2 libs/xslt libs/zlib libs/compiler-rt"
 
 TAGSFLAGS="--langmap='c:+.idl.l.rh,make:(Make*.in)'"
 
@@ -25421,6 +25510,10 @@ WINELOADER_DEPENDS = $WINELOADER_DEPENDS
 MINGW_PKG_CONFIG = $MINGW_PKG_CONFIG
 CAPSTONE_PE_CFLAGS = $CAPSTONE_PE_CFLAGS
 CAPSTONE_PE_LIBS = $CAPSTONE_PE_LIBS
+CXX_PE_CFLAGS = $CXX_PE_CFLAGS
+CXX_PE_LIBS = $CXX_PE_LIBS
+CXXABI_PE_CFLAGS = $CXXABI_PE_CFLAGS
+CXXABI_PE_LIBS = $CXXABI_PE_LIBS
 FAUDIO_PE_CFLAGS = $FAUDIO_PE_CFLAGS
 FAUDIO_PE_LIBS = $FAUDIO_PE_LIBS
 FLUIDSYNTH_PE_CFLAGS = $FLUIDSYNTH_PE_CFLAGS
@@ -25445,6 +25538,8 @@ TIFF_PE_CFLAGS = $TIFF_PE_CFLAGS
 TIFF_PE_LIBS = $TIFF_PE_LIBS
 TOMCRYPT_PE_CFLAGS = $TOMCRYPT_PE_CFLAGS
 TOMCRYPT_PE_LIBS = $TOMCRYPT_PE_LIBS
+UNWIND_PE_CFLAGS = $UNWIND_PE_CFLAGS
+UNWIND_PE_LIBS = $UNWIND_PE_LIBS
 VKD3D_PE_CFLAGS = $VKD3D_PE_CFLAGS
 VKD3D_PE_LIBS = $VKD3D_PE_LIBS
 XML2_PE_CFLAGS = $XML2_PE_CFLAGS
