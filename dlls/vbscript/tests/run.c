@@ -2780,7 +2780,7 @@ static void test_parse_errors(void)
         {
             /* invalid use of parentheses for call statement */
             L"strcomp(\"x\", \"y\")",
-            0, -17
+            0, 17
         },
         {
             L"\n\n\n  cint _\n   throwInt(&h80001234&)",
@@ -3489,10 +3489,26 @@ static void run_tests(void)
     CHECK_CALLED(global_success_d);
     CHECK_CALLED(global_success_i);
 
+    SET_EXPECT(OnScriptError);
+    hres = parse_script_wr(L"Const x = 1\nConst x = 2");
+    ok(FAILED(hres), "duplicated const didn't fail\n");
+    CHECK_CALLED(OnScriptError);
+
+    SET_EXPECT(OnScriptError);
+    hres = parse_script_wr(L"Const x = 1\nDim x");
+    ok(FAILED(hres), "const+dim didn't fail\n");
+    CHECK_CALLED(OnScriptError);
+
+    SET_EXPECT(OnScriptError);
+    hres = parse_script_wr(L"Dim x\nConst x = 1");
+    ok(FAILED(hres), "dim+const didn't fail\n");
+    CHECK_CALLED(OnScriptError);
+
     run_from_res("lang.vbs");
     run_from_res("api.vbs");
     run_from_res("regexp.vbs");
     run_from_res("error.vbs");
+    run_from_res("noexplicit.vbs");
 
     test_procedures();
     test_gc();
