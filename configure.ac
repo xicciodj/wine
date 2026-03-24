@@ -3367,6 +3367,8 @@ WINE_CONFIG_MAKEFILE(dlls/windows.devices.bluetooth)
 WINE_CONFIG_MAKEFILE(dlls/windows.devices.bluetooth/tests)
 WINE_CONFIG_MAKEFILE(dlls/windows.devices.enumeration)
 WINE_CONFIG_MAKEFILE(dlls/windows.devices.enumeration/tests)
+WINE_CONFIG_MAKEFILE(dlls/windows.devices.radios)
+WINE_CONFIG_MAKEFILE(dlls/windows.devices.radios/tests)
 WINE_CONFIG_MAKEFILE(dlls/windows.devices.usb)
 WINE_CONFIG_MAKEFILE(dlls/windows.devices.usb/tests)
 WINE_CONFIG_MAKEFILE(dlls/windows.gaming.input)
@@ -3843,7 +3845,7 @@ programs/winetest/build.rc: dummy
 	@build=\"STRINGTABLE { 1 \\\"\`GIT_DIR=${wine_srcdir}.git git rev-parse HEAD 2>/dev/null\`\\\" }\" && (echo \$\$build | cmp -s - \$[@]) || echo \$\$build >\$[@] || (rm -f \$[@] && exit 1)
 dlls/wineandroid.drv/wine-debug.apk: dlls/wineandroid.drv/build.gradle ${wine_srcdir}dlls/wineandroid.drv/AndroidManifest.xml ${wine_srcdir}dlls/wineandroid.drv/WineActivity.java ${wine_srcdir}dlls/wineandroid.drv/wine.svg
 	cd dlls/wineandroid.drv && gradle -q -Psrcdir=$srcdir assembleDebug
-	mv dlls/wineandroid.drv/build/outputs/apk/wine-debug.apk \$[@]])
+	mv dlls/wineandroid.drv/build/outputs/apk/debug/wine-debug.apk \$[@]])
 
 dnl Misc rules
 
