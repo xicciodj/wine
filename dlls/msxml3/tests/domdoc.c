@@ -704,6 +704,13 @@ static void _expect_ref(IUnknown* obj, ULONG ref, int line)
     ok_(__FILE__,line)(rc == ref, "expected refcount %ld, got %ld\n", ref, rc);
 }
 
+static ULONG get_refcount(void *iface)
+{
+    IUnknown *unknown = iface;
+    IUnknown_AddRef(unknown);
+    return IUnknown_Release(unknown);
+}
+
 #define EXPECT_LIST_LEN(list,len) _expect_list_len(list, len, __LINE__)
 static void _expect_list_len(IXMLDOMNodeList *list, LONG len, int line)
 {
@@ -1184,19 +1191,7 @@ static const WCHAR nonexistent_fileW[] = L"c:\\Nonexistent.xml";
 
 static const WCHAR szStrangeChars[] = L"&x \x2103";
 
-#define expect_bstr_eq_and_free(bstr, expect) { \
-    BSTR bstrExp = alloc_str_from_narrow(expect); \
-    ok(lstrcmpW(bstr, bstrExp) == 0, "String differs\n"); \
-    SysFreeString(bstr); \
-    SysFreeString(bstrExp); \
-}
-
 #define expect_eq(expr, value, type, format) { type ret = (expr); ok((value) == ret, #expr " expected " format " got " format "\n", value, ret); }
-
-#define ole_expect(expr, expect) { \
-    HRESULT r = expr; \
-    ok(r == (expect), #expr " returned %x, expected %x\n", r, expect); \
-}
 
 #define double_eq(x, y) ok((x)-(y)<=1e-14*(x) && (x)-(y)>=-1e-14*(x), "expected %.16g, got %.16g\n", x, y)
 
@@ -3664,7 +3659,8 @@ static void test_get_text(void)
     {
         hr = IXMLDOMNode_get_text( nodeRoot, &str );
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-        expect_bstr_eq_and_free(str, "fn1.txt\n \nfn2.txt\n \nf1");
+        ok(!wcscmp(str, L"fn1.txt\n \nfn2.txt\n \nf1"), "Unexpected text %s.\n", debugstr_w(str));
+        SysFreeString(str);
 
         IXMLDOMNode_Release(nodeRoot);
     }
@@ -4607,7 +4603,8 @@ static void test_IXMLDOMDocument2(void)
     hr = IXMLDOMDocument2_getProperty(doc2, _bstr_("SelectionLanguage"), &var);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     expect_eq(V_VT(&var), VT_BSTR, int, "%x");
-    expect_bstr_eq_and_free(V_BSTR(&var), "XSLPattern");
+    ok(!wcscmp(V_BSTR(&var), L"XSLPattern"), "Unexpected value %s.\n", debugstr_w(V_BSTR(&var)));
+    VariantClear(&var);
     V_VT(&var) = VT_R4;
 
     /* the variant didn't get cleared*/
@@ -4642,7 +4639,8 @@ static void test_IXMLDOMDocument2(void)
     hr = IXMLDOMDocument2_getProperty(doc2, _bstr_("SelectionLanguage"), &var);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     expect_eq(V_VT(&var), VT_BSTR, int, "%x");
-    expect_bstr_eq_and_free(V_BSTR(&var), "XSLPattern");
+    ok(!wcscmp(V_BSTR(&var), L"XSLPattern"), "Unexpected value %s.\n", debugstr_w(V_BSTR(&var)));
+    VariantClear(&var);
 
     IXMLDOMDocument2_Release( doc2 );
     IXMLDOMDocument_Release( doc );
@@ -5456,7 +5454,11 @@ if (!winetest_platform_is_wine)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     expect_eq(V_VT(&var), VT_BSTR, int, "%x");
     if (V_VT(&var) == VT_BSTR)
-        expect_bstr_eq_and_free(V_BSTR(&var), "xmlns:test='urn:uuid:86B2F87F-ACB6-45cd-8B77-9BDB92A01A29' xmlns:foo=###");
+    {
+        ok(!wcscmp(V_BSTR(&var), L"xmlns:test='urn:uuid:86B2F87F-ACB6-45cd-8B77-9BDB92A01A29' xmlns:foo=###"),
+                "Unexpected value %s.\n", debugstr_w(V_BSTR(&var)));
+    }
+    VariantClear(&var);
 
     /* extra attributes - same thing*/
     hr = IXMLDOMDocument2_setProperty(doc, _bstr_("SelectionNamespaces"),
@@ -5618,7 +5620,9 @@ if (!winetest_platform_is_wine)
 
 static void test_cloneNode(void )
 {
+    IXMLDOMDocumentType *doctype, *doctype2;
     IXMLDOMDocument2 *doc, *doc_clone;
+    IXMLDOMElement *element;
     IXMLDOMDocument *doc2;
     VARIANT_BOOL b;
     IXMLDOMNodeList *pList;
@@ -5632,6 +5636,47 @@ static void test_cloneNode(void )
     HRESULT hr;
 
     doc = create_document(&IID_IXMLDOMDocument2);
+
+    /* Shallow cloning with a DTD */
+    hr = IXMLDOMDocument2_loadXML(doc, _bstr_(szEmailXML), &b);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(b == VARIANT_TRUE, "Unexpected value %d.\n", b);
+
+    hr = IXMLDOMDocument2_get_documentElement(doc, &element);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    IXMLDOMElement_Release(element);
+
+    hr = IXMLDOMDocument2_get_doctype(doc, &doctype);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr );
+    IXMLDOMDocumentType_Release(doctype);
+
+    hr = IXMLDOMDocument2_cloneNode(doc, VARIANT_FALSE, &node);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(!!node, "Got node %p.\n", node);
+    hr = IXMLDOMNode_QueryInterface(node, &IID_IXMLDOMDocument2, (void **)&doc_clone);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IXMLDOMDocument2_get_doctype(doc_clone, &doctype2);
+    todo_wine
+    ok(hr == S_FALSE, "Unexpected hr %#lx.\n", hr );
+    hr = IXMLDOMDocument2_get_documentElement(doc_clone, &element);
+    todo_wine
+    ok(hr == S_FALSE, "Unexpected hr %#lx.\n", hr);
+    IXMLDOMDocument2_Release(doc_clone);
+    IXMLDOMNode_Release(node);
+
+    hr = IXMLDOMDocument2_cloneNode(doc, VARIANT_TRUE, &node);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(!!node, "Got node %p.\n", node);
+    hr = IXMLDOMNode_QueryInterface(node, &IID_IXMLDOMDocument2, (void **)&doc_clone);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IXMLDOMDocument2_get_doctype(doc_clone, &doctype2);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr );
+    IXMLDOMDocumentType_Release(doctype2);
+    hr = IXMLDOMDocument2_get_documentElement(doc_clone, &element);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    IXMLDOMElement_Release(element);
+    IXMLDOMDocument2_Release(doc_clone);
+    IXMLDOMNode_Release(node);
 
     hr = IXMLDOMDocument2_loadXML(doc, _bstr_(complete4A), &b);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
@@ -8939,8 +8984,7 @@ static void test_put_nodeTypedValue(void)
     hr = IXMLDOMElement_get_nodeTypedValue(elem, &type);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     ok(V_VT(&type) == VT_BSTR, "got %d, expected VT_BSTR\n", V_VT(&type));
-    ok(memcmp(V_BSTR(&type), L"1", 2*sizeof(WCHAR)) == 0,
-       "got %s, expected \"1\"\n", wine_dbgstr_w(V_BSTR(&type)));
+    ok(!wcscmp(V_BSTR(&type), L"1"), "Unexpected value %s.\n", wine_dbgstr_w(V_BSTR(&type)));
     VariantClear(&type);
 
     /* int */
@@ -9113,13 +9157,7 @@ static void test_put_nodeTypedValue(void)
 
 static void test_get_xml(void)
 {
-    static const char xmlA[] = "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\r\n<a>test</a>\r\n";
     static const char xml2A[] = "<?xml version=\"1.0\"?>\n<Root>\n\t<Sub val=\"A\" />\n</Root>";
-    static const char attrA[] = "attr=\"&quot;a &amp; b&quot;\"";
-    static const char attr2A[] = "\"a & b\"";
-    static const char attr3A[] = "attr=\"&amp;quot;a\"";
-    static const char attr4A[] = "&quot;a";
-    static const char fooA[] = "<foo/>";
     IXMLDOMProcessingInstruction *pi;
     IXMLDOMNode *first;
     IXMLDOMElement *elem = NULL;
@@ -9155,9 +9193,7 @@ static void test_get_xml(void)
 
     hr = IXMLDOMDocument_get_xml(doc, &xml);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-
-    ok(memcmp(xml, _bstr_(xmlA), sizeof(xmlA)*sizeof(WCHAR)) == 0,
-        "got %s, expected %s\n", wine_dbgstr_w(xml), xmlA);
+    ok(!wcscmp(xml, L"<?xml version=\"1.0\" encoding=\"UTF-16\"?>\r\n<a>test</a>\r\n"), "Unexpected %s.\n", wine_dbgstr_w(xml));
     SysFreeString(xml);
 
     IXMLDOMDocument_Release(doc);
@@ -9172,9 +9208,7 @@ static void test_get_xml(void)
 
     hr = IXMLDOMDocument_get_xml(doc, &xml);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-
-    ok(memcmp(xml, _bstr_(fooA), (sizeof(fooA)-1)*sizeof(WCHAR)) == 0,
-        "got %s, expected %s\n", wine_dbgstr_w(xml), fooA);
+    ok(!wcscmp(xml, L"<foo/>\r\n"), "Unexpected %s.\n", debugstr_w(xml));
     SysFreeString(xml);
 
     IXMLDOMElement_Release(elem);
@@ -9191,15 +9225,14 @@ static void test_get_xml(void)
     xml = NULL;
     hr = IXMLDOMAttribute_get_xml(attr, &xml);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    ok(!memcmp(xml, _bstr_(attrA), (sizeof(attrA)-1)*sizeof(WCHAR)), "got %s\n", wine_dbgstr_w(xml));
+    ok(!wcscmp(xml, L"attr=\"&quot;a &amp; b&quot;\""), "Unexpected %s.\n", wine_dbgstr_w(xml));
     SysFreeString(xml);
 
     VariantInit(&v);
     hr = IXMLDOMAttribute_get_value(attr, &v);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     ok(V_VT(&v) == VT_BSTR, "got type %d\n", V_VT(&v));
-    ok(!memcmp(V_BSTR(&v), _bstr_(attr2A), (sizeof(attr2A)-1)*sizeof(WCHAR)),
-        "got %s\n", wine_dbgstr_w(V_BSTR(&v)));
+    ok(!wcscmp(V_BSTR(&v), L"\"a & b\""), "Unexpected %s.\n", debugstr_w(V_BSTR(&v)));
     VariantClear(&v);
 
     V_VT(&v) = VT_BSTR;
@@ -9210,15 +9243,14 @@ static void test_get_xml(void)
     xml = NULL;
     hr = IXMLDOMAttribute_get_xml(attr, &xml);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    ok(!memcmp(xml, _bstr_(attr3A), (sizeof(attr3A)-1)*sizeof(WCHAR)), "got %s\n", wine_dbgstr_w(xml));
+    ok(!wcscmp(xml, L"attr=\"&amp;quot;a\""), "Unexpected %s.\n", debugstr_w(xml));
     SysFreeString(xml);
 
     VariantInit(&v);
     hr = IXMLDOMAttribute_get_value(attr, &v);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     ok(V_VT(&v) == VT_BSTR, "got type %d\n", V_VT(&v));
-    ok(!memcmp(V_BSTR(&v), _bstr_(attr4A), (sizeof(attr4A)-1)*sizeof(WCHAR)),
-        "got %s\n", wine_dbgstr_w(V_BSTR(&v)));
+    ok(!wcscmp(V_BSTR(&v), L"&quot;a"), "Unexpected %s.\n", debugstr_w(V_BSTR(&v)));
     VariantClear(&v);
 
     IXMLDOMAttribute_Release(attr);
@@ -9236,6 +9268,17 @@ static void test_get_xml(void)
     SysFreeString(xml);
 
     IXMLDOMElement_Release(elem);
+
+    /* Excessive namespace definitions */
+    hr = IXMLDOMDocument_loadXML(doc, _bstr_("<a xmlns:ns=\"uri\" ><b ns:attr=\"value\" xmlns:ns=\"uri\" /></a>"), &b );
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXMLDOMDocument_get_xml(doc, &xml);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    todo_wine
+    ok(!wcscmp(xml, L"<a xmlns:ns=\"uri\"><b ns:attr=\"value\" xmlns:ns=\"uri\"/></a>\r\n"),
+            "Unexpected xml %s.\n", wine_dbgstr_w(xml));
+    SysFreeString(xml);
 
     IXMLDOMDocument_Release(doc);
 
@@ -9852,8 +9895,17 @@ static void test_insertBefore(void)
 
 static void test_appendChild(void)
 {
+    IXMLDOMComment *comment1, *comment2;
+    IXMLDOMDocumentFragment *fragment;
+    IXMLDOMProcessingInstruction *pi;
     IXMLDOMDocument *doc, *doc2;
     IXMLDOMElement *elem, *elem2;
+    IXMLDOMText *text1, *text2;
+    IXMLDOMNodeList *list;
+    DOMNodeType node_type;
+    IXMLDOMNode *node;
+    LONG length;
+    VARIANT var;
     HRESULT hr;
 
     doc = create_document(&IID_IXMLDOMDocument);
@@ -9893,6 +9945,100 @@ static void test_appendChild(void)
     IXMLDOMElement_Release(elem2);
     IXMLDOMDocument_Release(doc);
     IXMLDOMDocument_Release(doc2);
+
+    /* Append a child to a document */
+    doc = create_document(&IID_IXMLDOMDocument);
+
+    hr = IXMLDOMDocument_createElement(doc, _bstr_("elem"), &elem);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXMLDOMDocument_createElement(doc, _bstr_("elem2"), &elem2);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXMLDOMDocument_appendChild(doc, (IXMLDOMNode *)elem, NULL);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXMLDOMDocument_appendChild(doc, (IXMLDOMNode *)elem2, NULL);
+    todo_wine
+    ok(hr == E_FAIL, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXMLDOMDocument_createComment(doc, _bstr_("Comment1"), &comment1);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IXMLDOMDocument_createComment(doc, _bstr_("Comment2"), &comment2);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXMLDOMDocument_appendChild(doc, (IXMLDOMNode *)comment1, NULL);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    V_VT(&var) = VT_DISPATCH;
+    V_DISPATCH(&var) = (IDispatch *)elem;
+    hr = IXMLDOMDocument_insertBefore(doc, (IXMLDOMNode *)comment2, var, NULL);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    IXMLDOMComment_Release(comment1);
+    IXMLDOMComment_Release(comment2);
+
+    hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), _bstr_("version=\"1.0\""), &pi);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXMLDOMDocument_appendChild(doc, (IXMLDOMNode *)pi, NULL);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    IXMLDOMProcessingInstruction_Release(pi);
+
+    IXMLDOMElement_Release(elem);
+    IXMLDOMElement_Release(elem2);
+
+    /* Append document fragment with multiple children. */
+    hr = IXMLDOMDocument_createDocumentFragment(doc, &fragment);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXMLDOMDocument_createTextNode(doc, _bstr_("text1"), &text1);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IXMLDOMDocument_createTextNode(doc, _bstr_("text2"), &text2);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    EXPECT_NO_CHILDREN(fragment);
+    hr = IXMLDOMDocumentFragment_appendChild(fragment, (IXMLDOMNode *)text1, NULL);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IXMLDOMDocumentFragment_appendChild(fragment, (IXMLDOMNode *)text2, NULL);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    EXPECT_CHILDREN(fragment);
+
+    hr = IXMLDOMDocument_createElement(doc, _bstr_("elem"), &elem);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXMLDOMElement_appendChild(elem, (IXMLDOMNode *)fragment, &node);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(node == (IXMLDOMNode *)fragment, "Unexpected child %p.\n", node);
+    IXMLDOMNode_Release(node);
+    todo_wine
+    EXPECT_NO_CHILDREN(fragment);
+
+    hr = IXMLDOMElement_get_childNodes(elem, &list);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXMLDOMNodeList_get_length(list, &length);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    todo_wine
+    ok(length == 2, "Unexpected length %ld.\n", length);
+    while (IXMLDOMNodeList_nextNode(list, &node) == S_OK)
+    {
+        hr = IXMLDOMNode_get_nodeType(node, &node_type);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        todo_wine
+        ok(node_type == NODE_TEXT, "Unexpected type %d.\n", node_type);
+        IXMLDOMNode_Release(node);
+    }
+
+    IXMLDOMNodeList_Release(list);
+
+    IXMLDOMElement_Release(elem);
+    IXMLDOMText_Release(text1);
+    IXMLDOMText_Release(text2);
+    IXMLDOMDocumentFragment_Release(fragment);
+
+    IXMLDOMDocument_Release(doc);
 }
 
 static void test_get_doctype(void)
@@ -9901,6 +10047,7 @@ static void test_get_doctype(void)
     IXMLDOMDocument *doc;
     VARIANT_BOOL b;
     HRESULT hr;
+    VARIANT v;
     BSTR s;
 
     doc = create_document(&IID_IXMLDOMDocument);
@@ -9929,6 +10076,17 @@ static void test_get_doctype(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     ok(!lstrcmpW(L"email", s), "got name %s\n", wine_dbgstr_w(s));
     SysFreeString(s);
+
+    hr = IXMLDOMDocumentType_get_nodeValue(doctype, NULL);
+    todo_wine
+    ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
+
+    V_VT(&v) = VT_EMPTY;
+    hr = IXMLDOMDocumentType_get_nodeValue(doctype, &v);
+    todo_wine
+    ok(hr == S_FALSE, "Unexpected hr %#lx.\n", hr);
+    todo_wine
+    ok(V_VT(&v) == VT_NULL, "Unexpected type %d.\n", V_VT(&v));
 
     hr = IXMLDOMDocumentType_get_nodeName(doctype, &s);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
@@ -12213,10 +12371,12 @@ static void test_supporterrorinfo(void)
     ISupportErrorInfo *errorinfo, *info2;
     IXMLDOMSchemaCollection *schemacache;
     IXMLDOMNamedNodeMap *map, *map2;
+    IXMLDOMDocumentType *doctype;
     IXMLDOMDocument *doc;
     IXMLDOMElement *elem;
     VARIANT_BOOL b;
     IUnknown *unk;
+    LONG refcount;
     REFIID *iid;
     void *dummy;
     HRESULT hr;
@@ -12351,6 +12511,38 @@ static void test_supporterrorinfo(void)
 
     ISupportErrorInfo_Release(errorinfo);
     IXMLDOMSchemaCollection_Release(schemacache);
+
+    /* IXMLDOMDocumentType */
+    doc = create_document(&IID_IXMLDOMDocument);
+
+    hr = IXMLDOMDocument_loadXML(doc, _bstr_(szEmailXML), &b);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(b == VARIANT_TRUE, "Unexpected value %d.\n", b);
+
+    hr = IXMLDOMDocument_get_doctype(doc, &doctype);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    refcount = get_refcount(doctype);
+    hr = IXMLDOMDocumentType_QueryInterface(doctype, &IID_ISupportErrorInfo, (void **)&errorinfo);
+    todo_wine
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(refcount == get_refcount(doctype), "Unexpected refcount %ld.\n", refcount);
+
+if (hr == S_OK)
+{
+    check_interface(errorinfo, &IID_IXMLDOMNode, FALSE);
+
+    hr = ISupportErrorInfo_InterfaceSupportsErrorInfo(errorinfo, &IID_IXMLDOMNode);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = ISupportErrorInfo_InterfaceSupportsErrorInfo(errorinfo, &IID_IXMLDOMDocumentType);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    ISupportErrorInfo_Release(errorinfo);
+}
+    IXMLDOMDocumentType_Release(doctype);
+
+    IXMLDOMDocument_Release(doc);
 
     free_bstrs();
 }
@@ -14407,13 +14599,17 @@ static DWORD WINAPI new_thread(void *arg)
 
 static void test_get_parentNode(void)
 {
+    IXMLDOMNode *node, *child;
+    IXMLDOMAttribute *attr;
+    IXMLDOMElement *e, *e2;
     IXMLDOMDocument *doc;
-    IXMLDOMNode *node;
+    VARIANT_BOOL b;
     HRESULT hr;
 
     hr = CoCreateInstance(&CLSID_DOMDocument2, NULL, CLSCTX_INPROC_SERVER, &IID_IXMLDOMDocument, (void **)&doc);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
+    /* Document parent */
     hr = IXMLDOMDocument_get_parentNode(doc, NULL);
     ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
 
@@ -14421,6 +14617,29 @@ static void test_get_parentNode(void)
     hr = IXMLDOMDocument_get_parentNode(doc, &node);
     ok(hr == S_FALSE, "Unexpected hr %#lx.\n", hr);
     ok(!node, "Unexpected node %p.\n", node);
+
+    /* Attribute parent */
+    hr = IXMLDOMDocument_loadXML(doc, _bstr_("<a><b attr1=\"value\" /></a>"), &b);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IXMLDOMDocument_get_documentElement(doc, &e);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IXMLDOMElement_get_firstChild(e, &child);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IXMLDOMNode_QueryInterface(child, &IID_IXMLDOMElement, (void **)&e2);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    IXMLDOMNode_Release(child);
+
+    hr = IXMLDOMElement_getAttributeNode(e2, _bstr_("attr1"), &attr);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IXMLDOMAttribute_get_parentNode(attr, NULL);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
+    hr = IXMLDOMAttribute_get_parentNode(attr, &node);
+    ok(hr == S_FALSE, "Unexpected hr %#lx.\n", hr);
+    ok(!node, "Unexpected node %p.\n", node);
+    IXMLDOMAttribute_Release(attr);
+
+    IXMLDOMElement_Release(e2);
+    IXMLDOMElement_Release(e);
 
     IXMLDOMDocument_Release(doc);
 }
@@ -14434,6 +14653,9 @@ static void test_removeAttributeNode(void)
     VARIANT var;
     HRESULT hr;
     BSTR str;
+
+    if (winetest_platform_is_wine)
+        return;
 
     hr = CoCreateInstance(&CLSID_DOMDocument30, NULL, CLSCTX_INPROC_SERVER, &IID_IXMLDOMDocument, (void **)&doc);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
@@ -15996,6 +16218,29 @@ static void test_xmldecl_attributes(void)
     IXMLDOMDocument_Release(doc);
 }
 
+static void test_loadXML(void)
+{
+    IXMLDOMDocument *doc;
+    VARIANT_BOOL b;
+    HRESULT hr;
+
+    hr = CoCreateInstance(&CLSID_DOMDocument2, NULL, CLSCTX_INPROC_SERVER, &IID_IXMLDOMDocument, (void **)&doc);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IXMLDOMDocument_loadXML(doc, NULL, NULL);
+    ok(hr == S_FALSE, "Unexpected hr %#lx.\n", hr);
+
+    b = VARIANT_TRUE;
+    hr = IXMLDOMDocument_loadXML(doc, NULL, &b);
+    ok(hr == S_FALSE, "Unexpected hr %#lx.\n", hr);
+    ok(b == VARIANT_FALSE, "Unexpected value %d.\n", b);
+
+    hr = IXMLDOMDocument_loadXML(doc, _bstr_("<a>text</a>"), NULL);
+    todo_wine
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    IXMLDOMDocument_Release(doc);
+}
 
 START_TEST(domdoc)
 {
@@ -16097,6 +16342,7 @@ START_TEST(domdoc)
     test_text();
     test_attribute_value();
     test_xmldecl_attributes();
+    test_loadXML();
 
     if (is_clsid_supported(&CLSID_MXNamespaceManager40, &IID_IMXNamespaceManager))
     {
