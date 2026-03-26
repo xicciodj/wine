@@ -351,14 +351,20 @@ static int hex_to_int(WCHAR c)
 
 static int parse_hex_literal(parser_ctx_t *ctx, LONG *ret)
 {
-    const WCHAR *begin = ctx->ptr;
+    const WCHAR *begin;
     unsigned l = 0, d;
+
+    /* Skip leading zeros — Windows allows any number of them. */
+    while(ctx->ptr[1] == '0')
+        ctx->ptr++;
+
+    begin = ctx->ptr;
 
     while((d = hex_to_int(*++ctx->ptr)) != -1)
         l = l*16 + d;
 
-    if(begin + 9 /* max digits+1 */ < ctx->ptr) {
-        FIXME("invalid literal\n");
+    if(begin + 9 /* max 8 significant digits + 1 */ < ctx->ptr) {
+        WARN("overflow in hex literal\n");
         return 0;
     }
 
@@ -437,6 +443,14 @@ static int parse_next_token(void *lval, unsigned *loc, parser_ctx_t *ctx)
          */
         c = ctx->ptr > ctx->code ? ctx->ptr[-1] : '\n';
         if (is_identifier_char(c) || c == ')') {
+            ctx->ptr++;
+            return '.';
+        }
+        /* After line continuation, ptr[-1] is a newline or space, but the dot
+         * is logically on the same line as the previous token. */
+        if(ctx->after_continuation
+                && (ctx->last_token == tIdentifier || ctx->last_token == ')'
+                || ctx->last_token == tEMPTYBRACKETS)) {
             ctx->ptr++;
             return '.';
         }
@@ -538,6 +552,7 @@ int parser_lex(void *lval, unsigned *loc, parser_ctx_t *ctx)
                 ctx->ptr++;
             if(*ctx->ptr == '\n')
                 ctx->ptr++;
+            ctx->after_continuation = TRUE;
             continue;
         }
         if(ret != tNL || ctx->last_token != tNL)
@@ -546,5 +561,6 @@ int parser_lex(void *lval, unsigned *loc, parser_ctx_t *ctx)
         ctx->last_nl = ctx->ptr-ctx->code;
     }
 
+    ctx->after_continuation = FALSE;
     return (ctx->last_token = ret);
 }
