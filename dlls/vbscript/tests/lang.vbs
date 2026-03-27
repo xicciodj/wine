@@ -1927,6 +1927,27 @@ call TestReDimPreserveByRef(rx)
 ok ubound(rx) = 7, "ubound(rx) = " & ubound(rx)
 ok rx(3) = 2, "rx(3) = " & rx(3)
 
+' ReDim on an uninitialized dynamic array (Dim arr() has a NULL SAFEARRAY pointer)
+dim dynarr()
+redim dynarr(3)
+ok ubound(dynarr) = 3, "ubound(dynarr) = " & ubound(dynarr)
+dynarr(0) = "a"
+dynarr(3) = "b"
+ok dynarr(0) = "a", "dynarr(0) = " & dynarr(0)
+ok dynarr(3) = "b", "dynarr(3) = " & dynarr(3)
+redim dynarr(5)
+ok ubound(dynarr) = 5, "ubound(dynarr) = " & ubound(dynarr)
+ok dynarr(0) = empty, "dynarr(0) after redim = " & dynarr(0)
+
+' ReDim Preserve on an uninitialized dynamic array should also work and retain data
+dim dynarr2()
+redim preserve dynarr2(3)
+ok ubound(dynarr2) = 3, "ubound(dynarr2) = " & ubound(dynarr2)
+dynarr2(0) = "x"
+redim preserve dynarr2(5)
+ok ubound(dynarr2) = 5, "ubound(dynarr2) = " & ubound(dynarr2)
+ok dynarr2(0) = "x", "dynarr2(0) after redim preserve = " & dynarr2(0)
+
 Class ArrClass
     Dim classarr(3)
     Dim classnoarr()
@@ -2436,5 +2457,96 @@ arr (0) = 2 xor -2
 ' Test calling a named item object with arguments (DISPID_VALUE)
 Call ok(indexedObj(3) = 6, "indexedObj(3) = " & indexedObj(3))
 Call ok(indexedObj(0) = 0, "indexedObj(0) = " & indexedObj(0))
+
+' GetRef tests
+Function GetRefTestFunc()
+    GetRefTestFunc = 42
+End Function
+
+Dim getRefRef
+Set getRefRef = GetRef("GetRefTestFunc")
+Call ok(IsObject(getRefRef), "IsObject(GetRef result) should be true")
+Call ok(getRefRef() = 42, "GetRef result call returned " & getRefRef())
+
+' GetRef with parameters
+Function GetRefAddFunc(a, b)
+    GetRefAddFunc = a + b
+End Function
+
+Set getRefRef = GetRef("GetRefAddFunc")
+Call ok(getRefRef(3, 4) = 7, "GetRef add call returned " & getRefRef(3, 4))
+
+' GetRef with a Sub
+Dim getRefSubCalled
+getRefSubCalled = False
+Sub GetRefTestSub()
+    getRefSubCalled = True
+End Sub
+
+Set getRefRef = GetRef("GetRefTestSub")
+Call getRefRef()
+Call ok(getRefSubCalled, "GetRef sub was not called")
+
+' GetRef with Sub that has parameters
+Dim getRefSubResult
+Sub GetRefTestSubArgs(a, b)
+    getRefSubResult = a + b
+End Sub
+
+Set getRefRef = GetRef("GetRefTestSubArgs")
+Call getRefRef(10, 20)
+Call ok(getRefSubResult = 30, "GetRef sub with args returned " & getRefSubResult)
+
+' GetRef case insensitivity
+Function getRefCaseFunc()
+    getRefCaseFunc = "hello"
+End Function
+
+Set getRefRef = GetRef("GETREFCASEFUNC")
+Call ok(getRefRef() = "hello", "GetRef case insensitive returned " & getRefRef())
+
+' GetRef default value (calling without parens triggers default property)
+Set getRefRef = GetRef("GetRefTestFunc")
+Dim getRefResult
+getRefResult = getRefRef
+Call ok(getRefResult = 42, "GetRef default value returned " & getRefResult)
+Call ok(getVT(getRefResult) = "VT_I2*", "GetRef default value type is " & getVT(getRefResult))
+
+' GetRef can be passed to another function
+Function GetRefCallIt(fn)
+    GetRefCallIt = fn()
+End Function
+
+Set getRefRef = GetRef("GetRefTestFunc")
+Call ok(GetRefCallIt(getRefRef) = 42, "GetRef passed to function returned " & GetRefCallIt(getRefRef))
+
+' GetRef error cases
+On Error Resume Next
+
+Err.Clear
+Set getRefRef = GetRef("NonExistentFunc")
+Call ok(Err.Number = 5, "GetRef non-existent function error is " & Err.Number)
+
+Err.Clear
+Set getRefRef = GetRef("")
+Call ok(Err.Number = 5, "GetRef empty string error is " & Err.Number)
+
+Err.Clear
+Set getRefRef = GetRef(123)
+Call ok(Err.Number = 13, "GetRef numeric arg error is " & Err.Number)
+
+Err.Clear
+Set getRefRef = GetRef(Null)
+Call ok(Err.Number = 13, "GetRef Null arg error is " & Err.Number)
+
+Err.Clear
+Set getRefRef = GetRef(Empty)
+Call ok(Err.Number = 13, "GetRef Empty arg error is " & Err.Number)
+
+Err.Clear
+Set getRefRef = GetRef(vbNullString)
+Call ok(Err.Number = 5, "GetRef vbNullString error is " & Err.Number)
+
+On Error Goto 0
 
 reportSuccess()
