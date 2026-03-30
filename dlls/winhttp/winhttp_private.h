@@ -25,8 +25,6 @@
 
 #include "wine/list.h"
 
-#define WINHTTP_HANDLE_TYPE_SOCKET 4
-
 struct object_header;
 struct object_vtbl
 {
@@ -53,8 +51,6 @@ struct object_header
     DWORD notify_mask;
     LONG recursion_count;
     struct list entry;
-    volatile LONG pending_sends;
-    volatile LONG pending_receives;
 };
 
 struct hostdata
@@ -326,6 +322,8 @@ struct socket
     unsigned int bytes_in_read_buffer;
     SRWLOCK send_lock;
     volatile LONG pending_noncontrol_send;
+    volatile LONG pending_sends;
+    volatile LONG pending_receives;
     enum fragment_type sending_fragment_type;
     enum fragment_type receiving_fragment_type;
     BOOL last_receive_final;
@@ -429,8 +427,11 @@ BOOL free_handle( HINTERNET );
 
 void send_callback( struct object_header *, DWORD, LPVOID, DWORD );
 void close_connection( struct request * );
-void init_queue( struct queue *queue );
+void init_queue( struct queue * );
+BOOL cancel_queue( struct queue * );
 void stop_queue( struct queue * );
+DWORD queue_task( struct queue *, TASK_CALLBACK, struct task_header *, struct object_header * );
+BOOL task_needs_completion( struct task_header * );
 
 void netconn_addref( struct netconn * );
 void netconn_release( struct netconn * );
