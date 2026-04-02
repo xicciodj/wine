@@ -861,7 +861,7 @@ static NTSTATUS load_so_dll( void *args )
     NTSTATUS status;
     DWORD len;
 
-    if (get_load_order( nt_name, NULL, 0 ) == LO_DISABLED) return STATUS_DLL_NOT_FOUND;
+    if (get_load_order( nt_name, FALSE, NULL ) == LO_DISABLED) return STATUS_DLL_NOT_FOUND;
     InitializeObjectAttributes( &attr, nt_name, OBJ_CASE_INSENSITIVE, 0, 0 );
     if (!get_nt_and_unix_names( &attr, &true_nt_name, &unix_name, FILE_OPEN, FALSE ))
     {
@@ -1256,9 +1256,9 @@ NTSTATUS load_builtin( struct pe_mapping_info *pe_mapping, USHORT machine,
                        ULONG_PTR limit_low, ULONG_PTR limit_high, off_t offset )
 {
     NTSTATUS status;
-    USHORT search_machine = pe_mapping->image.machine;
-    enum loadorder loadorder = get_load_order( &pe_mapping->nt_name,
-                                               pe_mapping->version_res, pe_mapping->version_len );
+    USHORT sysdir_machine, search_machine = pe_mapping->image.machine;
+    BOOL is_system_dir = is_system_dir_path( &pe_mapping->nt_name, &sysdir_machine );
+    enum loadorder loadorder = get_load_order( &pe_mapping->nt_name, is_system_dir, pe_mapping );
 
     if (loadorder == LO_DISABLED) return STATUS_DLL_NOT_FOUND;
 
@@ -1392,18 +1392,15 @@ static const WCHAR *get_machine_wow64_dir( WORD machine )
 
 
 /***************************************************************************
- *	is_builtin_path
+ *	is_system_dir_path
  *
  * Check if path is inside a system directory, to support loading builtins
  * when the corresponding file doesn't exist yet.
  */
-BOOL is_builtin_path( const UNICODE_STRING *path, WORD *machine )
+BOOL is_system_dir_path( const UNICODE_STRING *path, WORD *machine )
 {
     unsigned int i, len = path->Length / sizeof(WCHAR), dirlen;
     const WCHAR *sysdir, *p = path->Buffer;
-
-    /* only fake builtin existence during prefix bootstrap */
-    if (!is_prefix_bootstrap) return FALSE;
 
     for (i = 0; i < supported_machines_count; i++)
     {
@@ -1465,16 +1462,17 @@ static NTSTATUS open_main_image( UNICODE_STRING *nt_name, void **module, SECTION
  */
 NTSTATUS load_main_exe( UNICODE_STRING *nt_name, USHORT load_machine, void **module )
 {
-    enum loadorder loadorder = get_load_order( nt_name, NULL, 0 );
     unsigned int status;
     SIZE_T size;
     USHORT search_machine;
+    BOOL is_system_dir = is_system_dir_path( nt_name, &search_machine );
+    enum loadorder loadorder = get_load_order( nt_name, is_system_dir, NULL );
 
     status = open_main_image( nt_name, module, &main_image_info, loadorder, load_machine );
     if (status != STATUS_DLL_NOT_FOUND) return status;
 
     /* if path is in system dir, we can load the builtin even if the file itself doesn't exist */
-    if (loadorder != LO_NATIVE && is_builtin_path( nt_name, &search_machine ))
+    if (loadorder != LO_NATIVE && is_prefix_bootstrap && is_system_dir)
         status = find_builtin_dll( nt_name, NULL, module, &size, &main_image_info, 0, 0,
                                    search_machine, load_machine, FALSE, 0 );
     return status;

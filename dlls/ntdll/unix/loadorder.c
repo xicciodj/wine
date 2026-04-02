@@ -110,12 +110,16 @@ static BOOL get_version_entry( struct version_entry *entry, const void *ptr, con
 static BOOL version_find_key( const struct version_entry *parent, const WCHAR *name,
                               struct version_entry *child )
 {
-    if (!get_version_entry( child, parent->child, parent->next )) return FALSE;
+    struct version_entry ret;
+
+    if (!get_version_entry( &ret, parent->child, parent->next )) return FALSE;
     for (;;)
     {
-        if (!wcsicmp( child->info->key, name )) return TRUE;
-        if (!get_version_entry( child, child->next, parent->next )) return FALSE;
+        if (!wcsicmp( ret.info->key, name )) break;
+        if (!get_version_entry( &ret, ret.next, parent->next )) return FALSE;
     }
+    *child = ret;
+    return TRUE;
 }
 
 /***************************************************************************
@@ -419,7 +423,8 @@ static enum loadorder get_load_order_value( HANDLE std_key, HANDLE app_key, WCHA
  *
  * Check if we should prefer loading native using heuristics based on the version resource.
  */
-static BOOL prefer_native_heuristics( const UNICODE_STRING *nt_name, void *version_res, ULONG version_len )
+static BOOL prefer_native_heuristics( const UNICODE_STRING *nt_name,
+                                      const struct pe_mapping_info *pe_mapping )
 {
     static const WCHAR fileinfoW[] = {'S','t','r','i','n','g','F','i','l','e','I','n','f','o',0};
     static const WCHAR companyW[] = {'C','o','m','p','a','n','y','N','a','m','e',0};
@@ -430,8 +435,10 @@ static BOOL prefer_native_heuristics( const UNICODE_STRING *nt_name, void *versi
     const WCHAR *name;
     ULONG len;
 
-    if (!version_len) return FALSE;
-    if (!get_version_entry( &entry, version_res, (char *)version_res + version_len )) return FALSE;
+    if (!pe_mapping) return FALSE;
+    if (!pe_mapping->version_len) return FALSE;
+    if (!get_version_entry( &entry, pe_mapping->version_res,
+                            (char *)pe_mapping->version_res + pe_mapping->version_len )) return FALSE;
     fileinfo = entry.value;
     if (entry.info->val_len < sizeof(*fileinfo)) return FALSE;
     if (fileinfo->dwSignature != VS_FFI_SIGNATURE) return FALSE;
@@ -471,12 +478,13 @@ void set_load_order_app_name( const WCHAR *app_name )
  * Return the loadorder of a module.
  * The system directory and '.dll' extension is stripped from the path.
  */
-enum loadorder get_load_order( const UNICODE_STRING *nt_name, void *version_res, ULONG version_len )
+enum loadorder get_load_order( const UNICODE_STRING *nt_name, BOOL is_system_dir,
+                               const struct pe_mapping_info *pe_mapping )
 {
     static const WCHAR prefixW[] = {'\\','?','?','\\'};
     enum loadorder ret = LO_INVALID;
     const WCHAR *path = nt_name->Buffer;
-    unsigned int i, len = nt_name->Length / sizeof(WCHAR);
+    unsigned int len = nt_name->Length / sizeof(WCHAR);
     WCHAR *module, *basename;
 
     if (!init_done) init_load_order();
@@ -487,20 +495,6 @@ enum loadorder get_load_order( const UNICODE_STRING *nt_name, void *version_res,
         len -= 4;
     }
 
-    /* Strip path information if the module resides in the system directory
-     */
-    if (len > wcslen(system_dir) - 4 && !wcsnicmp( system_dir + 4, path, wcslen(system_dir) - 4 ))
-    {
-        unsigned int pos = wcslen( system_dir ) - 4;
-        while (pos < len && (path[pos] == '\\' || path[pos] == '/')) pos++;
-        for (i = pos; i < len; i++) if (path[i] == '\\' || path[i] == '/') break;
-        if (i == len)
-        {
-            path += pos;
-            len -= pos;
-        }
-    }
-
     if (!(module = malloc( (len + 2) * sizeof(WCHAR) ))) return ret;
     memcpy( module + 1, path, len * sizeof(WCHAR) );  /* reserve module[0] for the wildcard char */
     module[len + 1] = 0;
@@ -508,7 +502,7 @@ enum loadorder get_load_order( const UNICODE_STRING *nt_name, void *version_res,
     basename = get_basename( module + 1 );
 
     /* first explicit module name */
-    if ((ret = get_load_order_value( std_key, app_key, module+1 )) != LO_INVALID)
+    if ((ret = get_load_order_value( std_key, app_key, is_system_dir ? basename : module+1 )) != LO_INVALID)
         goto done;
 
     /* then module basename preceded by '*' */
@@ -516,20 +510,20 @@ enum loadorder get_load_order( const UNICODE_STRING *nt_name, void *version_res,
     if ((ret = get_load_order_value( std_key, app_key, basename-1 )) != LO_INVALID)
         goto done;
 
-    /* then module basename without '*' (only if explicit path) */
-    if (basename != module+1 && ((ret = get_load_order_value( std_key, app_key, basename )) != LO_INVALID))
-        goto done;
-
     /* now some heuristics for explicit paths */
-    if (basename != module + 1)
+    if (!is_system_dir)
     {
+        /* module basename without '*' */
+        if (((ret = get_load_order_value( std_key, app_key, basename )) != LO_INVALID))
+            goto done;
+
         if (!main_exe_loaded)  /* if loading the main exe, try native first */
         {
             ret = LO_NATIVE_BUILTIN;
             TRACE( "got main exe default %s for %s\n", debugstr_loadorder(ret), debugstr_us(nt_name) );
             goto done;
         }
-        if (prefer_native_heuristics( nt_name, version_res, version_len ))
+        if (prefer_native_heuristics( nt_name, pe_mapping ))
         {
             ret = LO_NATIVE_BUILTIN;
             goto done;
