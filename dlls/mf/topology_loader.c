@@ -314,6 +314,123 @@ static HRESULT update_media_type_from_upstream(IMFMediaType *media_type, IMFMedi
     return hr;
 }
 
+static HRESULT clone_media_type(IMFMediaType *in_type, IMFMediaType **out_type)
+{
+    HRESULT hr = MFCreateMediaType(out_type);
+    if (FAILED(hr) || SUCCEEDED(hr = IMFMediaType_CopyAllItems(in_type, (IMFAttributes *)*out_type)))
+        return hr;
+    IMFMediaType_Release(*out_type);
+    *out_type = NULL;
+    return hr;
+}
+
+/* safe version of IMFMediaTypeHandler_GetCurrentMediaType that makes a copy of the returned type if necessary */
+static HRESULT media_type_handler_get_current(IMFMediaTypeHandler *handler, IMFMediaType **type)
+{
+    IMFMediaType *tmp;
+    HRESULT hr;
+
+    if (FAILED(hr = IMFMediaTypeHandler_GetCurrentMediaType(handler, &tmp)))
+        return hr;
+    hr = clone_media_type(tmp, type);
+    IMFMediaType_Release(tmp);
+    return hr;
+}
+
+/* safe version of IMFMediaTypeHandler_GetMediaTypeByIndex that makes a copy of the returned type if necessary */
+static HRESULT media_type_handler_get_type(IMFMediaTypeHandler *handler, UINT32 i, IMFMediaType **type)
+{
+    IMFMediaType *tmp;
+    HRESULT hr;
+
+    if (FAILED(hr = IMFMediaTypeHandler_GetMediaTypeByIndex(handler, i, &tmp)))
+        return hr;
+    hr = clone_media_type(tmp, type);
+    IMFMediaType_Release(tmp);
+    return hr;
+}
+
+static BOOL is_better_media_type(IMFMediaType *type, IMFMediaType *best)
+{
+    GUID guid = {0};
+
+    IMFMediaType_GetGUID(type, &MF_MT_SUBTYPE, &guid);
+    if (IsEqualGUID(&guid, &MFAudioFormat_Float) || IsEqualGUID(&guid, &MFAudioFormat_PCM))
+    {
+        IMFMediaType_GetGUID(best, &MF_MT_SUBTYPE, &guid);
+        return !IsEqualGUID(&guid, &MFAudioFormat_Float);
+    }
+
+    return TRUE;
+}
+
+static void topology_branch_find_best_up_type(struct topology_branch *branch, IMFMediaType *down_type, IMFMediaType **type)
+{
+    IMFMediaType *up_type;
+    DWORD flags;
+    HRESULT hr;
+
+    /* actually set the down type to enforce some transform internal parameters like frame size on the enumerated types */
+    if (FAILED(hr = IMFMediaTypeHandler_SetCurrentMediaType(branch->up.handler, down_type)))
+    {
+        TRACE("down type %s not supported by upstream, hr %#lx\n", debugstr_media_type(down_type), hr);
+        return;
+    }
+
+    for (UINT i = 0; SUCCEEDED(hr = media_type_handler_get_type(branch->up.handler, i, &up_type)); i++)
+    {
+        if (FAILED(hr = update_media_type_from_upstream(up_type, down_type)))
+            WARN("Failed to update media type, hr %#lx\n", hr);
+
+        if ((hr = IMFMediaType_IsEqual(up_type, down_type, &flags)) != S_OK)
+            TRACE("up type %s differs from down type %s, hr %#lx flags %#lx\n", debugstr_media_type(up_type),
+                    debugstr_media_type(down_type), hr, flags);
+        else if (FAILED(hr = IMFMediaTypeHandler_IsMediaTypeSupported(branch->down.handler, up_type, NULL)))
+            TRACE("up type %s not supported by downstream, hr %#lx\n", debugstr_media_type(up_type), hr);
+        else if (*type && !is_better_media_type(up_type, *type))
+            TRACE("up type %s isn't better than selected type %s\n", debugstr_media_type(up_type),
+                    debugstr_media_type(*type));
+        else
+        {
+            TRACE("selecting up type %s\n", debugstr_media_type(up_type));
+            if (*type)
+                IMFMediaType_Release(*type);
+            *type = up_type;
+            continue;
+        }
+        IMFMediaType_Release(up_type);
+    }
+}
+
+static HRESULT topology_branch_find_best_type(struct topology_branch *branch, IMFMediaType *upstream, IMFMediaType **type)
+{
+    BOOL enumerate = topology_node_get_type(branch->down.node) == MF_TOPOLOGY_TRANSFORM_NODE;
+    IMFMediaType *down_type;
+    HRESULT hr;
+
+    *type = NULL;
+
+    if (SUCCEEDED(hr = media_type_handler_get_current(branch->down.handler, &down_type)))
+    {
+        if (FAILED(hr = update_media_type_from_upstream(down_type, upstream)))
+            WARN("Failed to update media type, hr %#lx\n", hr);
+        topology_branch_find_best_up_type(branch, down_type, type);
+        IMFMediaType_Release(down_type);
+    }
+    else if (enumerate || hr == MF_E_NOT_INITIALIZED)
+    {
+        for (UINT i = 0; SUCCEEDED(hr = media_type_handler_get_type(branch->down.handler, i, &down_type)); i++)
+        {
+            if (FAILED(hr = update_media_type_from_upstream(down_type, upstream)))
+                WARN("Failed to update media type, hr %#lx\n", hr);
+            topology_branch_find_best_up_type(branch, down_type, type);
+            IMFMediaType_Release(down_type);
+        }
+    }
+
+    return *type ? S_OK : MF_E_INVALIDMEDIATYPE;
+}
+
 static HRESULT topology_branch_connect_with_type(IMFTopology *topology, struct topology_branch *branch, IMFMediaType *type)
 {
     HRESULT hr;
@@ -336,42 +453,37 @@ static HRESULT topology_branch_connect_with_type(IMFTopology *topology, struct t
 }
 
 static HRESULT topology_branch_connect(IMFTopology *topology, enum connect_method method_mask,
-        struct topology_branch *branch, BOOL enumerate_source_types);
-static HRESULT topology_branch_connect_down(IMFTopology *topology, enum connect_method method_mask,
-        struct topology_branch *branch, IMFMediaType *up_type);
+        struct topology_branch *branch, IMFMediaType *upstream);
 static HRESULT topology_branch_connect_indirect(IMFTopology *topology, BOOL decoder,
-        struct topology_branch *branch, IMFMediaType *up_type, IMFMediaType *down_type)
+        struct topology_branch *branch, IMFMediaType *upstream)
 {
     enum connect_method method_mask = CONNECT_DIRECT;
-    MFT_REGISTER_TYPE_INFO input_info, output_info;
+    MFT_REGISTER_TYPE_INFO input_info;
     IMFTransform *transform;
     IMFActivate **activates;
     IMFTopologyNode *node;
     unsigned int i, count;
     GUID category, guid;
+    UINT32 enable_xvp;
     HRESULT hr;
 
-    TRACE("topology %p, decoder %u, branch %s, up_type %s, down_type %s.\n", topology, decoder,
-            debugstr_topology_branch(branch), debugstr_media_type(up_type), debugstr_media_type(down_type));
+    TRACE("topology %p, decoder %u, branch %s, upstream %s.\n", topology, decoder,
+            debugstr_topology_branch(branch), debugstr_media_type(upstream));
 
-    if (FAILED(hr = IMFMediaType_GetMajorType(up_type, &input_info.guidMajorType)))
+    if (FAILED(hr = IMFMediaType_GetMajorType(upstream, &input_info.guidMajorType)))
         return hr;
-    if (FAILED(hr = IMFMediaType_GetGUID(up_type, &MF_MT_SUBTYPE, &input_info.guidSubtype)))
+    if (FAILED(hr = IMFMediaType_GetGUID(upstream, &MF_MT_SUBTYPE, &input_info.guidSubtype)))
         return hr;
-    if (!down_type)
-        output_info = input_info;
-    else
-    {
-        if (FAILED(hr = IMFMediaType_GetMajorType(down_type, &output_info.guidMajorType)))
-            return hr;
-        if (FAILED(hr = IMFMediaType_GetGUID(down_type, &MF_MT_SUBTYPE, &output_info.guidSubtype)))
-            return hr;
-    }
+
+    if (FAILED(IMFTopology_GetUINT32(topology, &MF_TOPOLOGY_ENABLE_XVP_FOR_PLAYBACK, &enable_xvp)))
+        enable_xvp = 0;
 
     if (IsEqualGUID(&input_info.guidMajorType, &MFMediaType_Audio))
         category = decoder ? MFT_CATEGORY_AUDIO_DECODER : MFT_CATEGORY_AUDIO_EFFECT;
     else if (IsEqualGUID(&input_info.guidMajorType, &MFMediaType_Video))
-        category = decoder ? MFT_CATEGORY_VIDEO_DECODER : MFT_CATEGORY_VIDEO_PROCESSOR;
+        category = decoder ? MFT_CATEGORY_VIDEO_DECODER
+                : enable_xvp ? MFT_CATEGORY_VIDEO_PROCESSOR
+                : MFT_CATEGORY_VIDEO_EFFECT;
     else
         return MF_E_INVALIDMEDIATYPE;
 
@@ -385,45 +497,34 @@ static HRESULT topology_branch_connect_indirect(IMFTopology *topology, BOOL deco
         method_mask |= CONNECT_CONVERTER;
     }
 
-    if (FAILED(hr = MFTEnumEx(category, MFT_ENUM_FLAG_ALL, &input_info, decoder ? NULL : &output_info, &activates, &count)))
+    if (FAILED(hr = MFTEnumEx(category, MFT_ENUM_FLAG_ALL, &input_info, NULL, &activates, &count)))
         return hr;
 
     for (i = 0; i < count; ++i)
     {
         struct topology_branch *up_branch, *down_branch;
-        enum connect_method method = method_mask;
         IMFMediaType *media_type;
 
         if (FAILED(IMFActivate_ActivateObject(activates[i], &IID_IMFTransform, (void **)&transform)))
             continue;
         IMFTopologyNode_SetObject(node, (IUnknown *)transform);
         IMFTopologyNode_DeleteItem(node, &MF_TOPONODE_TRANSFORM_OBJECTID);
-        if (SUCCEEDED(IMFActivate_GetGUID(activates[i], &MFT_TRANSFORM_CLSID_Attribute, &guid)))
+        if (SUCCEEDED(IMFActivate_GetGUID(activates[i], &MFT_TRANSFORM_CLSID_Attribute, &guid))
+                && !IsEqualGUID(&guid, &CLSID_VideoProcessorMFT))
             IMFTopologyNode_SetGUID(node, &MF_TOPONODE_TRANSFORM_OBJECTID, &guid);
         IMFTransform_Release(transform);
 
         if (SUCCEEDED(hr = topology_branch_create_indirect(branch, node, &up_branch, &down_branch)))
         {
-            if (SUCCEEDED(hr = topology_branch_connect_with_type(topology, up_branch, up_type)))
+            if (SUCCEEDED(hr = topology_branch_connect_with_type(topology, up_branch, upstream)))
             {
-                if (down_type && SUCCEEDED(MFCreateMediaType(&media_type)))
+                if (FAILED(hr = topology_branch_find_best_type(down_branch, upstream, &media_type)))
+                    hr = topology_branch_connect(topology, method_mask, down_branch, upstream);
+                else
                 {
-                    if (SUCCEEDED(IMFMediaType_CopyAllItems(down_type, (IMFAttributes *)media_type))
-                            && SUCCEEDED(update_media_type_from_upstream(media_type, up_type))
-                            && SUCCEEDED(IMFMediaTypeHandler_SetCurrentMediaType(down_branch->up.handler, media_type)))
-                        method = CONNECT_DIRECT;
+                    hr = topology_branch_connect_with_type(topology, down_branch, media_type);
                     IMFMediaType_Release(media_type);
                 }
-
-                if (method != CONNECT_DIRECT
-                        && SUCCEEDED(IMFMediaTypeHandler_GetMediaTypeByIndex(down_branch->up.handler, 0, &media_type)))
-                {
-                    if (SUCCEEDED(update_media_type_from_upstream(media_type, up_type)))
-                        IMFMediaTypeHandler_SetCurrentMediaType(down_branch->up.handler, media_type);
-                    IMFMediaType_Release(media_type);
-                }
-
-                hr = topology_branch_connect(topology, method, down_branch, !down_type);
             }
             topology_branch_destroy(down_branch);
             topology_branch_destroy(up_branch);
@@ -487,109 +588,169 @@ HRESULT topology_node_init_media_type(IMFTopologyNode *node, DWORD stream, BOOL 
     return hr;
 }
 
+static HRESULT topology_branch_connect_direct(IMFTopology *topology, struct topology_branch *branch, IMFMediaType *up_type)
+{
+    IMFMediaType *down_type, *type;
+    DWORD flags;
+    HRESULT hr;
+
+    TRACE("topology %p, branch %s, up_type %s.\n", topology, debugstr_topology_branch(branch),
+            debugstr_media_type(up_type));
+
+    if (SUCCEEDED(hr = IMFMediaTypeHandler_GetCurrentMediaType(branch->down.handler, &down_type)))
+    {
+        if (IMFMediaType_IsEqual(up_type, down_type, &flags) == S_OK)
+            hr = topology_branch_connect_with_type(topology, branch, up_type);
+        else
+        {
+            TRACE("current type %s differs from up type %s, hr %#lx\n", debugstr_media_type(down_type),
+                    debugstr_media_type(up_type), hr);
+            hr = MF_E_INVALIDMEDIATYPE;
+        }
+        IMFMediaType_Release(down_type);
+        TRACE("returning %#lx\n", hr);
+        return hr;
+    }
+
+    IMFMediaType_AddRef((type = up_type));
+
+    if (hr == MF_E_NOT_INITIALIZED)
+    {
+        for (UINT i = 0; SUCCEEDED(hr = IMFMediaTypeHandler_GetMediaTypeByIndex(branch->down.handler, i, &down_type)); i++)
+        {
+            if ((hr = IMFMediaType_IsEqual(up_type, down_type, &flags)) != S_OK)
+                TRACE("down type %s differs from up type %s, hr %#lx flags %#lx\n", debugstr_media_type(down_type),
+                        debugstr_media_type(up_type), hr, flags);
+            else if (FAILED(hr = IMFMediaTypeHandler_IsMediaTypeSupported(branch->down.handler, down_type, NULL)))
+                TRACE("down type %s not supported by downstream, hr %#lx\n", debugstr_media_type(down_type), hr);
+            else if (FAILED(hr = IMFMediaTypeHandler_IsMediaTypeSupported(branch->up.handler, down_type, NULL)))
+                TRACE("down type %s not supported by upstream, hr %#lx\n", debugstr_media_type(down_type), hr);
+            else
+            {
+                TRACE("selecting down type %s\n", debugstr_media_type(down_type));
+                IMFMediaType_Release(type);
+                type = down_type;
+                continue;
+            }
+            IMFMediaType_Release(down_type);
+        }
+    }
+
+    if (FAILED(hr = IMFMediaTypeHandler_IsMediaTypeSupported(branch->down.handler, type, NULL)))
+        TRACE("type %s not supported by downstream, hr %#lx\n", debugstr_media_type(type), hr);
+    else
+        hr = topology_branch_connect_with_type(topology, branch, type);
+
+    IMFMediaType_Release(type);
+    TRACE("returning %#lx\n", hr);
+    return hr;
+}
+
 static HRESULT topology_branch_connect_down(IMFTopology *topology, enum connect_method method,
         struct topology_branch *branch, IMFMediaType *up_type)
 {
     HRESULT hr = MF_E_INVALIDMEDIATYPE;
-    IMFMediaType *down_type = NULL;
-    DWORD flags;
 
-    TRACE("topology %p, method %#x, branch %s, up_type %s.\n", topology, method,
-            debugstr_topology_branch(branch), debugstr_media_type(up_type));
+    TRACE("topology %p, branch %s, up_type %s.\n", topology, debugstr_topology_branch(branch), debugstr_media_type(up_type));
 
-    get_first_supported_media_type(branch->down.handler, &down_type);
-
-    if (method & CONNECT_DIRECT)
-    {
-        if (down_type && IMFMediaType_IsEqual(up_type, down_type, &flags) == S_OK)
-        {
-            hr = topology_branch_connect_with_type(topology, branch, up_type);
-            goto done;
-        }
-
-        if (SUCCEEDED(hr = IMFMediaTypeHandler_IsMediaTypeSupported(branch->down.handler, up_type, NULL)))
-        {
-            hr = topology_branch_connect_with_type(topology, branch, up_type);
-            goto done;
-        }
-    }
-
+    if (FAILED(hr) && (method & CONNECT_DIRECT))
+        hr = topology_branch_connect_direct(topology, branch, up_type);
     if (FAILED(hr) && (method & CONNECT_CONVERTER))
-        hr = topology_branch_connect_indirect(topology, FALSE, branch, up_type, down_type);
+        hr = topology_branch_connect_indirect(topology, FALSE, branch, up_type);
     if (FAILED(hr) && (method & CONNECT_DECODER))
-        hr = topology_branch_connect_indirect(topology, TRUE, branch, up_type, down_type);
+        hr = topology_branch_connect_indirect(topology, TRUE, branch, up_type);
 
-done:
-    if (down_type)
-        IMFMediaType_Release(down_type);
+    TRACE("returning %#lx\n", hr);
     return hr;
 }
 
 static HRESULT topology_branch_foreach_up_types(IMFTopology *topology, enum connect_method method_mask,
-        struct topology_branch *branch)
-{
-    IMFMediaType *type;
-    DWORD index = 0;
-    HRESULT hr;
-
-    while (SUCCEEDED(hr = IMFMediaTypeHandler_GetMediaTypeByIndex(branch->up.handler, index++, &type)))
-    {
-        hr = topology_branch_connect_down(topology, method_mask, branch, type);
-        IMFMediaType_Release(type);
-        if (SUCCEEDED(hr))
-            break;
-    }
-    return hr;
-}
-
-static HRESULT topology_branch_connect(IMFTopology *topology, enum connect_method method_mask,
-        struct topology_branch *branch, BOOL enumerate_source_types)
+        struct topology_branch *branch, IMFMediaType *upstream)
 {
     HRESULT hr = MF_E_INVALIDMEDIATYPE;
-    UINT32 up_method, down_method;
+    UINT32 enumerate = TRUE;
+    IMFMediaType *up_type;
 
-    TRACE("topology %p, method_mask %#x, branch %s.\n", topology, method_mask, debugstr_topology_branch(branch));
+    TRACE("topology %p, method_mask %#x, branch %s, upstream %s.\n", topology, method_mask, debugstr_topology_branch(branch),
+            debugstr_media_type(upstream));
 
-    if (FAILED(IMFTopologyNode_GetUINT32(branch->down.node, &MF_TOPONODE_CONNECT_METHOD, &down_method)))
-        down_method = MF_CONNECT_ALLOW_DECODER;
-    down_method = connect_method_from_mf(down_method) & method_mask;
-
-    if (enumerate_source_types)
+    switch (topology_node_get_type(branch->up.node))
     {
-        if (topology_node_get_type(branch->up.node) != MF_TOPOLOGY_SOURCESTREAM_NODE
-                || FAILED(IMFTopologyNode_GetUINT32(branch->up.node, &MF_TOPONODE_CONNECT_METHOD, &up_method)))
-            up_method = MF_CONNECT_DIRECT;
-
-        if (up_method & MF_CONNECT_RESOLVE_INDEPENDENT_OUTPUTTYPES)
-            hr = topology_branch_foreach_up_types(topology, down_method, branch);
-        else
-        {
-            if (FAILED(hr) && (down_method & CONNECT_DIRECT))
-                hr = topology_branch_foreach_up_types(topology, CONNECT_DIRECT, branch);
-            if (FAILED(hr) && (down_method & CONNECT_CONVERTER))
-                hr = topology_branch_foreach_up_types(topology, CONNECT_CONVERTER, branch);
-            if (FAILED(hr) && (down_method & CONNECT_DECODER))
-                hr = topology_branch_foreach_up_types(topology, CONNECT_DECODER, branch);
-        }
+        case MF_TOPOLOGY_SOURCESTREAM_NODE:
+            if (FAILED(IMFTopology_GetUINT32(topology, &MF_TOPOLOGY_ENUMERATE_SOURCE_TYPES, &enumerate)))
+                enumerate = FALSE;
+            break;
+        default:
+            if (SUCCEEDED(IMFMediaTypeHandler_GetCurrentMediaType(branch->up.handler, &up_type)))
+            {
+                IMFMediaType_Release(up_type);
+                enumerate = FALSE;
+            }
+            break;
     }
-    else
-    {
-        IMFMediaType *up_type;
 
-        if (SUCCEEDED(hr = IMFMediaTypeHandler_GetCurrentMediaType(branch->up.handler, &up_type))
-                || SUCCEEDED(hr = IMFMediaTypeHandler_GetMediaTypeByIndex(branch->up.handler, 0, &up_type)))
+    if (enumerate)
+    {
+        for (UINT i = 0; SUCCEEDED(hr = media_type_handler_get_type(branch->up.handler, i, &up_type)); i++)
         {
-            hr = topology_branch_connect_down(topology, down_method, branch, up_type);
+            if (upstream && FAILED(hr = update_media_type_from_upstream(up_type, upstream)))
+                WARN("Failed to update type from upstream, hr %#lx\n", hr);
+            hr = topology_branch_connect_down(topology, method_mask, branch, up_type);
             IMFMediaType_Release(up_type);
+            if (SUCCEEDED(hr))
+                return hr;
         }
+        return hr;
+    }
+
+    if (SUCCEEDED(hr = media_type_handler_get_current(branch->up.handler, &up_type))
+            || SUCCEEDED(hr = media_type_handler_get_type(branch->up.handler, 0, &up_type)))
+    {
+        if (upstream && FAILED(hr = update_media_type_from_upstream(up_type, upstream)))
+            WARN("Failed to update type from upstream, hr %#lx\n", hr);
+        hr = topology_branch_connect_down(topology, method_mask, branch, up_type);
+        IMFMediaType_Release(up_type);
+        return hr;
     }
 
     TRACE("returning %#lx\n", hr);
     return hr;
 }
 
-static HRESULT topology_loader_resolve_branches(struct topoloader_context *context, struct list *branches,
-        BOOL enumerate_source_types)
+static HRESULT topology_branch_connect(IMFTopology *topology, enum connect_method method_mask,
+        struct topology_branch *branch, IMFMediaType *upstream)
+{
+    HRESULT hr = MF_E_INVALIDMEDIATYPE;
+    UINT32 up_method, down_method;
+
+    TRACE("topology %p, method_mask %#x, branch %s, upstream %s.\n", topology, method_mask, debugstr_topology_branch(branch),
+            debugstr_media_type(upstream));
+
+    if (FAILED(IMFTopologyNode_GetUINT32(branch->down.node, &MF_TOPONODE_CONNECT_METHOD, &down_method)))
+        down_method = MF_CONNECT_ALLOW_DECODER;
+    down_method = connect_method_from_mf(down_method) & method_mask;
+
+    if (topology_node_get_type(branch->up.node) != MF_TOPOLOGY_SOURCESTREAM_NODE
+            || FAILED(IMFTopologyNode_GetUINT32(branch->up.node, &MF_TOPONODE_CONNECT_METHOD, &up_method)))
+        up_method = MF_CONNECT_DIRECT;
+
+    if (up_method & MF_CONNECT_RESOLVE_INDEPENDENT_OUTPUTTYPES)
+        hr = topology_branch_foreach_up_types(topology, down_method, branch, upstream);
+    else
+    {
+        if (FAILED(hr) && (down_method & CONNECT_DIRECT))
+            hr = topology_branch_foreach_up_types(topology, CONNECT_DIRECT, branch, upstream);
+        if (FAILED(hr) && (down_method & CONNECT_CONVERTER))
+            hr = topology_branch_foreach_up_types(topology, CONNECT_CONVERTER, branch, upstream);
+        if (FAILED(hr) && (down_method & CONNECT_DECODER))
+            hr = topology_branch_foreach_up_types(topology, CONNECT_DECODER, branch, upstream);
+    }
+
+    TRACE("returning %#lx\n", hr);
+    return hr;
+}
+
+static HRESULT topology_loader_resolve_branches(struct topoloader_context *context, struct list *branches)
 {
     enum connect_method method_mask = connect_method_from_mf(MF_CONNECT_ALLOW_DECODER);
     struct topology_branch *branch, *next;
@@ -602,11 +763,7 @@ static HRESULT topology_loader_resolve_branches(struct topoloader_context *conte
         if (FAILED(hr = topology_branch_clone_nodes(context, branch)))
             WARN("Failed to clone nodes for branch %s\n", debugstr_topology_branch(branch));
         else
-        {
-            hr = topology_branch_connect(context->output_topology, method_mask, branch, enumerate_source_types);
-            if (hr == MF_E_INVALIDMEDIATYPE && !enumerate_source_types && topology_node_get_type(branch->up.node) == MF_TOPOLOGY_TRANSFORM_NODE)
-                hr = topology_branch_connect(context->output_topology, method_mask, branch, TRUE);
-        }
+            hr = topology_branch_connect(context->output_topology, method_mask, branch, NULL);
 
         topology_branch_destroy(branch);
         if (FAILED(hr))
@@ -845,7 +1002,6 @@ static HRESULT WINAPI topology_loader_Load(IMFTopoLoader *iface, IMFTopology *in
     struct list branches = LIST_INIT(branches);
     struct topoloader_context context = { 0 };
     struct topology_branch *branch, *next;
-    UINT32 enumerate_source_types;
     IMFTopology *output_topology;
     IMFTopologyNode *node;
     unsigned short i = 0;
@@ -911,12 +1067,8 @@ static HRESULT WINAPI topology_loader_Load(IMFTopoLoader *iface, IMFTopology *in
     if (SUCCEEDED(hr) && list_empty(&branches))
         hr = MF_E_TOPO_UNSUPPORTED;
 
-    if (FAILED(IMFTopology_GetUINT32(input_topology, &MF_TOPOLOGY_ENUMERATE_SOURCE_TYPES,
-            &enumerate_source_types)))
-        enumerate_source_types = 0;
-
     while (SUCCEEDED(hr) && !list_empty(&branches))
-        hr = topology_loader_resolve_branches(&context, &branches, enumerate_source_types);
+        hr = topology_loader_resolve_branches(&context, &branches);
 
     LIST_FOR_EACH_ENTRY_SAFE(branch, next, &branches, struct topology_branch, entry)
     {
