@@ -2947,7 +2947,7 @@ static void test_parse_errors(void)
             /* Expected '(' - error 1005 */
             L"Sub x)\nEnd Sub\n",
             0, 5,
-            NULL, S_OK, -1005
+            NULL, S_OK, 1005
         },
         {
             /* Expected '=' - error 1011 */
@@ -3055,7 +3055,7 @@ static void test_parse_errors(void)
             /* Property Let/Set needs at least one argument - error 1054 */
             L"Class C\nProperty Let x\nEnd Property\nEnd Class\n",
             1, 14,
-            NULL, S_OK, -1054
+            NULL, S_OK, 1054
         },
         {
             /* Unexpected 'Next' - error 1055 */
@@ -3196,6 +3196,16 @@ static void test_parse_errors(void)
             "End Class\n",
             1, 26,
             NULL, S_OK, 1058
+        },
+        {
+            /* Invalid use of 'Me' - Set Me inside class - error 1037 */
+            L"Class C\n"
+            "  Sub T()\n"
+            "    Set Me = Nothing\n"
+            "  End Sub\n"
+            "End Class\n",
+            2, 11,
+            NULL, S_OK, 1037
         }
     };
     HRESULT hres;
