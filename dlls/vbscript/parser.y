@@ -256,6 +256,9 @@ SimpleStatement
                                             { $$ = new_with_statement(ctx, @$, $2, $4); }
     | tWITH Expression StSep StatementsNl_opt tEND error
                                             { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_WITH); YYABORT; }
+    | tPROPERTY tGET                        { ctx->error_loc = @2; ctx->hres = MAKE_VBSERROR(VBSE_MUST_BE_INSIDE_CLASS); YYABORT; }
+    | tPROPERTY tLET                        { ctx->error_loc = @2; ctx->hres = MAKE_VBSERROR(VBSE_MUST_BE_INSIDE_CLASS); YYABORT; }
+    | tPROPERTY tSET                        { ctx->error_loc = @2; ctx->hres = MAKE_VBSERROR(VBSE_MUST_BE_INSIDE_CLASS); YYABORT; }
 
 MemberExpression
     : Identifier                            { $$ = new_member_expression(ctx, NULL, $1); CHECK_ERROR; }
@@ -296,6 +299,7 @@ DimDecl
 DimList
     : IntegerValue                          { $$ = new_dim(ctx, $1, NULL); }
     | IntegerValue ',' DimList              { $$ = new_dim(ctx, $1, $3); }
+    | error                                 { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_INTEGER_CONSTANT); YYABORT; }
 
 ConstDeclList
     : ConstDecl                             { $$ = $1; }
@@ -520,6 +524,7 @@ PropertyDecl
                                     { ctx->hres = MAKE_VBSERROR(VBSE_PROPERTY_LET_SET_NEEDS_ARG); YYABORT; }
     | Storage_opt tPROPERTY tSET Identifier error
                                     { ctx->hres = MAKE_VBSERROR(VBSE_PROPERTY_LET_SET_NEEDS_ARG); YYABORT; }
+    | Storage_opt tPROPERTY error   { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_LET_SET_GET); YYABORT; }
 
 FunctionDecl
     : Storage_opt tSUB Identifier StSep BodyStatements tEND tSUB

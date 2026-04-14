@@ -2995,7 +2995,7 @@ static void test_parse_errors(void)
             /* Expected integer constant - error 1026 */
             L"Dim x(\"a\")\n",
             0, 6,
-            NULL, S_OK, -1026
+            NULL, S_OK, 1026
         },
         {
             /* Invalid number - error 1031 */
@@ -3025,13 +3025,25 @@ static void test_parse_errors(void)
             /* Must be defined inside a Class - error 1048 */
             L"Property Get x\nEnd Property\n",
             0, 9,
-            NULL, S_OK, -1048
+            NULL, S_OK, 1048
+        },
+        {
+            /* Must be defined inside a Class - error 1048 (Let) */
+            L"Property Let x\nEnd Property\n",
+            0, 9,
+            NULL, S_OK, 1048
+        },
+        {
+            /* Must be defined inside a Class - error 1048 (Set) */
+            L"Property Set x\nEnd Property\n",
+            0, 9,
+            NULL, S_OK, 1048
         },
         {
             /* Expected Let or Set or Get - error 1049 */
             L"Class C\nProperty x\nEnd Property\nEnd Class\n",
             1, 9,
-            NULL, S_OK, -1049
+            NULL, S_OK, 1049
         },
         {
             /* Class_Initialize with arguments - error 1053 */
