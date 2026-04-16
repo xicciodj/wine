@@ -278,6 +278,7 @@
 #define VBSE_SYNTAX_ERROR                1002
 #define VBSE_EXPECTED_LPAREN             1005
 #define VBSE_EXPECTED_RPAREN             1006
+#define VBSE_EXPECTED_RBRACKET           1007
 #define VBSE_EXPECTED_IDENTIFIER         1010
 #define VBSE_EXPECTED_ASSIGN             1011
 #define VBSE_EXPECTED_IF                 1012
@@ -296,6 +297,7 @@
 #define VBSE_EXPECTED_INTEGER_CONSTANT   1026
 #define VBSE_EXPECTED_WHILE_UNTIL_EOS    1028
 #define VBSE_EXPECTED_WITH               1029
+#define VBSE_IDENTIFIER_TOO_LONG         1030
 #define VBSE_INVALID_NUMBER              1031
 #define VBSE_INVALID_CHAR                1032
 #define VBSE_UNTERMINATED_STRING         1033
