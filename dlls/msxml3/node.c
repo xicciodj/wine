@@ -4587,3 +4587,155 @@ void node_move_children(struct domnode *dest, struct domnode *src)
         domnode_append_child(dest, child);
     }
 }
+
+HRESULT node_split_text(struct domnode *node, LONG offset, IXMLDOMText **out)
+{
+    struct domnode *child;
+    ULONG length;
+    HRESULT hr;
+    BSTR head;
+
+    if (!out || offset < 0)
+        return E_INVALIDARG;
+
+    *out = NULL;
+
+    length = SysStringLen(node->data);
+    if (offset > length)
+        return E_INVALIDARG;
+    if (offset == length)
+        return S_FALSE;
+
+    if (FAILED(hr = domnode_create(node->type, NULL, 0, NULL, 0, node->owner, &child)))
+        return hr;
+
+    if (offset)
+    {
+        child->data = SysAllocStringLen(node->data + offset, length - offset);
+        head = SysAllocStringLen(node->data, offset);
+        SysFreeString(node->data);
+        node->data = head;
+    }
+    else
+    {
+        child->data = node->data;
+        node->data = NULL;
+    }
+
+    if (node->parent)
+        domnode_insert_domnode(node->parent, child, domnode_get_next_sibling(node));
+
+    if (FAILED(hr = create_node(child, (IXMLDOMNode **)out)))
+        domnode_unlink_child(child);
+
+    return hr;
+}
+
+HRESULT node_delete_data(struct domnode *node, LONG offset, LONG count)
+{
+    ULONG length = SysStringLen(node->data);
+    BSTR str = NULL;
+
+    if (offset < 0 || count < 0 || offset > length)
+        return E_INVALIDARG;
+
+    if (length == 0 || count == 0)
+        return S_OK;
+
+    if (offset == 0)
+    {
+        if (count < length)
+        {
+            str = SysAllocStringLen(node->data + count, length - count);
+            if (!str) return E_OUTOFMEMORY;
+        }
+    }
+    else
+    {
+        if (offset + count >= length)
+        {
+            str = SysAllocStringLen(node->data, offset);
+            if (!str) return E_OUTOFMEMORY;
+        }
+        else
+        {
+            str = SysAllocStringLen(NULL, length - count);
+            if (!str) return E_OUTOFMEMORY;
+            memcpy(str, node->data, offset * sizeof(WCHAR));
+            memcpy(str + offset, node->data + offset + count, (length - count - offset) * sizeof(WCHAR));
+            str[length - count] = 0;
+        }
+    }
+
+    SysFreeString(node->data);
+    node->data = str;
+
+    return S_OK;
+}
+
+HRESULT node_substring_data(struct domnode *node, LONG offset, LONG count, BSTR *p)
+{
+    LONG length = SysStringLen(node->data);
+
+    if (!p)
+        return E_INVALIDARG;
+
+    *p = NULL;
+
+    if (offset < 0 || count < 0)
+        return E_INVALIDARG;
+
+    if (count == 0 || offset >= length)
+        return S_FALSE;
+
+    if (offset + count > length)
+        *p = SysAllocString(node->data + offset);
+    else
+        *p = SysAllocStringLen(node->data + offset, count);
+
+    return *p ? S_OK : E_OUTOFMEMORY;
+}
+
+HRESULT node_insert_data(struct domnode *node, LONG offset, BSTR data)
+{
+    LONG length = SysStringLen(node->data);
+    LONG data_length = SysStringLen(data);
+    BSTR str;
+
+    if (data_length == 0)
+        return S_OK;
+
+    if (offset < 0 || length < offset)
+        return E_INVALIDARG;
+
+    if (!(str = SysAllocStringLen(NULL, length + data_length))) return E_OUTOFMEMORY;
+    memcpy(str, node->data, offset * sizeof(WCHAR));
+    memcpy(str + offset, data, data_length * sizeof(WCHAR));
+    memcpy(str + offset + data_length, node->data + offset, (length - offset) * sizeof(WCHAR));
+    str[length + data_length] = 0;
+
+    SysFreeString(node->data);
+    node->data = str;
+
+    return S_OK;
+}
+
+/* TODO: might be worth it to unroll to avoid intermediate allocations */
+HRESULT node_replace_data(struct domnode *node, LONG offset, LONG count, BSTR data)
+{
+    HRESULT hr;
+
+    if (FAILED(hr = node_delete_data(node, offset, count)))
+        return hr;
+
+    return node_insert_data(node, offset, data);
+}
+
+HRESULT node_get_data_length(struct domnode *node, LONG *length)
+{
+    if (!length)
+        return E_INVALIDARG;
+
+    *length = SysStringLen(node->data);
+    return S_OK;
+}
