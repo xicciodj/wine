@@ -32,6 +32,7 @@
 #include "vbscript_defs.h"
 
 #include "wine/list.h"
+#include "wine/rbtree.h"
 
 typedef struct {
     void **blocks;
@@ -118,6 +119,8 @@ typedef struct _dynamic_var_t {
     const WCHAR *name;
     BOOL is_const;
     SAFEARRAY *array;
+    struct rb_entry entry;
+    size_t index;
 } dynamic_var_t;
 
 typedef struct {
@@ -127,10 +130,12 @@ typedef struct {
     dynamic_var_t **global_vars;
     size_t global_vars_cnt;
     size_t global_vars_size;
+    struct rb_tree var_tree;
 
     function_t **global_funcs;
     size_t global_funcs_cnt;
     size_t global_funcs_size;
+    struct rb_tree func_tree;
 
     class_desc_t *classes;
 
@@ -139,6 +144,8 @@ typedef struct {
 
     unsigned int rnd;
 } ScriptDisp;
+
+dynamic_var_t *script_disp_find_var(ScriptDisp *disp, const WCHAR *name);
 
 typedef struct _builtin_prop_t builtin_prop_t;
 
@@ -169,6 +176,7 @@ HRESULT get_disp_value(script_ctx_t*,IDispatch*,VARIANT*);
 void collect_objects(script_ctx_t*);
 HRESULT create_script_disp(script_ctx_t*,ScriptDisp**);
 HRESULT create_func_ref(script_ctx_t*,function_t*,IDispatch**);
+function_t *script_disp_find_func(ScriptDisp*,const WCHAR*);
 
 HRESULT to_int(VARIANT*,int*);
 
@@ -211,6 +219,7 @@ struct _script_ctx_t {
 
     exec_ctx_t *current_exec;
     exec_ctx_t *caller_exec;
+    unsigned call_depth;
 
     EXCEPINFO ei;
     vbscode_t *error_loc_code;
@@ -361,6 +370,8 @@ struct _function_t {
     unsigned code_off;
     vbscode_t *code_ctx;
     function_t *next;
+    struct rb_entry entry;
+    size_t index;
 };
 
 struct _vbscode_t {

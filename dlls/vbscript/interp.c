@@ -25,6 +25,7 @@
 WINE_DEFAULT_DEBUG_CHANNEL(vbscript);
 
 static DISPID propput_dispid = DISPID_PROPERTYPUT;
+static const unsigned max_call_depth = 1024;
 
 typedef struct _exec_ctx_t {
     vbscode_t *code;
@@ -98,31 +99,24 @@ static BOOL lookup_dynamic_vars(dynamic_var_t *var, const WCHAR *name, ref_t *re
 
 static BOOL lookup_global_vars(ScriptDisp *script, const WCHAR *name, ref_t *ref)
 {
-    dynamic_var_t **vars = script->global_vars;
-    size_t i, cnt = script->global_vars_cnt;
+    dynamic_var_t *var = script_disp_find_var(script, name);
 
-    for(i = 0; i < cnt; i++) {
-        if(!vbs_wcsicmp(vars[i]->name, name)) {
-            ref->type = vars[i]->is_const ? REF_CONST : REF_VAR;
-            ref->u.v = &vars[i]->v;
-            return TRUE;
-        }
-    }
+    if(!var)
+        return FALSE;
 
-    return FALSE;
+    ref->type = var->is_const ? REF_CONST : REF_VAR;
+    ref->u.v = &var->v;
+    return TRUE;
 }
 
 static BOOL lookup_global_funcs(ScriptDisp *script, const WCHAR *name, ref_t *ref)
 {
-    function_t **funcs = script->global_funcs;
-    size_t i, cnt = script->global_funcs_cnt;
+    function_t *func = script_disp_find_func(script, name);
 
-    for(i = 0; i < cnt; i++) {
-        if(!vbs_wcsicmp(funcs[i]->name, name)) {
-            ref->type = REF_FUNC;
-            ref->u.f = funcs[i];
-            return TRUE;
-        }
+    if(func) {
+        ref->type = REF_FUNC;
+        ref->u.f = func;
+        return TRUE;
     }
 
     return FALSE;
@@ -299,6 +293,10 @@ static HRESULT add_dynamic_var(exec_ctx_t *ctx, const WCHAR *name,
                 return E_OUTOFMEMORY;
             script_obj->global_vars = new_vars;
             script_obj->global_vars_size = cnt * 2;
+        }
+        {
+            new_var->index = script_obj->global_vars_cnt;
+            rb_put(&script_obj->var_tree, new_var->name, &new_var->entry);
         }
         script_obj->global_vars[script_obj->global_vars_cnt++] = new_var;
     }else {
@@ -1314,14 +1312,10 @@ static HRESULT interp_dim(exec_ctx_t *ctx)
     assert(array_id < ctx->func->array_cnt);
 
     if(ctx->func->type == FUNC_GLOBAL) {
-        unsigned i;
-        for(i = 0; i < script_obj->global_vars_cnt; i++) {
-            if(!vbs_wcsicmp(script_obj->global_vars[i]->name, ident))
-                break;
-        }
-        assert(i < script_obj->global_vars_cnt);
-        v = &script_obj->global_vars[i]->v;
-        array_ref = &script_obj->global_vars[i]->array;
+        dynamic_var_t *var = script_disp_find_var(script_obj, ident);
+        assert(var != NULL);
+        v = &var->v;
+        array_ref = &var->array;
     }else {
         ref_t ref;
 
@@ -2700,6 +2694,11 @@ HRESULT exec_script(script_ctx_t *ctx, BOOL extern_caller, function_t *func, vbd
     vbsop_t op;
     HRESULT hres = S_OK;
 
+    if(!extern_caller && ctx->call_depth++ >= max_call_depth) {
+        ctx->call_depth--;
+        return MAKE_VBSERROR(VBSE_OUT_OF_STACK);
+    }
+
     exec.code = func->code_ctx;
     exec.caller = ctx->caller_exec;
     ctx->caller_exec = NULL;
@@ -2858,6 +2857,8 @@ HRESULT exec_script(script_ctx_t *ctx, BOOL extern_caller, function_t *func, vbd
     }
 
     ctx->current_named_item = prev_named_item;
+    if(!extern_caller)
+        ctx->call_depth--;
     release_exec(&exec);
     return hres;
 }

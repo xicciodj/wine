@@ -175,7 +175,7 @@ static SQLRETURN WINAPI driver_SQLGetConnectAttr( SQLHDBC con, SQLINTEGER attr,
 static SQLRETURN WINAPI driver_SQLSetConnectAttr( SQLHDBC con, SQLINTEGER attr,
         SQLPOINTER val, SQLINTEGER len )
 {
-    todo_wine ok( 0, "unexpected call\n" );
+    ok( 0, "unexpected call\n" );
     return SQL_ERROR;
 }
 
@@ -244,13 +244,13 @@ static SQLRETURN WINAPI driver_SQLBrowseConnect( SQLHDBC con, SQLCHAR *in_con,
     CHECK_EXPECT( driver_SQLBrowseConnect );
     ok( (ULONG_PTR)con == SQL_HANDLE_DBC, "con = %p\n", con );
     todo_wine ok( in_con_len == 17, "in_con_len = %d\n", in_con_len );
-    todo_wine ok( !strcmp((char *)in_con, "DSN=winetest_dsn;"), "in_con = %s\n", in_con );
+    todo_wine ok( !strncmp((char *)in_con, "DSN=winetest_dsn;", 17), "in_con = %s\n", in_con );
     ok( out_con != NULL, "out_con = %p\n", out_con );
     ok( out_con_max_len == 256, "out_con_max_len = %d\n", out_con_max_len );
     ok( out_con_len != NULL, "out_con_len = %p\n", out_con_len );
 
-    strcpy( (char *)out_con, (char *)in_con );
-    *out_con_len = strlen( (char *)in_con );
+    memcpy( out_con, in_con, in_con_len );
+    *out_con_len = in_con_len;
     return SQL_SUCCESS;
 }
 
@@ -524,9 +524,7 @@ static SQLRETURN WINAPI driver_SQLFreeStmt( SQLHSTMT stmt, SQLUSMALLINT option )
 {
     CHECK_EXPECT( driver_SQLFreeStmt );
     ok( (ULONG_PTR)stmt == SQL_HANDLE_STMT, "stmt = %p\n", stmt );
-    todo_wine_if( option == SQL_DROP ) ok( option == SQL_UNBIND, "option = %d\n", option );
-    if (option == SQL_DROP)
-        return driver_SQLFreeHandle( SQL_HANDLE_STMT, stmt );
+    ok( option == SQL_UNBIND, "option = %d\n", option );
     return SQL_SUCCESS;
 }
 
@@ -709,9 +707,8 @@ static void test_SQLConnect( void )
     size = -1;
     ret = SQLGetEnvAttr( env, SQL_ATTR_ODBC_VERSION, &version, sizeof(version), &size );
     ok( ret == SQL_SUCCESS, "got %d\n", ret );
-    ok( version != -1, "version not set\n" );
+    ok( version == SQL_OV_ODBC2, "version = %d\n", version );
     ok( size == -1, "size set\n" );
-    trace( "ODBC version %d\n", version );
 
     pooling = -1;
     ret = SQLGetEnvAttr( env, SQL_ATTR_CONNECTION_POOLING, &pooling, sizeof(pooling), NULL );
@@ -764,6 +761,13 @@ static void test_SQLConnect( void )
     ok (ret == SQL_SUCCESS, "got %d\n", ret );
     if (ret == SQL_ERROR) diag( con, SQL_HANDLE_DBC );
 
+    ret = SQLSetEnvAttr( env, SQL_ATTR_ODBC_VERSION, (SQLPOINTER)SQL_OV_ODBC2, 0 );
+    ok( ret == SQL_ERROR, "got %d\n", ret );
+
+    ret = SQLGetEnvAttr( env, SQL_ATTR_ODBC_VERSION, &version, sizeof(version), NULL );
+    ok( ret == SQL_SUCCESS, "got %d\n", ret );
+    ok( version == SQL_OV_ODBC2, "version = %d\n", version );
+
     timeout = 0xdeadbeef;
     SET_EXPECT( driver_SQLGetConnectAttr );
     ret = SQLGetConnectAttr( con, SQL_ATTR_LOGIN_TIMEOUT, &timeout, sizeof(timeout), NULL );
@@ -801,12 +805,10 @@ static void test_SQLConnect( void )
     SET_EXPECT( driver_SQLFreeHandle_env );
     ret = SQLFreeConnect( con );
     CHECK_CALLED( driver_SQLFreeHandle_con );
-    todo_wine CHECK_CALLED( driver_SQLFreeHandle_env );
+    CHECK_CALLED( driver_SQLFreeHandle_env );
     ok( ret == SQL_SUCCESS, "got %d\n", ret );
 
-    SET_EXPECT( driver_SQLFreeHandle_env );
     ret = SQLFreeEnv( env );
-    todo_wine CHECK_NOT_CALLED( driver_SQLFreeHandle_env );
     ok( ret == SQL_SUCCESS, "got %d\n", ret );
 }
 
@@ -859,17 +861,11 @@ static void test_SQLDriverConnect( void )
     str[0] = 0;
     SET_EXPECT( driver_SQLAllocHandle_env );
     SET_EXPECT( driver_SQLSetEnvAttr );
-    SET_EXPECT( driver_SQLAllocHandle_con );
-    SET_EXPECT( driver_SQLGetInfo_SQL_DRIVER_ODBC_VER );
     SET_EXPECT( driver_SQLDriverConnect );
     SET_EXPECT( driver_SQLGetDiagRec );
     SET_EXPECT( driver_SQLGetInfo );
     ret = SQLDriverConnect( con, NULL, (SQLCHAR *)"DSN=winetest_dsn;er\\9.99", strlen("DSN=winetest_dsn;er\\9.99"),
                             str, sizeof(str), &len, 0 );
-    todo_wine CHECK_NOT_CALLED( driver_SQLAllocHandle_env );
-    todo_wine CHECK_NOT_CALLED( driver_SQLSetEnvAttr );
-    todo_wine CHECK_NOT_CALLED( driver_SQLAllocHandle_con );
-    todo_wine CHECK_NOT_CALLED( driver_SQLGetInfo_SQL_DRIVER_ODBC_VER );
     CHECK_CALLED( driver_SQLDriverConnect );
     todo_wine CHECK_CALLED( driver_SQLGetDiagRec );
     todo_wine CHECK_CALLED( driver_SQLGetInfo );
@@ -888,12 +884,10 @@ static void test_SQLDriverConnect( void )
     SET_EXPECT( driver_SQLFreeHandle_env );
     ret = SQLFreeConnect( con );
     CHECK_CALLED( driver_SQLFreeHandle_con );
-    todo_wine CHECK_CALLED( driver_SQLFreeHandle_env );
+    CHECK_CALLED( driver_SQLFreeHandle_env );
     ok( ret == SQL_SUCCESS, "got %d\n", ret );
 
-    SET_EXPECT( driver_SQLFreeHandle_env );
     ret = SQLFreeEnv( env );
-    todo_wine CHECK_NOT_CALLED( driver_SQLFreeHandle_env );
     ok( ret == SQL_SUCCESS, "got %d\n", ret );
 }
 
@@ -930,7 +924,7 @@ static void test_SQLBrowseConnect( void )
     todo_wine CHECK_CALLED( driver_SQLGetInfo );
     ok( ret == SQL_SUCCESS, "got %d\n", ret );
     if (ret == SQL_ERROR) diag( con, SQL_HANDLE_DBC );
-    todo_wine ok( !strcmp( (const char *)str, "DSN=winetest_dsn;" ), "got '%s'\n", str );
+    todo_wine ok( !strncmp( (const char *)str, "DSN=winetest_dsn;", 17 ), "got '%s'\n", str );
     todo_wine ok( len == 17, "got %d\n", len );
 
     SET_EXPECT( driver_SQLDisconnect );
@@ -942,12 +936,10 @@ static void test_SQLBrowseConnect( void )
     SET_EXPECT( driver_SQLFreeHandle_env );
     ret = SQLFreeConnect( con );
     CHECK_CALLED( driver_SQLFreeHandle_con );
-    todo_wine CHECK_CALLED( driver_SQLFreeHandle_env );
+    CHECK_CALLED( driver_SQLFreeHandle_env );
     ok( ret == SQL_SUCCESS, "got %d\n", ret );
 
-    SET_EXPECT( driver_SQLFreeHandle_env );
     ret = SQLFreeEnv( env );
-    todo_wine CHECK_NOT_CALLED( driver_SQLFreeHandle_env );
     ok( ret == SQL_SUCCESS, "got %d\n", ret );
 }
 
@@ -1129,11 +1121,9 @@ static void test_SQLExecDirect( void )
     ok( !id[0], "id not set\n" );
     ok( len_id[0] == sizeof(id[0]), "got %d\n", (int)len_id[0] );
 
-    SET_EXPECT( driver_SQLFreeStmt );
     SET_EXPECT( driver_SQLFreeHandle_stmt );
     ret = SQLFreeStmt( stmt, SQL_DROP );
     CHECK_CALLED( driver_SQLFreeHandle_stmt );
-    todo_wine CHECK_NOT_CALLED( driver_SQLFreeStmt );
     ok( ret == SQL_SUCCESS, "got %d\n", ret );
 
     SET_EXPECT( driver_SQLAllocHandle_stmt );
@@ -1189,11 +1179,9 @@ static void test_SQLExecDirect( void )
     ok( len_name[0] == sizeof("John") - 1, "got %d\n", (int)len_name[0] );
     ok( len_name[1] == sizeof("Mary") - 1, "got %d\n", (int)len_name[1] );
 
-    SET_EXPECT( driver_SQLFreeStmt );
     SET_EXPECT( driver_SQLFreeHandle_stmt );
     ret = SQLFreeStmt( stmt, SQL_DROP );
     CHECK_CALLED( driver_SQLFreeHandle_stmt );
-    todo_wine CHECK_NOT_CALLED( driver_SQLFreeStmt );
     ok( ret == SQL_SUCCESS, "got %d\n", ret );
 
     SET_EXPECT( driver_SQLAllocHandle_stmt );
@@ -1240,11 +1228,9 @@ static void test_SQLExecDirect( void )
     ret = SQLFreeStmt( stmt, SQL_UNBIND );
     CHECK_CALLED( driver_SQLFreeStmt );
     ok( ret == SQL_SUCCESS, "got %d\n", ret );
-    SET_EXPECT( driver_SQLFreeStmt );
     SET_EXPECT( driver_SQLFreeHandle_stmt );
     ret = SQLFreeStmt( stmt, SQL_DROP );
     CHECK_CALLED( driver_SQLFreeHandle_stmt );
-    todo_wine CHECK_NOT_CALLED( driver_SQLFreeStmt );
     ok( ret == SQL_SUCCESS, "got %d\n", ret );
 
     SET_EXPECT( driver_SQLAllocHandle_stmt );
@@ -1288,11 +1274,9 @@ static void test_SQLExecDirect( void )
     todo_wine CHECK_NOT_CALLED( driver_SQLSetStmtAttr );
     ok( ret == SQL_ERROR, "got %d\n", ret );
 
-    SET_EXPECT( driver_SQLFreeStmt );
     SET_EXPECT( driver_SQLFreeHandle_stmt );
     ret = SQLFreeStmt( stmt, SQL_DROP );
     CHECK_CALLED( driver_SQLFreeHandle_stmt );
-    todo_wine CHECK_NOT_CALLED( driver_SQLFreeStmt );
     ok( ret == SQL_SUCCESS, "got %d\n", ret );
 
     SET_EXPECT( driver_SQLDisconnect );
@@ -1304,12 +1288,10 @@ static void test_SQLExecDirect( void )
     SET_EXPECT( driver_SQLFreeHandle_env );
     ret = SQLFreeConnect( con );
     CHECK_CALLED( driver_SQLFreeHandle_con );
-    todo_wine CHECK_CALLED( driver_SQLFreeHandle_env );
+    CHECK_CALLED( driver_SQLFreeHandle_env );
     ok( ret == SQL_SUCCESS, "got %d\n", ret );
 
-    SET_EXPECT( driver_SQLFreeHandle_env );
     ret = SQLFreeEnv( env );
-    todo_wine CHECK_NOT_CALLED( driver_SQLFreeHandle_env );
     ok( ret == SQL_SUCCESS, "got %d\n", ret );
 }
 
