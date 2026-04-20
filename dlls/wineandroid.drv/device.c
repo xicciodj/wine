@@ -22,9 +22,9 @@
 #pragma makedep unix
 #endif
 
-#include "config.h"
-
 #define __ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__
+
+#include "config.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -47,19 +47,6 @@
 #include <dlfcn.h>
 
 WINE_DEFAULT_DEBUG_CHANNEL(android);
-
-#define DECL_FUNCPTR(f) static typeof(f) * p##f = NULL
-
-struct AHardwareBuffer* ANativeWindowBuffer_getHardwareBuffer(struct ANativeWindowBuffer* anwb) __INTRODUCED_IN(26);
-
-DECL_FUNCPTR( AHardwareBuffer_describe );
-DECL_FUNCPTR( AHardwareBuffer_acquire );
-DECL_FUNCPTR( AHardwareBuffer_release );
-DECL_FUNCPTR( AHardwareBuffer_lock );
-DECL_FUNCPTR( AHardwareBuffer_unlock );
-DECL_FUNCPTR( AHardwareBuffer_recvHandleFromUnixSocket );
-DECL_FUNCPTR( AHardwareBuffer_sendHandleToUnixSocket );
-DECL_FUNCPTR( ANativeWindowBuffer_getHardwareBuffer );
 
 #ifndef SYNC_IOC_WAIT
 #define SYNC_IOC_WAIT _IOW('>', 0, __s32)
@@ -156,6 +143,7 @@ struct ioctl_android_dequeueBuffer
 {
     struct ioctl_header hdr;
     HANDLE handle;
+    DWORD pid;
     int buffer_id;
     int generation;
 };
@@ -222,12 +210,6 @@ static inline BOOL is_in_desktop_process(void)
     return thread != NULL;
 }
 
-static inline DWORD current_client_id(void)
-{
-    DWORD client_id = NtUserGetThreadInfo()->driver_data;
-    return client_id ? client_id : GetCurrentProcessId();
-}
-
 #ifdef __i386__  /* the Java VM uses %fs/%gs for its own purposes, so we need to wrap the calls */
 
 static WORD orig_fs, java_fs;
@@ -235,11 +217,11 @@ static inline void wrap_java_call(void)   { __asm__( "mov %0,%%fs" :: "r" (java_
 static inline void unwrap_java_call(void) { __asm__( "mov %0,%%fs" :: "r" (orig_fs) ); }
 static inline void init_java_thread( JavaVM *java_vm )
 {
-    java_fs = *p_java_gdt_sel;
+    java_fs = java_gdt_sel;
     __asm__( "mov %%fs,%0" : "=r" (orig_fs) );
     __asm__( "mov %0,%%fs" :: "r" (java_fs) );
     (*java_vm)->AttachCurrentThread( java_vm, &jni_env, 0 );
-    if (!*p_java_gdt_sel) __asm__( "mov %%fs,%0" : "=r" (java_fs) );
+    if (!java_gdt_sel) __asm__( "mov %%fs,%0" : "=r" (java_fs) );
     __asm__( "mov %0,%%fs" :: "r" (orig_fs) );
 }
 
@@ -484,38 +466,6 @@ void register_native_window( HWND hwnd, struct ANativeWindow *win, BOOL opengl )
     NtQueueApcThread( thread, register_window_callback, (ULONG_PTR)hwnd, (ULONG_PTR)win, opengl );
 }
 
-#define LOAD_FUNCPTR(lib, func) do { \
-    const char *err; \
-    dlerror(); \
-    p##func = dlsym( lib, #func ); \
-    if (!p##func) \
-    { \
-        err = dlerror(); \
-        ERR( "can't find symbol %s: %s\n", #func, err ? err : "unknown error" ); \
-        abort(); \
-    } \
-} while (0)
-void init_ahardwarebuffers(void)
-{
-    void *libandroid;
-
-    if (!(libandroid = dlopen( "libandroid.so", RTLD_NOW )))
-    {
-        const char *err = dlerror();
-        ERR( "failed to dlopen libandroid.so: %s\n", err ? err : "unknown error" );
-        abort();
-    }
-
-    LOAD_FUNCPTR( libandroid, AHardwareBuffer_describe );
-    LOAD_FUNCPTR( libandroid, AHardwareBuffer_acquire );
-    LOAD_FUNCPTR( libandroid, AHardwareBuffer_release );
-    LOAD_FUNCPTR( libandroid, AHardwareBuffer_lock );
-    LOAD_FUNCPTR( libandroid, AHardwareBuffer_unlock );
-    LOAD_FUNCPTR( libandroid, AHardwareBuffer_recvHandleFromUnixSocket );
-    LOAD_FUNCPTR( libandroid, AHardwareBuffer_sendHandleToUnixSocket );
-    LOAD_FUNCPTR( libandroid, ANativeWindowBuffer_getHardwareBuffer );
-}
-
 /* get the capture window stored in the desktop process */
 HWND get_capture_window(void)
 {
@@ -571,14 +521,12 @@ static int status_to_android_error( unsigned int status )
 
 static jobject load_java_method( jmethodID *method, const char *name, const char *args )
 {
-    jobject object = *p_java_object;
-
     if (!*method)
     {
         jclass class;
 
         wrap_java_call();
-        class = (*jni_env)->GetObjectClass( jni_env, object );
+        class = (*jni_env)->GetObjectClass( jni_env, java_object );
         *method = (*jni_env)->GetMethodID( jni_env, class, name, args );
         unwrap_java_call();
         if (!*method)
@@ -587,7 +535,7 @@ static jobject load_java_method( jmethodID *method, const char *name, const char
             return NULL;
         }
     }
-    return object;
+    return java_object;
 }
 
 static void create_desktop_view(void)
@@ -608,7 +556,6 @@ static NTSTATUS createWindow_ioctl( void *data, DWORD in_size, DWORD out_size, U
     jobject object;
     struct ioctl_android_create_window *res = data;
     struct native_win_data *win_data;
-    DWORD pid = current_client_id();
 
     if (in_size < sizeof(*res)) return STATUS_INVALID_PARAMETER;
 
@@ -617,10 +564,10 @@ static NTSTATUS createWindow_ioctl( void *data, DWORD in_size, DWORD out_size, U
 
     TRACE( "hwnd %08x opengl %u parent %08x\n", res->hdr.hwnd, res->hdr.opengl, res->parent );
 
-    if (!(object = load_java_method( &method, "createWindow", "(IZZII)V" ))) return STATUS_NOT_SUPPORTED;
+    if (!(object = load_java_method( &method, "createWindow", "(IZZI)V" ))) return STATUS_NOT_SUPPORTED;
 
     wrap_java_call();
-    (*jni_env)->CallVoidMethod( jni_env, object, method, res->hdr.hwnd, res->is_desktop, res->hdr.opengl, res->parent, pid );
+    (*jni_env)->CallVoidMethod( jni_env, object, method, res->hdr.hwnd, res->is_desktop, res->hdr.opengl, res->parent );
     unwrap_java_call();
     return STATUS_SUCCESS;
 }
@@ -718,7 +665,7 @@ static NTSTATUS dequeueBuffer_ioctl( void *data, DWORD in_size, DWORD out_size, 
         int sv[2] = { -1, -1 };
         HANDLE local = 0;
         OBJECT_ATTRIBUTES attr = { .Length = sizeof(attr) };
-        CLIENT_ID cid = { .UniqueProcess = UlongToHandle( current_client_id() ) };
+        CLIENT_ID cid = { .UniqueProcess = UlongToHandle( res->pid ) };
         HANDLE process;
 
         if (!ahb)
@@ -948,7 +895,6 @@ static NTSTATUS setWindowParent_ioctl( void *data, DWORD in_size, DWORD out_size
     jobject object;
     struct ioctl_android_set_window_parent *res = data;
     struct native_win_data *win_data;
-    DWORD pid = current_client_id();
 
     if (in_size < sizeof(*res)) return STATUS_INVALID_PARAMETER;
 
@@ -956,10 +902,10 @@ static NTSTATUS setWindowParent_ioctl( void *data, DWORD in_size, DWORD out_size
 
     TRACE( "hwnd %08x parent %08x\n", res->hdr.hwnd, res->parent );
 
-    if (!(object = load_java_method( &method, "setParent", "(III)V" ))) return STATUS_NOT_SUPPORTED;
+    if (!(object = load_java_method( &method, "setParent", "(II)V" ))) return STATUS_NOT_SUPPORTED;
 
     wrap_java_call();
-    (*jni_env)->CallVoidMethod( jni_env, object, method, res->hdr.hwnd, res->parent, pid );
+    (*jni_env)->CallVoidMethod( jni_env, object, method, res->hdr.hwnd, res->parent );
     unwrap_java_call();
     return STATUS_SUCCESS;
 }
@@ -1035,8 +981,7 @@ static const ioctl_func ioctl_funcs[] =
 
 NTSTATUS android_dispatch_ioctl( void *arg )
 {
-    struct ioctl_params *params = arg;
-    IRP *irp = params->irp;
+    IRP *irp = arg;
     IO_STACK_LOCATION *irpsp = IoGetCurrentIrpStackLocation( irp );
     DWORD code = (irpsp->Parameters.DeviceIoControl.IoControlCode - ANDROID_IOCTL(0)) >> 2;
 
@@ -1049,11 +994,9 @@ NTSTATUS android_dispatch_ioctl( void *arg )
         if (in_size >= sizeof(*header))
         {
             irp->IoStatus.Information = 0;
-            NtUserGetThreadInfo()->driver_data = params->client_id;
             irp->IoStatus.Status = func( irp->AssociatedIrp.SystemBuffer, in_size,
                                          irpsp->Parameters.DeviceIoControl.OutputBufferLength,
                                          &irp->IoStatus.Information );
-            NtUserGetThreadInfo()->driver_data = 0;
         }
         else irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
     }
@@ -1067,9 +1010,7 @@ NTSTATUS android_dispatch_ioctl( void *arg )
 
 NTSTATUS android_java_init( void *arg )
 {
-    JavaVM *java_vm;
-
-    if (!(java_vm = *p_java_vm)) return STATUS_UNSUCCESSFUL;  /* not running under Java */
+    if (!java_vm) return STATUS_UNSUCCESSFUL;  /* not running under Java */
 
     init_java_thread( java_vm );
     create_desktop_view();
@@ -1078,9 +1019,7 @@ NTSTATUS android_java_init( void *arg )
 
 NTSTATUS android_java_uninit( void *arg )
 {
-    JavaVM *java_vm;
-
-    if (!(java_vm = *p_java_vm)) return STATUS_UNSUCCESSFUL;  /* not running under Java */
+    if (!java_vm) return STATUS_UNSUCCESSFUL;  /* not running under Java */
 
     wrap_java_call();
     (*java_vm)->DetachCurrentThread( java_vm );
@@ -1156,11 +1095,12 @@ static int dequeueBuffer( struct ANativeWindow *window, struct ANativeWindowBuff
 
     res.hdr.hwnd = HandleToLong( win->hwnd );
     res.hdr.opengl = win->opengl;
+    res.pid = GetCurrentProcessId();
     res.handle = 0;
     res.buffer_id = -1;
     res.generation = 0;
 
-    ret = android_ioctl( IOCTL_DEQUEUE_BUFFER, &res, sizeof(res.hdr), &res, &size );
+    ret = android_ioctl( IOCTL_DEQUEUE_BUFFER, &res, size, &res, &size );
     if (ret) return ret;
     if (size < sizeof(res)) return -EINVAL;
 

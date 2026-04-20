@@ -145,7 +145,7 @@ static statement_t *link_statements(statement_t*,statement_t*);
 %type <expression> Expression LiteralExpression PrimaryExpression EqualityExpression CallExpression ExpressionNl_opt
 %type <expression> ConcatExpression AdditiveExpression ModExpression IntdivExpression MultiplicativeExpression ExpExpression
 %type <expression> UnaryExpression AndExpression OrExpression XorExpression EqvExpression SignExpression
-%type <expression> ConstExpression NumericLiteralExpression
+%type <expression> NumericLiteralExpression
 %type <member> MemberExpression
 %type <expression> Arguments ArgumentList ArgumentList_opt Step_opt ExpressionList
 %type <boolean> DoType Preserve_opt
@@ -232,13 +232,18 @@ SimpleStatement
     | IfStatement                           { $$ = $1; }
     | tWHILE Expression StSep StatementsNl_opt tWEND
                                             { $$ = new_while_statement(ctx, @$, STAT_WHILE, $2, $4); CHECK_ERROR; }
+    | tWHILE Expression StSep StatementsNl_opt error
+                                            { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_WEND); YYABORT; }
     | tDO DoType Expression StSep StatementsNl_opt tLOOP
                                             { $$ = new_while_statement(ctx, @$, $2 ? STAT_WHILELOOP : STAT_UNTIL, $3, $5);
                                               CHECK_ERROR; }
+    | tDO DoType Expression StSep StatementsNl_opt error
+                                            { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_LOOP); YYABORT; }
     | tDO StSep StatementsNl_opt tLOOP DoType Expression
                                             { $$ = new_while_statement(ctx, @4, $5 ? STAT_DOWHILE : STAT_DOUNTIL, $6, $3);
                                               CHECK_ERROR; }
     | tDO StSep StatementsNl_opt tLOOP      { $$ = new_while_statement(ctx, @$, STAT_DOWHILE, NULL, $3); CHECK_ERROR; }
+    | tDO StSep StatementsNl_opt error      { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_LOOP); YYABORT; }
     | tDO error                             { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_WHILE_UNTIL_EOS); YYABORT; }
     | FunctionDecl                          { $$ = new_function_statement(ctx, @$, $1); CHECK_ERROR; }
     | tEXIT tDO                             { $$ = new_statement(ctx, STAT_EXITDO, 0, @2); CHECK_ERROR; }
@@ -256,9 +261,13 @@ SimpleStatement
                                             { $$ = new_forto_statement(ctx, @$, $2, $4, $6, $7, $9); CHECK_ERROR; }
     | tFOR Identifier '=' Expression error
                                             { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_TO); YYABORT; }
+    | tFOR Identifier '=' Expression tTO Expression Step_opt StSep StatementsNl_opt error
+                                            { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_NEXT); YYABORT; }
     | tFOR tEACH Identifier tIN Expression StSep StatementsNl_opt tNEXT
                                             { $$ = new_foreach_statement(ctx, @$, $3, $5, $7); }
     | tFOR tEACH Identifier error           { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_IN); YYABORT; }
+    | tFOR tEACH Identifier tIN Expression StSep StatementsNl_opt error
+                                            { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_NEXT); YYABORT; }
     | tSELECT tCASE Expression StSep CaseClausules tEND tSELECT
                                             { $$ = new_select_statement(ctx, @$, $3, $5); }
     | tSELECT tCASE Expression StSep CaseClausules tEND error
@@ -318,12 +327,8 @@ ConstDeclList
     | ConstDecl ',' ConstDeclList           { $1->next = $3; $$ = $1; }
 
 ConstDecl
-    : Identifier '=' ConstExpression        { $$ = new_const_decl(ctx, $1, $3); CHECK_ERROR; }
+    : Identifier '=' Expression             { $$ = new_const_decl(ctx, $1, $3); CHECK_ERROR; }
     | Identifier error                      { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_ASSIGN); YYABORT; }
-
-ConstExpression
-    : LiteralExpression                     { $$ = $1; }
-    | '-' NumericLiteralExpression          { $$ = new_unary_expression(ctx, EXPR_NEG, $2); CHECK_ERROR; }
 
 DoType
     : tWHILE        { $$ = TRUE; }
@@ -336,6 +341,8 @@ Step_opt
 IfStatement
     : tIF Expression tTHEN tNL StSep_opt StatementsNl_opt ElseIfs_opt Else_opt tEND tIF
                                                 { $$ = new_if_statement(ctx, @$, $2, $6, $7, $8); CHECK_ERROR; }
+    | tIF Expression tTHEN tNL StSep_opt StatementsNl_opt ElseIfs_opt Else_opt error
+                                                { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_END); YYABORT; }
     | tIF Expression tTHEN Statement EndIf_opt { $$ = new_if_statement(ctx, @$, $2, $4, NULL, NULL); CHECK_ERROR; }
     | tIF Expression tTHEN Statement tELSE Statement EndIf_opt
                                                 { $$ = new_if_statement(ctx, @$, $2, $4, NULL, $6); CHECK_ERROR; }
@@ -1283,9 +1290,36 @@ static class_decl_t *add_dim_prop(parser_ctx_t *ctx, class_decl_t *class_decl, d
     return class_decl;
 }
 
+static BOOL is_const_expression(expression_t *expr)
+{
+    switch(expr->type) {
+    case EXPR_INT:
+    case EXPR_DOUBLE:
+    case EXPR_STRING:
+    case EXPR_BOOL:
+    case EXPR_DATE:
+    case EXPR_EMPTY:
+    case EXPR_NULL:
+    case EXPR_NOTHING:
+        return TRUE;
+    case EXPR_NEG: {
+        unary_expression_t *unary = (unary_expression_t*)expr;
+        return unary->subexpr->type == EXPR_INT || unary->subexpr->type == EXPR_DOUBLE;
+    }
+    default:
+        return FALSE;
+    }
+}
+
 static const_decl_t *new_const_decl(parser_ctx_t *ctx, const WCHAR *name, expression_t *expr)
 {
     const_decl_t *decl;
+
+    if(!is_const_expression(expr)) {
+        ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_LITERAL_CONSTANT);
+        ctx->error_loc = ctx->ptr - ctx->code - 1;
+        return NULL;
+    }
 
     decl = parser_alloc(ctx, sizeof(*decl));
     if(!decl)
