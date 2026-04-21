@@ -2138,12 +2138,14 @@ if (0)
 static void test_persiststream(void)
 {
     IPersistStreamInit *streaminit;
+    IStream *istream, *stream2;
     IPersistStream *stream;
     IXMLDOMDocument *doc;
     ULARGE_INTEGER size;
-    IStream *istream;
+    HGLOBAL global;
     HRESULT hr;
     CLSID clsid;
+    void *ptr;
 
     doc = create_document(&IID_IXMLDOMDocument);
 
@@ -2179,6 +2181,20 @@ static void test_persiststream(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     IStream_Release(istream);
     EXPECT_PARSE_ERROR(doc, S_OK, FALSE);
+
+    /* Save */
+    hr = CreateStreamOnHGlobal(NULL, TRUE, &stream2);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IPersistStreamInit_Save(streaminit, stream2, FALSE);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = GetHGlobalFromStream(stream2, &global);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ptr = GlobalLock(global);
+    ok(!memcmp(ptr, "<?xml", 5), "Unexpected output.\n");
+    GlobalUnlock(global);
+
+    IStream_Release(stream2);
 
     istream = SHCreateMemStream((const BYTE*)"", 0);
     hr = IPersistStreamInit_Load(streaminit, istream);
@@ -5202,6 +5218,7 @@ static void test_whitespace(void)
     hr = IXMLDOMNode_get_text(node, &text);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     ok(!wcscmp(text, L""), "Unexpected text %s.\n", debugstr_w(text));
+    SysFreeString(text);
     {
         IXMLDOMNodeList *list;
 
@@ -5219,7 +5236,6 @@ static void test_whitespace(void)
         IXMLDOMNodeList_Release(list);
     }
     IXMLDOMNode_Release(node);
-    SysFreeString(text);
 
     hr = IXMLDOMNodeList_nextNode(list, &node);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
@@ -12117,7 +12133,8 @@ static void test_dispex(void)
         hr = IXMLDOMDocument_createNode(doc, v, _bstr_("name"), NULL, &node);
         ok(hr == S_OK, "failed to create node type %d\n", *type);
 
-        IXMLDOMNode_QueryInterface(node, &IID_IUnknown, (void**)&unk);
+        hr = IXMLDOMNode_QueryInterface(node, &IID_IUnknown, (void**)&unk);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
         test_domobj_dispex(unk);
         IUnknown_Release(unk);
@@ -13384,7 +13401,8 @@ static void test_newline_normalization(void)
         hr = IXMLDOMDocument_createNode(doc, v, _bstr_("name"), NULL, &node);
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
-        IXMLDOMNode_QueryInterface(node, &IID_IXMLDOMText, (void**)&text);
+        hr = IXMLDOMNode_QueryInterface(node, &IID_IXMLDOMText, (void**)&text);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
         /* \r\n is normalized to \n and back to \r\n */
 
@@ -15097,7 +15115,8 @@ static void test_comment(void)
 
         hr = IXMLDOMComment_get_nodeValue(comment, &v);
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr );
-        ok(!lstrcmpW(str, L"A \nCo\nmment\n  & < \""), "Unexpected text %s.\n", debugstr_w(str));
+        ok(V_VT(&v) == VT_BSTR, "Unexpected type %d.\n", V_VT(&v));
+        ok(!lstrcmpW(V_BSTR(&v), L"A \nCo\nmment\n  & < \""), "Unexpected value %s.\n", debugstr_w(V_BSTR(&v)));
         VariantClear(&v);
 
         hr = IXMLDOMComment_put_nodeValue(comment, _variantbstr_("comment --> a"));
@@ -15463,7 +15482,8 @@ static void test_pi(void)
 
         hr = IXMLDOMProcessingInstruction_get_nodeValue(pi, &v);
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr );
-        ok(!lstrcmpW(str, L"A \nCo\nmment\n  & < \""), "Unexpected text %s.\n", debugstr_w(str));
+        ok(V_VT(&v) == VT_BSTR, "Unexpected type %d.\n", V_VT(&v));
+        ok(!lstrcmpW(V_BSTR(&v), L"A \nCo\nmment\n  & < \""), "Unexpected value %s.\n", debugstr_w(V_BSTR(&v)));
         VariantClear(&v);
 
         hr = IXMLDOMProcessingInstruction_put_nodeValue(pi, _variantbstr_("comment ?> a"));
@@ -16970,7 +16990,6 @@ static void test_document_reload(void)
     ok(!wcscmp(str, L"<b>text</b>"), "Unexpected xml %s.\n", debugstr_w(str));
     SysFreeString(str);
     IXMLDOMElement_Release(element2);
-    SysFreeString(str);
 
     hr = IXMLDOMElement_get_xml(element, &str);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
