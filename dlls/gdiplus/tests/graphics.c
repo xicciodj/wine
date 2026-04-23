@@ -3252,7 +3252,8 @@ static void test_GdipGetNearestColor(void)
     expect(Ok, status);
     status = GdipGetNearestColor(graphics, &color);
     expect(Ok, status);
-    todo_wine expect(0xffa8bce8, color);
+    ok(color == 0xffa8bce8,
+       "Expected 0xffa8bce8, got %.8lx\n", color);
     GdipDeleteGraphics(graphics);
     GdipDisposeImage((GpImage*)bitmap);
 
@@ -3262,10 +3263,9 @@ static void test_GdipGetNearestColor(void)
     expect(Ok, status);
     status = GdipGetNearestColor(graphics, &color);
     expect(Ok, status);
-    todo_wine
     ok(color == 0xffa8b8e8 ||
        broken(color == 0xffa0b8e0), /* Win98/WinMe */
-       "Expected ffa8b8e8, got %.8lx\n", color);
+       "Expected 0xffa8b8e8, got %.8lx\n", color);
     GdipDeleteGraphics(graphics);
     GdipDisposeImage((GpImage*)bitmap);
 
@@ -4921,7 +4921,6 @@ static void test_measure_string(void)
     expect(3, glyphs);
     expect(1, lines);
     expectf_(5.0 + width/2.0, bounds.X, 0.01);
-    todo_wine
     expectf(5.0 + height/2.0, bounds.Y);
     expectf_(width, bounds.Width, 0.01);
     expectf(height, bounds.Height);
@@ -4935,9 +4934,7 @@ static void test_measure_string(void)
     expect(Ok, status);
     expect(3, glyphs);
     expect(1, lines);
-    todo_wine
     expectf_(5.0 - width/2.0, bounds.X, 0.01);
-    todo_wine
     expectf(5.0 - height/2.0, bounds.Y);
     expectf_(width, bounds.Width, 0.01);
     expectf(height, bounds.Height);
@@ -4988,7 +4985,6 @@ static void test_measure_string(void)
     expect(3, glyphs);
     expect(1, lines);
     expectf_(5.0 + width, bounds.X, 0.01);
-    todo_wine
     expectf(5.0 + height, bounds.Y);
     expectf_(width, bounds.Width, 0.01);
     expectf(height, bounds.Height);
@@ -5002,9 +4998,7 @@ static void test_measure_string(void)
     expect(Ok, status);
     expect(3, glyphs);
     expect(1, lines);
-    todo_wine
     expectf_(5.0 - width, bounds.X, 0.01);
-    todo_wine
     expectf(5.0 - height, bounds.Y);
     expectf_(width, bounds.Width, 0.01);
     expectf(height, bounds.Height);

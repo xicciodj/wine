@@ -5258,8 +5258,21 @@ GpStatus WINGDIPAPI GdipGetNearestColor(GpGraphics *graphics, ARGB* argb)
     {
         static int once;
         GpBitmap *bitmap = (GpBitmap *)graphics->image;
-        if (IsIndexedPixelFormat(bitmap->format) && !once++)
-            FIXME("(%p, %p): Passing color unmodified\n", graphics, argb);
+        if (IsIndexedPixelFormat(bitmap->format))
+        {
+            if (!once++)
+                FIXME("(%p, %p): Passing indexed color unmodified\n", graphics, argb);
+        }
+        else if (bitmap->format == PixelFormat16bppRGB565)
+        {
+            /* 16bpp RGB565: Keep top 5 bits for R and B channels, top 6 bits for G channel */
+            *argb = (*argb & 0x00F8FCF8) | 0xFF000000;
+        }
+        else if (bitmap->format == PixelFormat16bppRGB555)
+        {
+            /* 16bpp RGB555: Keep top 5 bits for R, G, B channels */
+            *argb = (*argb & 0x00F8F8F8) | 0xFF000000;
+        }
     }
 
     return Ok;
@@ -6075,18 +6088,6 @@ static GpStatus measure_string_callback(struct gdip_format_string_info *info)
     if (args->linesfilled)
         (*args->linesfilled)++;
 
-    switch (info->format ? info->format->align : StringAlignmentNear)
-    {
-    case StringAlignmentCenter:
-        bounds->X = bounds->X + (info->rect->Width/2) - (bounds->Width/2);
-        break;
-    case StringAlignmentFar:
-        bounds->X = bounds->X + info->rect->Width - bounds->Width;
-        break;
-    default:
-        break;
-    }
-
     return Ok;
 }
 
@@ -6172,6 +6173,33 @@ GpStatus WINGDIPAPI GdipMeasureString(GpGraphics *graphics,
 
     if (lines)
         bounds->Width += margin_x * 2.0;
+
+    if (lines && format)
+    {
+        switch (format->align)
+        {
+        case StringAlignmentCenter:
+            bounds->X = rect->X + (rect->Width - bounds->Width) / 2.0f;
+            break;
+        case StringAlignmentFar:
+            bounds->X = rect->X + rect->Width - bounds->Width;
+            break;
+        default:
+            break;
+        }
+
+        switch (format->line_align)
+        {
+        case StringAlignmentCenter:
+            bounds->Y = rect->Y + (rect->Height - bounds->Height) / 2.0f;
+            break;
+        case StringAlignmentFar:
+            bounds->Y = rect->Y + rect->Height - bounds->Height;
+            break;
+        default:
+            break;
+        }
+    }
 
     SelectObject(hdc, oldfont);
     DeleteObject(gdifont);

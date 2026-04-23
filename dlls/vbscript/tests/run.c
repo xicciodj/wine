@@ -2929,7 +2929,7 @@ static void test_parse_errors(void)
             /* Expected identifier - error 1010 */
             L"Dim If\n",
             0, 4,
-            NULL, S_OK, -1010
+            NULL, S_OK, 1010
         },
         {
             /* Invalid character - error 1032 */
@@ -3424,6 +3424,18 @@ static void test_parse_errors(void)
             "End Class\n",
             3, 8,
             L"    Dim Foo", S_OK, 1041
+        },
+        {
+            /* Invalid 'for' loop control variable (member expression) - error 1040 */
+            L"Dim x\nFor x.y = 1 To 3\nNext\n",
+            1, 8,
+            NULL, S_OK, 1040
+        },
+        {
+            /* Invalid 'for each' loop control variable (member expression) - error 1040 */
+            L"Dim x\nFor Each x.y In Array(1)\nNext\n",
+            1, 13,
+            NULL, S_OK, 1040
         }
     };
     HRESULT hres;
