@@ -1162,7 +1162,6 @@ static HRESULT WINAPI domdoc_createNode(IXMLDOMDocument3 *iface, VARIANT type, B
         /* Check if we need a name */
         case NODE_ELEMENT:
         case NODE_ATTRIBUTE:
-        case NODE_ENTITY_REFERENCE:
         case NODE_PROCESSING_INSTRUCTION:
 
             if (!name || *name == 0)
@@ -1178,6 +1177,18 @@ static HRESULT WINAPI domdoc_createNode(IXMLDOMDocument3 *iface, VARIANT type, B
 
         default:
             break;
+    }
+
+    if (node_type == NODE_ENTITY_REFERENCE)
+    {
+        if (!name || !parser_is_valid_qualified_name(name) || wcschr(name, ':'))
+            return E_FAIL;
+        if (uri && *uri)
+            return E_FAIL;
+    }
+    else if (node_type == NODE_DOCUMENT_FRAGMENT)
+    {
+        name = uri = NULL;
     }
 
     *node = NULL;
