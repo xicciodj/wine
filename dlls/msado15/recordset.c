@@ -3448,7 +3448,8 @@ static HRESULT WINAPI recordset_Find( _Recordset *iface, BSTR criteria, LONG ski
 
     if (!recordset->current_row) return S_FALSE;
 
-    if (V_VT(&start) == VT_ERROR && V_ERROR(&start) == DISP_E_PARAMNOTFOUND)
+    if ((V_VT(&start) == VT_ERROR && V_ERROR(&start) == DISP_E_PARAMNOTFOUND) ||
+            (V_VT(&start) == VT_BSTR && !SysStringLen(V_BSTR(&start))))
     {
         if (!recordset->bookmark_hacc)
             VariantInit( &start );
@@ -3475,10 +3476,16 @@ static HRESULT WINAPI recordset_Find( _Recordset *iface, BSTR criteria, LONG ski
     V_BSTR(&v) = col;
     hr = get_accessor( recordset, &v, &hacc );
     SysFreeString( col );
-    if (SUCCEEDED(hr))
-        hr = get_bookmark_data( &start, &bm_data, &bm_len, &int_buf );
     if (FAILED(hr))
     {
+        SysFreeString( val );
+        if (free_bookmark) VariantClear( &start );
+        return hr;
+    }
+    hr = get_bookmark_data( &start, &bm_data, &bm_len, &int_buf );
+    if (FAILED(hr))
+    {
+        IAccessor_ReleaseAccessor( recordset->accessor, hacc, NULL );
         SysFreeString( val );
         if (free_bookmark) VariantClear( &start );
         return hr;
