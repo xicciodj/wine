@@ -530,11 +530,11 @@ static UINT64 xstate_extended_features;
 static LONG syscall_dispatch_enabled = TRUE;
 
 #if defined(__linux__) || defined(__APPLE__)
-static inline TEB *get_current_teb(void)
+static inline struct thread_data *get_current_thread_data(void)
 {
     unsigned long rsp;
     __asm__( "movq %%rsp,%0" : "=r" (rsp) );
-    return (TEB *)(rsp & ~signal_stack_mask);
+    return (struct thread_data *)(rsp & ~signal_stack_mask);
 }
 #endif
 
@@ -779,13 +779,13 @@ static inline ucontext_t *init_handler( void *sigcontext )
     clear_alignment_flag();
 #ifdef __linux__
     {
-        struct amd64_thread_data *thread_data = (struct amd64_thread_data *)&get_current_teb()->GdiTebBatch;
+        struct amd64_thread_data *thread_data = (struct amd64_thread_data *)&get_current_thread_data()->teb->GdiTebBatch;
         thread_data->syscall_dispatch = 0; /* SYSCALL_DISPATCH_FILTER_ALLOW */
         if (fs32_sel) arch_prctl( ARCH_SET_FS, thread_data->pthread_teb );
     }
 #elif defined __APPLE__
     {
-        struct amd64_thread_data *thread_data = (struct amd64_thread_data *)&get_current_teb()->GdiTebBatch;
+        struct amd64_thread_data *thread_data = (struct amd64_thread_data *)&get_current_thread_data()->teb->GdiTebBatch;
         _thread_set_tsd_base( (uint64_t)thread_data->pthread_teb );
 
         /* When in a syscall, CS will be the kernel's selector (0x07, SYSCALL_CS in xnu source)
@@ -1778,12 +1778,12 @@ __ASM_GLOBAL_FUNC( user_mode_abort_thread,
  */
 NTSTATUS KeUserModeCallback( ULONG id, const void *args, ULONG len, void **ret_ptr, ULONG *ret_len )
 {
+    struct thread_data *data = get_thread_data();
     struct syscall_frame *frame = get_syscall_frame();
     ULONG64 rsp = (frame->rsp - offsetof( struct callback_stack_layout, args_data[len] )) & ~15;
     struct callback_stack_layout *stack = (struct callback_stack_layout *)rsp;
 
-    if ((char *)ntdll_get_thread_data()->kernel_stack + min_kernel_stack > (char *)&frame)
-        return STATUS_STACK_OVERFLOW;
+    if ((char *)get_kernel_stack( data ) + min_kernel_stack > (char *)&frame) return STATUS_STACK_OVERFLOW;
 
     stack->args              = stack->args_data;
     stack->len               = len;
@@ -1791,7 +1791,7 @@ NTSTATUS KeUserModeCallback( ULONG id, const void *args, ULONG len, void **ret_p
     stack->machine_frame.rip = frame->rip;
     stack->machine_frame.rsp = frame->rsp;
     memcpy( stack->args_data, args, len );
-    return call_user_mode_callback( rsp, ret_ptr, ret_len, pKiUserCallbackDispatcher, NtCurrentTeb() );
+    return call_user_mode_callback( rsp, ret_ptr, ret_len, pKiUserCallbackDispatcher, data->teb );
 }
 
 
@@ -2078,6 +2078,7 @@ static BOOL check_atl_thunk( ucontext_t *sigcontext, EXCEPTION_RECORD *rec, CONT
  */
 static BOOL handle_syscall_fault( ucontext_t *sigcontext, EXCEPTION_RECORD *rec, CONTEXT *context )
 {
+    struct thread_data *data = get_thread_data();
     struct syscall_frame *frame = get_syscall_frame();
     DWORD i;
 
@@ -2097,19 +2098,19 @@ static BOOL handle_syscall_fault( ucontext_t *sigcontext, EXCEPTION_RECORD *rec,
     TRACE_(seh)( " r12=%016lx r13=%016lx r14=%016lx r15=%016lx\n",
                  context->R12, context->R13, context->R14, context->R15 );
 
-    if (ntdll_get_thread_data()->jmp_buf)
+    if (data->jmp_buf)
     {
         TRACE_(seh)( "returning to handler\n" );
-        RDI_sig(sigcontext) = (ULONG_PTR)ntdll_get_thread_data()->jmp_buf;
+        RDI_sig(sigcontext) = (ULONG_PTR)data->jmp_buf;
         RSI_sig(sigcontext) = 1;
         RIP_sig(sigcontext) = (ULONG_PTR)longjmp;
-        ntdll_get_thread_data()->jmp_buf = NULL;
+        data->jmp_buf = NULL;
     }
     else
     {
         TRACE_(seh)( "returning to user mode ip=%016lx ret=%08x\n", frame->rip, rec->ExceptionCode );
         RAX_sig(sigcontext) = rec->ExceptionCode;
-        R13_sig(sigcontext) = (ULONG_PTR)NtCurrentTeb();
+        R13_sig(sigcontext) = (ULONG_PTR)data->teb;
         RSP_sig(sigcontext) = (ULONG_PTR)frame;
         RIP_sig(sigcontext) = (ULONG_PTR)__wine_syscall_dispatcher_return;
     }
@@ -2497,6 +2498,7 @@ static void quit_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 {
     ucontext_t *ucontext = init_handler( sigcontext );
+    struct thread_data *data = get_thread_data();
 
     if (is_inside_syscall( RSP_sig(ucontext) ))
     {
@@ -2506,7 +2508,7 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
         struct xcontext *context;
 
         context = (struct xcontext *)(((ULONG_PTR)RSP_sig(ucontext) - 128 /* red zone */ - sizeof(*context)) & ~15);
-        if ((char *)context < (char *)ntdll_get_thread_data()->kernel_stack)
+        if ((char *)context < (char *)get_kernel_stack( data ))
         {
             ERR_(seh)( "kernel stack overflow.\n" );
             return;
@@ -2537,7 +2539,7 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
         if ((wow_context = get_cpu_area( IMAGE_FILE_MACHINE_I386 ))
              && (wow_context->ContextFlags & CONTEXT_I386_CONTROL) == CONTEXT_I386_CONTROL)
         {
-            WOW64_CPURESERVED *cpu = NtCurrentTeb()->TlsSlots[WOW64_TLS_CPURESERVED];
+            WOW64_CPURESERVED *cpu = data->teb->TlsSlots[WOW64_TLS_CPURESERVED];
 
             cpu->Flags |= WOW64_CPURESERVED_FLAG_RESET_STATE;
         }
@@ -2738,20 +2740,16 @@ void signal_init_process(void)
 {
     struct sigaction sig_act;
     WOW_TEB *wow_teb = get_wow_teb( NtCurrentTeb() );
-    struct ntdll_thread_data *thread_data = ntdll_get_thread_data();
-    void *ptr, *kernel_stack = (char *)thread_data->kernel_stack + kernel_stack_size;
+    void *ptr;
 
     if (user_shared_data->XState.Size) xstate_size = user_shared_data->XState.Size - sizeof(XSAVE_FORMAT);
     frame_size = offsetof( struct syscall_frame, xstate ) + xstate_size;
-
-    thread_data->syscall_frame = (struct syscall_frame *)(((ULONG_PTR)kernel_stack - frame_size) & ~(ULONG_PTR)63);
+    xstate_extended_features = user_shared_data->XState.EnabledFeatures & ~(UINT64)3;
 
     /* sneak in a syscall dispatcher pointer at a fixed address (7ffe1000) */
     ptr = (char *)user_shared_data + page_size;
     anon_mmap_fixed( ptr, page_size, PROT_READ | PROT_WRITE, 0 );
     *(void **)ptr = __wine_syscall_dispatcher;
-
-    xstate_extended_features = user_shared_data->XState.EnabledFeatures & ~(UINT64)3;
 
     __asm__( "movw %%cs,%0" : "=m" (cs64_sel) );
     __asm__( "movw %%ss,%0" : "=m" (ds64_sel) );
@@ -2774,6 +2772,7 @@ void signal_init_process(void)
     }
 #endif
 
+    alloc_syscall_frame( (frame_size + 63) & ~63 );
     signal_alloc_thread( NtCurrentTeb() );
 
     sig_act.sa_mask = server_block_set;
