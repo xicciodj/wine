@@ -1102,11 +1102,12 @@ static void contexts_from_server( CONTEXT *context, struct context_data server_c
  */
 static DECLSPEC_NORETURN void pthread_exit_wrapper( int status )
 {
-    close( ntdll_get_thread_data()->alert_fd );
-    close( ntdll_get_thread_data()->wait_fd[0] );
-    close( ntdll_get_thread_data()->wait_fd[1] );
-    close( ntdll_get_thread_data()->reply_fd );
-    close( ntdll_get_thread_data()->request_fd );
+    struct thread_data *data = get_thread_data();
+    close( data->alert_fd );
+    close( data->wait_fd[0] );
+    close( data->wait_fd[1] );
+    close( data->reply_fd );
+    close( data->request_fd );
     pthread_exit( UIntToPtr(status) );
 }
 
@@ -1179,17 +1180,18 @@ void *get_cpu_area( USHORT machine )
 /***********************************************************************
  *           set_thread_id
  */
-void set_thread_id( TEB *teb, DWORD tid )
+void set_thread_id( struct thread_data *data )
 {
+    TEB *teb = data->teb;
     WOW_TEB *wow_teb = get_wow_teb( teb );
 
     teb->ClientId.UniqueProcess = ULongToHandle( pid );
-    teb->ClientId.UniqueThread  = ULongToHandle( tid );
+    teb->ClientId.UniqueThread  = ULongToHandle( data->tid );
     teb->RealClientId = teb->ClientId;
     if (wow_teb)
     {
         wow_teb->ClientId.UniqueProcess = pid;
-        wow_teb->ClientId.UniqueThread  = tid;
+        wow_teb->ClientId.UniqueThread  = data->tid;
         wow_teb->RealClientId = wow_teb->ClientId;
     }
 }
@@ -1331,7 +1333,6 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE *handle, ACCESS_MASK access, OBJECT_ATT
     pthread_attr_t pthread_attr;
     data_size_t len;
     struct object_attributes *objattr;
-    struct ntdll_thread_data *thread_data;
     struct thread_data *data;
     DWORD tid = 0;
     int request_pipe[2];
@@ -1419,8 +1420,8 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE *handle, ACCESS_MASK access, OBJECT_ATT
 
     pthread_sigmask( SIG_BLOCK, &server_block_set, &sigset );
 
-    if ((status = virtual_alloc_teb( &teb ))) goto done;
-    data->teb = teb;
+    if ((status = virtual_alloc_teb( data ))) goto done;
+    teb = data->teb;
 
     if ((status = init_thread_stack( teb, get_zero_bits_limit( zero_bits ), stack_reserve, stack_commit )))
     {
@@ -1428,19 +1429,18 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE *handle, ACCESS_MASK access, OBJECT_ATT
         goto done;
     }
 
-    set_thread_id( teb, tid );
+    data->tid = tid;
+    set_thread_id( data );
 
     teb->SkipThreadAttach = !!(flags & THREAD_CREATE_FLAGS_SKIP_THREAD_ATTACH);
     teb->SkipLoaderInit = !!(flags & THREAD_CREATE_FLAGS_SKIP_LOADER_INIT);
-    wow_teb = get_wow_teb( teb );
-    if (wow_teb)
+    if ((wow_teb = get_wow_teb( teb )))
     {
         wow_teb->SkipThreadAttach = teb->SkipThreadAttach;
         wow_teb->SkipLoaderInit = teb->SkipLoaderInit;
     }
 
-    thread_data = (struct ntdll_thread_data *)&teb->GdiTebBatch;
-    thread_data->request_fd  = request_pipe[1];
+    data->request_fd = request_pipe[1];
     data->start = start;
     data->param = param;
 
@@ -2643,7 +2643,7 @@ NTSTATUS WINAPI NtSetInformationThread( HANDLE handle, THREADINFOCLASS class,
         if (handle != GetCurrentThread()) return STATUS_NOT_SUPPORTED;
         if (mem->Version != 2) return STATUS_REVISION_MISMATCH;
         if (mem->ProcessEnableWriteExceptions) return STATUS_INVALID_PARAMETER;
-        ntdll_get_thread_data()->allow_writes = mem->ThreadAllowWrites;
+        get_thread_data()->allow_writes = mem->ThreadAllowWrites;
         return STATUS_SUCCESS;
 #else
         return STATUS_NOT_SUPPORTED;

@@ -103,10 +103,18 @@ static inline BOOL is_arm64ec(void)
 struct thread_data
 {
     TEB         *teb;               /* TEB */
+    int          request_fd;        /* fd for sending server requests */
+    int          reply_fd;          /* fd for receiving server replies */
+    int          wait_fd[2];        /* fd for sleeping server requests */
+    int          alert_fd;          /* inproc sync fd for user apc alerts */
+    DWORD        tid;               /* thread id */
+    BOOL         allow_writes;      /* ThreadAllowWrites flags */
     pthread_t    pthread_id;        /* pthread thread id */
     void        *jmp_buf;           /* setjmp buffer for exception handling */
     void        *start;             /* thread entry point */
     void        *param;             /* thread entry point parameter */
+    struct list  entry;             /* entry in TEB list */
+    char         debug_info[0x800]; /* debug_info structure */
     char         signal_stack[];    /* signal stack */
     /* char kernel_stack[] */
 };
@@ -125,12 +133,6 @@ struct ntdll_thread_data
     SYSTEM_SERVICE_TABLE     *syscall_table; /* 214/0370 syscall table */
     struct syscall_frame     *syscall_frame; /* 218/0378 current syscall frame */
     int                       syscall_trace; /* 21c/0380 syscall trace flag */
-    int                       request_fd;    /* fd for sending server requests */
-    int                       reply_fd;      /* fd for receiving server replies */
-    int                       wait_fd[2];    /* fd for sleeping server requests */
-    int                       alert_fd;      /* inproc sync fd for user apc alerts */
-    BOOL                      allow_writes;  /* ThreadAllowWrites flags */
-    struct list               entry;         /* entry in TEB list */
 };
 
 C_ASSERT( sizeof(struct ntdll_thread_data) <= sizeof(((TEB *)0)->GdiTebBatch) );
@@ -286,7 +288,7 @@ extern void copy_xstate( XSAVE_AREA_HEADER *dst, XSAVE_AREA_HEADER *src, UINT64 
 extern void set_process_instrumentation_callback( void *callback );
 
 extern void *get_cpu_area( USHORT machine );
-extern void set_thread_id( TEB *teb, DWORD tid );
+extern void set_thread_id( struct thread_data *data );
 extern NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE_T commit_size );
 extern void DECLSPEC_NORETURN abort_thread( int status );
 extern void DECLSPEC_NORETURN abort_process( int status );
@@ -314,7 +316,7 @@ extern NTSTATUS virtual_create_builtin_view( void *module, const UNICODE_STRING 
                                              struct pe_image_info *info, void *so_handle );
 extern NTSTATUS virtual_relocate_module( void *module );
 extern TEB *virtual_alloc_first_teb(void);
-extern NTSTATUS virtual_alloc_teb( TEB **ret_teb );
+extern NTSTATUS virtual_alloc_teb( struct thread_data *data );
 struct thread_data *virtual_alloc_thread_data(void);
 extern void virtual_free_thread_data( struct thread_data *data );
 extern NTSTATUS virtual_clear_tls_index( ULONG index );
