@@ -4525,9 +4525,9 @@ struct thread_stack_info
 /***********************************************************************
  *           is_inside_thread_stack
  */
-static BOOL is_inside_thread_stack( void *ptr, struct thread_stack_info *stack )
+static BOOL is_inside_thread_stack( struct thread_data *data, void *ptr, struct thread_stack_info *stack )
 {
-    TEB *teb = NtCurrentTeb();
+    TEB *teb = data->teb;
     WOW_TEB *wow_teb = get_wow_teb( teb );
     size_t min_guaranteed = max( page_size * (is_win64 ? 2 : 1), host_page_size );
 
@@ -4582,7 +4582,7 @@ static NTSTATUS grow_thread_stack( char *page, struct thread_stack_info *stack_i
 /***********************************************************************
  *           virtual_handle_fault
  */
-NTSTATUS virtual_handle_fault( EXCEPTION_RECORD *rec, void *stack )
+NTSTATUS virtual_handle_fault( struct thread_data *data, EXCEPTION_RECORD *rec, void *stack )
 {
     NTSTATUS ret = STATUS_ACCESS_VIOLATION;
     ULONG_PTR err = rec->ExceptionInformation[0];
@@ -4602,10 +4602,10 @@ NTSTATUS virtual_handle_fault( EXCEPTION_RECORD *rec, void *stack )
     }
 #endif
 
-    if (!is_inside_signal_stack( stack ) && (vprot & VPROT_GUARD))
+    if (!is_inside_signal_stack( data, stack ) && (vprot & VPROT_GUARD))
     {
         struct thread_stack_info stack_info;
-        if (!is_inside_thread_stack( page, &stack_info ))
+        if (!is_inside_thread_stack( data, page, &stack_info ))
         {
             set_page_vprot_bits( page, host_page_size, 0, VPROT_GUARD );
             mprotect_range( page, host_page_size, 0, 0 );
@@ -4617,7 +4617,7 @@ NTSTATUS virtual_handle_fault( EXCEPTION_RECORD *rec, void *stack )
     {
         if (vprot & VPROT_WRITEWATCH)
         {
-            if (enable_write_exceptions && is_vprot_exec_write( vprot ) && !get_thread_data()->allow_writes)
+            if (enable_write_exceptions && is_vprot_exec_write( vprot ) && !data->allow_writes)
             {
                 rec->NumberParameters = 3;
                 rec->ExceptionInformation[2] = STATUS_EXECUTABLE_MEMORY_WRITE;
@@ -4645,21 +4645,21 @@ NTSTATUS virtual_handle_fault( EXCEPTION_RECORD *rec, void *stack )
 /***********************************************************************
  *           virtual_setup_exception
  */
-void *virtual_setup_exception( void *stack_ptr, size_t size, EXCEPTION_RECORD *rec )
+void *virtual_setup_exception( struct thread_data *data, void *stack_ptr, size_t size, EXCEPTION_RECORD *rec )
 {
     char *stack = stack_ptr;
     struct thread_stack_info stack_info;
 
-    if (!is_inside_thread_stack( stack, &stack_info ))
+    if (!is_inside_thread_stack( data, stack, &stack_info ))
     {
-        if (is_inside_signal_stack( stack ))
+        if (is_inside_signal_stack( data, stack ))
         {
             ERR( "nested exception on signal stack addr %p stack %p\n", rec->ExceptionAddress, stack );
             abort_thread(1);
         }
         WARN( "exception outside of stack limits addr %p stack %p (%p-%p-%p)\n",
-              rec->ExceptionAddress, stack, NtCurrentTeb()->DeallocationStack,
-              NtCurrentTeb()->Tib.StackLimit, NtCurrentTeb()->Tib.StackBase );
+              rec->ExceptionAddress, stack, data->teb->DeallocationStack,
+              data->teb->Tib.StackLimit, data->teb->Tib.StackBase );
         return stack - size;
     }
 

@@ -3815,4 +3815,59 @@ Call ok(Err.Number = 506, "New non-class variable: err.number = " & Err.Number)
 
 On Error GoTo 0
 
+' === GetLocale / SetLocale / locale-sensitive Format* ===
+Dim origLcid
+origLcid = GetLocale()
+Call ok(origLcid > 0, "GetLocale initial: " & origLcid)
+
+' SetLocale returns the previous LCID.
+Call ok(SetLocale(1033) = origLcid, "SetLocale(1033) return value")
+Call ok(GetLocale() = 1033, "GetLocale after SetLocale(1033): " & GetLocale())
+
+' en-US formatting
+Call ok(FormatNumber(1234567.89) = "1,234,567.89", "FormatNumber en-US: " & FormatNumber(1234567.89))
+Call ok(FormatCurrency(1234567.89) = "$1,234,567.89", "FormatCurrency en-US: " & FormatCurrency(1234567.89))
+Call ok(FormatPercent(0.1234) = "12.34%", "FormatPercent en-US: " & FormatPercent(0.1234))
+Call ok(FormatDateTime(DateSerial(2026,3,15), 1) = "Sunday, March 15, 2026", _
+    "FormatDateTime en-US: " & FormatDateTime(DateSerial(2026,3,15), 1))
+
+' de-DE: '.' thousands, ',' decimal
+Call SetLocale(1031)
+Call ok(GetLocale() = 1031, "GetLocale after SetLocale(1031)")
+Call ok(FormatNumber(1234567.89) = "1.234.567,89", "FormatNumber de-DE: " & FormatNumber(1234567.89))
+Call ok(FormatPercent(0.1234) = "12,34%", "FormatPercent de-DE: " & FormatPercent(0.1234))
+
+' ja-JP: Anglo number formatting
+Call SetLocale(1041)
+Call ok(GetLocale() = 1041, "GetLocale after SetLocale(1041)")
+Call ok(FormatNumber(1234567.89) = "1,234,567.89", "FormatNumber ja-JP: " & FormatNumber(1234567.89))
+Call ok(FormatPercent(0.1234) = "12.34%", "FormatPercent ja-JP: " & FormatPercent(0.1234))
+
+' Variant coercion to string (CStr etc.) uses the script LCID.
+Call SetLocale(1031)
+Call ok(CStr(1.5) = "1,5", "CStr(1.5) de-DE: " & CStr(1.5))
+Call SetLocale(1033)
+Call ok(CStr(1.5) = "1.5", "CStr(1.5) en-US: " & CStr(1.5))
+
+' Day/Month/Year parse date strings using the script LCID.
+Call SetLocale(1031)
+Call ok(Day("15.03.2026") = 15, "Day(""15.03.2026"") de-DE: " & Day("15.03.2026"))
+Call ok(Month("15.03.2026") = 3, "Month(""15.03.2026"") de-DE: " & Month("15.03.2026"))
+Call ok(Year("15.03.2026") = 2026, "Year(""15.03.2026"") de-DE: " & Year("15.03.2026"))
+
+' The German-format string is rejected under en-US.
+Call SetLocale(1033)
+Dim dateErr
+On Error Resume Next
+Err.Clear
+Call Day("15.03.2026")
+dateErr = Err.Number
+Err.Clear
+On Error Goto 0
+Call ok(dateErr <> 0, "Day(""15.03.2026"") en-US should error: err=" & dateErr)
+
+' Restore original locale.
+Call SetLocale(origLcid)
+Call ok(GetLocale() = origLcid, "restore: GetLocale = " & GetLocale())
+
 reportSuccess()

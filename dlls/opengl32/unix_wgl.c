@@ -129,7 +129,6 @@ struct context
     HGLRC client;                  /* client-side context handle */
     HGLRC share;                   /* context to be shared with */
     int *attribs;                  /* creation attributes */
-    DWORD tid;                     /* thread that the context is current in */
     UINT64 debug_callback;         /* client pointer */
     UINT64 debug_user;             /* client pointer */
     GLubyte *extensions;           /* extension string */
@@ -316,7 +315,7 @@ static BOOL copy_context_attributes( TEB *teb, HGLRC client_dst, struct context 
         return FALSE;
     }
 
-    funcs->p_wglMakeCurrent( hdc, client_dst );
+    funcs->p_wglMakeContextCurrentARB( hdc, hdc, client_dst );
 
     if (mask & GL_COLOR_BUFFER_BIT)
     {
@@ -369,8 +368,7 @@ static BOOL copy_context_attributes( TEB *teb, HGLRC client_dst, struct context 
     }
     dst->used |= (src->used & mask);
 
-    if (!old_ctx) funcs->p_wglMakeCurrent( NULL, NULL );
-    else if (!old_funcs->p_wglMakeContextCurrentARB) old_funcs->p_wglMakeCurrent( draw_hdc, old_ctx->client );
+    if (!old_ctx) funcs->p_wglMakeContextCurrentARB( NULL, NULL, NULL );
     else old_funcs->p_wglMakeContextCurrentARB( draw_hdc, read_hdc, old_ctx->client );
 
     NtUserReleaseDC( hwnd, hdc );
@@ -433,10 +431,11 @@ static struct context *get_updated_context( TEB *teb, HGLRC client_context );
 /* update context if it has been re-shared with another one */
 static struct context *update_context( TEB *teb, HGLRC client_context, struct context *ctx )
 {
+    struct opengl_client_context *client = opengl_client_context_from_client( client_context );
     const struct opengl_funcs *funcs = get_context_funcs( client_context );
     struct context *share;
 
-    if (ctx->tid) return ctx; /* currently in use */
+    if (client->current_tid) return ctx; /* currently in use */
     if (ctx->share == (HGLRC)-1) return ctx; /* not re-shared */
 
     share = ctx->share ? get_updated_context( teb, ctx->share ) : NULL;
@@ -1070,13 +1069,11 @@ static void make_context_current( TEB *teb, const struct opengl_funcs *funcs, HD
                                   HGLRC client_context, struct context *ctx )
 {
     struct opengl_client_context *client = opengl_client_context_from_client( ctx->base.client_context );
-    DWORD tid = HandleToULong(teb->ClientId.UniqueThread);
     const char *version, *rest = "";
     size_t count = 0, i;
 
     static pthread_once_t once = PTHREAD_ONCE_INIT;
 
-    ctx->tid = tid;
     teb->glReserved1[0] = draw_hdc;
     teb->glReserved1[1] = read_hdc;
     teb->glTable = (void *)funcs;
@@ -1143,40 +1140,6 @@ static void make_context_current( TEB *teb, const struct opengl_funcs *funcs, HD
     if (TRACE_ON(opengl)) for (i = 0; i < count; i++) TRACE( "++ %s\n", all_extensions[client->extension_array[i]].name );
 }
 
-BOOL wrap_wglMakeCurrent( TEB *teb, HDC hdc, HGLRC client_context )
-{
-    DWORD tid = HandleToULong(teb->ClientId.UniqueThread);
-    struct context *ctx, *prev = get_current_context( teb, NULL, NULL );
-
-    if (client_context)
-    {
-        const struct opengl_funcs *funcs = get_context_funcs( client_context );
-        if (!(ctx = get_updated_context( teb, client_context ))) return FALSE;
-        if (ctx->tid && ctx->tid != tid)
-        {
-            RtlSetLastWin32Error( ERROR_BUSY );
-            return FALSE;
-        }
-
-        if (!funcs->p_wglMakeCurrent( hdc, client_context )) return FALSE;
-        if (prev) prev->tid = 0;
-        make_context_current( teb, funcs, hdc, hdc, client_context, ctx );
-    }
-    else if (prev)
-    {
-        const struct opengl_funcs *funcs = teb->glTable;
-        if (!funcs->p_wglMakeCurrent( 0, NULL )) return FALSE;
-        prev->tid = 0;
-        teb->glTable = &null_opengl_funcs;
-    }
-    else if (!hdc)
-    {
-        RtlSetLastWin32Error( ERROR_INVALID_HANDLE );
-        return FALSE;
-    }
-    return TRUE;
-}
-
 static void free_context( struct context *ctx )
 {
     free( ctx->wow64_version );
@@ -1189,13 +1152,6 @@ BOOL wrap_wglDeleteContext( TEB *teb, HGLRC client_context )
 {
     const struct opengl_funcs *funcs = get_context_funcs( client_context );
     struct context *ctx = context_from_client_context( client_context );
-
-    if (ctx->tid)
-    {
-        RtlSetLastWin32Error( ERROR_BUSY );
-        return FALSE;
-    }
-
     funcs->p_context_destroy( &ctx->base );
     free_context( ctx );
     return TRUE;
@@ -1395,41 +1351,21 @@ HGLRC wrap_wglCreateContextAttribsARB( TEB *teb, HDC hdc, HGLRC client_shared, c
     return client_context;
 }
 
-HGLRC wrap_wglCreateContext( TEB *teb, HDC hdc, HGLRC client_context )
-{
-    static const int attribs[] =
-    {
-        WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB,
-        0, 0,
-    };
-
-    return wrap_wglCreateContextAttribsARB( teb, hdc, NULL, attribs, client_context );
-}
-
 BOOL wrap_wglMakeContextCurrentARB( TEB *teb, HDC draw_hdc, HDC read_hdc, HGLRC client_context )
 {
-    DWORD tid = HandleToULong(teb->ClientId.UniqueThread);
     struct context *ctx, *prev = get_current_context( teb, NULL, NULL );
 
     if (client_context)
     {
         const struct opengl_funcs *funcs = get_context_funcs( client_context );
         if (!(ctx = get_updated_context( teb, client_context ))) return FALSE;
-        if (ctx->tid && ctx->tid != tid)
-        {
-            RtlSetLastWin32Error( ERROR_BUSY );
-            return FALSE;
-        }
-
         if (!funcs->p_wglMakeContextCurrentARB( draw_hdc, read_hdc, client_context )) return FALSE;
-        if (prev) prev->tid = 0;
         make_context_current( teb, funcs, draw_hdc, read_hdc, client_context, ctx );
     }
     else if (prev)
     {
         const struct opengl_funcs *funcs = teb->glTable;
-        if (!funcs->p_wglMakeCurrent( 0, NULL )) return FALSE;
-        prev->tid = 0;
+        if (!funcs->p_wglMakeContextCurrentARB( NULL, NULL, NULL )) return FALSE;
         teb->glTable = &null_opengl_funcs;
     }
     return TRUE;
