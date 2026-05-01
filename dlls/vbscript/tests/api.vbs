@@ -2952,4 +2952,86 @@ call testSetLocaleError()
 SetLocale(origLocale)
 Call ok(GetLocale() = origLocale, "GetLocale() after restore = " & GetLocale() & " expected " & origLocale)
 
+' LenB tests
+Call ok(LenB("") = 0, "LenB("""") = " & LenB(""))
+Call ok(LenB("A") = 2, "LenB(""A"") = " & LenB("A"))
+Call ok(LenB("ABC") = 6, "LenB(""ABC"") = " & LenB("ABC"))
+Call ok(LenB("hello") = 10, "LenB(""hello"") = " & LenB("hello"))
+Call ok(getVT(LenB("A")) = "VT_I4", "getVT(LenB) = " & getVT(LenB("A")))
+Call ok(IsNull(LenB(Null)), "LenB(Null) should be Null")
+
+' LeftB tests
+Call ok(LeftB("ABC", 0) = "", "LeftB(""ABC"", 0) = """ & LeftB("ABC", 0) & """")
+Call ok(LeftB("ABC", 2) = "A", "LeftB(""ABC"", 2) = " & LeftB("ABC", 2))
+Call ok(LeftB("ABC", 4) = "AB", "LeftB(""ABC"", 4) = " & LeftB("ABC", 4))
+Call ok(LeftB("ABC", 6) = "ABC", "LeftB(""ABC"", 6) = " & LeftB("ABC", 6))
+Call ok(LeftB("ABC", 100) = "ABC", "LeftB(""ABC"", 100) = " & LeftB("ABC", 100))
+Call ok(LenB(LeftB("ABC", 3)) = 3, "LenB(LeftB(""ABC"", 3)) = " & LenB(LeftB("ABC", 3)))
+
+' RightB tests
+Call ok(RightB("ABC", 0) = "", "RightB(""ABC"", 0) = """ & RightB("ABC", 0) & """")
+Call ok(RightB("ABC", 2) = "C", "RightB(""ABC"", 2) = " & RightB("ABC", 2))
+Call ok(RightB("ABC", 4) = "BC", "RightB(""ABC"", 4) = " & RightB("ABC", 4))
+Call ok(RightB("ABC", 100) = "ABC", "RightB(""ABC"", 100) = " & RightB("ABC", 100))
+Call ok(LenB(RightB("ABC", 3)) = 3, "LenB(RightB(""ABC"", 3)) = " & LenB(RightB("ABC", 3)))
+
+' MidB tests
+Call ok(MidB("ABC", 1, 2) = "A", "MidB(""ABC"", 1, 2) = " & MidB("ABC", 1, 2))
+Call ok(MidB("ABC", 3, 2) = "B", "MidB(""ABC"", 3, 2) = " & MidB("ABC", 3, 2))
+Call ok(MidB("ABC", 1) = "ABC", "MidB(""ABC"", 1) = " & MidB("ABC", 1))
+Call ok(MidB("ABC", 3) = "BC", "MidB(""ABC"", 3) = " & MidB("ABC", 3))
+Call ok(LenB(MidB("ABC", 2, 2)) = 2, "LenB(MidB(""ABC"", 2, 2)) = " & LenB(MidB("ABC", 2, 2)))
+
+sub testByteSubstrErrors()
+    on error resume next
+    dim r
+
+    call Err.clear()
+    r = LeftB("ABC", -1)
+    Call ok(Err.number = 5, "LeftB(-1) Err.number = " & Err.number)
+end sub
+
+call testByteSubstrErrors()
+
+' InStrB tests
+Call ok(InStrB("ABC", "B") = 3, "InStrB(""ABC"", ""B"") = " & InStrB("ABC", "B"))
+Call ok(InStrB("ABC", "D") = 0, "InStrB(""ABC"", ""D"") = " & InStrB("ABC", "D"))
+Call ok(InStrB("ABC", "A") = 1, "InStrB(""ABC"", ""A"") = " & InStrB("ABC", "A"))
+Call ok(InStrB("ABCABC", "B") = 3, "InStrB(""ABCABC"", ""B"") = " & InStrB("ABCABC", "B"))
+
+' AscB tests
+Call ok(AscB("A") = 65, "AscB(""A"") = " & AscB("A"))
+Call ok(AscB("a") = 97, "AscB(""a"") = " & AscB("a"))
+Call ok(AscB("ABC") = 65, "AscB(""ABC"") = " & AscB("ABC"))
+Call ok(getVT(AscB("A")) = "VT_UI1", "getVT(AscB) = " & getVT(AscB("A")))
+
+' ChrB tests
+Call ok(AscB(ChrB(65)) = 65, "AscB(ChrB(65)) roundtrip = " & AscB(ChrB(65)))
+Call ok(LenB(ChrB(65)) = 1, "LenB(ChrB(65)) = " & LenB(ChrB(65)))
+Call ok(AscB(ChrB(0)) = 0, "AscB(ChrB(0)) = " & AscB(ChrB(0)))
+Call ok(AscB(ChrB(255)) = 255, "AscB(ChrB(255)) = " & AscB(ChrB(255)))
+
+sub testByteCharErrors()
+    on error resume next
+    dim r
+
+    call Err.clear()
+    r = AscB("")
+    Call ok(Err.number = 5, "AscB("""") Err.number = " & Err.number)
+
+    call Err.clear()
+    r = AscB(Null)
+    Call ok(Err.number = 94, "AscB(Null) Err.number = " & Err.number)
+
+    call Err.clear()
+    r = ChrB(256)
+    Call ok(Err.number = 6, "ChrB(256) Err.number = " & Err.number)
+
+    call Err.clear()
+    r = ChrB(-1)
+    Call ok(Err.number = 6, "ChrB(-1) Err.number = " & Err.number)
+end sub
+
+call testByteCharErrors()
+
 Call reportSuccess()

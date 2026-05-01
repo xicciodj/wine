@@ -197,6 +197,8 @@ static HRESULT create_folder(const WCHAR*, IFolder**);
 static HRESULT create_file(BSTR, IFile**);
 static HRESULT create_foldercoll_enum(struct foldercollection*, IUnknown**);
 static HRESULT create_filecoll_enum(struct filecollection*, IUnknown**);
+static inline HRESULT delete_file(const WCHAR*, DWORD, VARIANT_BOOL);
+static HRESULT delete_folder(const WCHAR*, DWORD, VARIANT_BOOL);
 static HRESULT create_drivecoll_enum(struct drivecollection*, IUnknown**);
 static inline DWORD get_parent_folder_name(const WCHAR *path, DWORD len);
 static HRESULT get_date_from_filetime(const FILETIME *ft, DATE *date);
@@ -2701,8 +2703,37 @@ static HRESULT WINAPI folder_get_Type(IFolder *iface, BSTR *type)
 static HRESULT WINAPI folder_Delete(IFolder *iface, VARIANT_BOOL force)
 {
     struct folder *This = impl_from_IFolder(iface);
-    FIXME("(%p)->(%x): stub\n", This, force);
-    return E_NOTIMPL;
+    WCHAR path[MAX_PATH];
+    DWORD len;
+    HRESULT hr;
+
+    TRACE("(%p)->(%x)\n", This, force);
+
+    len = SysStringLen(This->path);
+    if (len + 3 >= MAX_PATH)
+        return E_FAIL;
+
+    memcpy(path, This->path, len * sizeof(WCHAR));
+    path[len] = '\\';
+    path[len + 1] = '*';
+    path[len + 2] = 0;
+
+    hr = delete_file(path, len + 2, force);
+    if (FAILED(hr))
+        return hr;
+
+    hr = delete_folder(path, len + 2, force);
+    if (FAILED(hr))
+        return hr;
+
+    if (!RemoveDirectoryW(This->path))
+    {
+        if (!force || !SetFileAttributesW(This->path, FILE_ATTRIBUTE_NORMAL)
+                || !RemoveDirectoryW(This->path))
+            return create_error(GetLastError());
+    }
+
+    return S_OK;
 }
 
 static HRESULT WINAPI folder_Copy(IFolder *iface, BSTR dest, VARIANT_BOOL overwrite)
@@ -2715,8 +2746,13 @@ static HRESULT WINAPI folder_Copy(IFolder *iface, BSTR dest, VARIANT_BOOL overwr
 static HRESULT WINAPI folder_Move(IFolder *iface, BSTR dest)
 {
     struct folder *This = impl_from_IFolder(iface);
-    FIXME("(%p)->(%s): stub\n", This, debugstr_w(dest));
-    return E_NOTIMPL;
+
+    TRACE("(%p)->(%s)\n", This, debugstr_w(dest));
+
+    if (!MoveFileW(This->path, dest))
+        return create_error(GetLastError());
+
+    return S_OK;
 }
 
 static HRESULT WINAPI folder_get_IsRootFolder(IFolder *iface, VARIANT_BOOL *isroot)
@@ -3211,8 +3247,17 @@ static HRESULT WINAPI file_get_Type(IFile *iface, BSTR *pbstrType)
 static HRESULT WINAPI file_Delete(IFile *iface, VARIANT_BOOL Force)
 {
     struct file *This = impl_from_IFile(iface);
-    FIXME("(%p)->(%x)\n", This, Force);
-    return E_NOTIMPL;
+
+    TRACE("(%p)->(%x)\n", This, Force);
+
+    if (!DeleteFileW(This->path))
+    {
+        if (!Force || !SetFileAttributesW(This->path, FILE_ATTRIBUTE_NORMAL)
+                || !DeleteFileW(This->path))
+            return create_error(GetLastError());
+    }
+
+    return S_OK;
 }
 
 static HRESULT WINAPI file_Copy(IFile *iface, BSTR Destination, VARIANT_BOOL OverWriteFiles)
@@ -3225,8 +3270,13 @@ static HRESULT WINAPI file_Copy(IFile *iface, BSTR Destination, VARIANT_BOOL Ove
 static HRESULT WINAPI file_Move(IFile *iface, BSTR Destination)
 {
     struct file *This = impl_from_IFile(iface);
-    FIXME("(%p)->(%s)\n", This, debugstr_w(Destination));
-    return E_NOTIMPL;
+
+    TRACE("(%p)->(%s)\n", This, debugstr_w(Destination));
+
+    if (!MoveFileW(This->path, Destination))
+        return create_error(GetLastError());
+
+    return S_OK;
 }
 
 static HRESULT WINAPI file_OpenAsTextStream(IFile *iface, IOMode mode, Tristate format, ITextStream **stream)
