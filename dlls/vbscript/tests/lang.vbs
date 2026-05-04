@@ -136,12 +136,56 @@ Call ok(30 > "0", "30 > ""0"" should be true")
 Call ok(9 < "10", "9 < ""10"" should be true")
 Call ok(42 = "42", "42 = ""42"" should be true")
 Call ok(not ("10" > "9"), """10"" > ""9"" should be false (string comparison)")
-' String vs Boolean uses string comparison, not numeric conversion
+' Locale-invariant numeric strings: parse to the same value as the literal in any locale
+Call ok("+5" = 5, """+5"" = 5 should be true")
+Call ok("-0" = 0, """-0"" = 0 should be true")
+Call ok("05" = 5, """05"" = 5 should be true")
+Call ok(" 5" = 5, """ 5"" = 5 should be true")
+Call ok("5 " = 5, """5 "" = 5 should be true")
+Call ok("5e0" = 5, """5e0"" = 5 should be true")
+' BSTR vs Boolean: string-compare against CStr(bool) ("True"/"False"),
+' case-sensitive, no whitespace trimming, no numeric coercion, no type-mismatch.
+Call ok("True" = True, """True"" = True should be true")
+Call ok("False" = False, """False"" = False should be true")
+Call ok(not ("True" = False), """True"" = False should be false")
+Call ok(not ("False" = True), """False"" = True should be false")
+Call ok(not ("true" = True), """true"" = True should be false (case-sensitive)")
+Call ok(not ("TRUE" = True), """TRUE"" = True should be false (case-sensitive)")
+Call ok(not ("True " = True), """True "" = True should be false (no trim)")
+Call ok(not (" True" = True), """ True"" = True should be false (no trim)")
 Call ok(not ("1" = True), """1"" = True should be false")
 Call ok(not ("-1" = True), """-1"" = True should be false")
 Call ok(not ("0" = False), """0"" = False should be false")
-' Non-numeric string compared to number should raise type mismatch
+Call ok(not ("-1" = False), """-1"" = False should be false")
+Call ok(not ("True" <> True), """True"" <> True should be false")
+Call ok("False" <> True, """False"" <> True should be true")
+Call ok(not ("abc" = True), """abc"" = True should be false (no error)")
+Call ok(not ("" = True), """"" = True should be false (no error)")
+Call ok(not ("" = False), """"" = False should be false (no error)")
+Call ok(True = "True", "True = ""True"" should be true")
+Call ok(False = "False", "False = ""False"" should be true")
+' Relational: lexicographic string comparison after coercing bool to BSTR
+Call ok("True" > False, """True"" > False should be true (lex)")
+Call ok(not ("True" < False), """True"" < False should be false (lex)")
+Call ok(not ("False" > True), """False"" > True should be false (lex)")
+Call ok("abc" > True, """abc"" > True should be true (lex)")
+' Non-numeric BSTR compared to number raises type mismatch (= / <> / relational)
 on error resume next
+err.clear
+x = ("abc" = 5)
+Call ok(err.number = 13, """abc"" = 5 err.number = " & err.number)
+err.clear
+x = ("" = 5)
+Call ok(err.number = 13, """"" = 5 err.number = " & err.number)
+err.clear
+x = (" " = 0)
+Call ok(err.number = 13, """ "" = 0 err.number = " & err.number)
+err.clear
+x = ("abc" <> 5)
+Call ok(err.number = 13, """abc"" <> 5 err.number = " & err.number)
+err.clear
+x = ("" <> 5)
+Call ok(err.number = 13, """"" <> 5 err.number = " & err.number)
 err.clear
 x = ("abc" > 5)
 Call ok(err.number = 13, """abc"" > 5 err.number = " & err.number)
@@ -152,6 +196,154 @@ err.clear
 x = (5 > "abc")
 Call ok(err.number = 13, "5 > ""abc"" err.number = " & err.number)
 on error goto 0
+
+' BSTR coerces to numeric for comparison even when it carries VT_BYREF
+' (e.g. ByRef parameter holding a string).
+Sub TestByRefStrEq5(ByRef x)
+    Call ok(x = 5,  "ByRef ""5"" = 5 should be true")
+    Call ok(x < 6,  "ByRef ""5"" < 6 should be true")
+End Sub
+TestByRefStrEq5 "5"
+
+' BSTR vs each numeric VT VBScript can produce.
+Call ok("5" = CByte(5), """5"" = CByte(5) should be true")
+Call ok("5" = CInt(5),  """5"" = CInt(5) should be true")
+Call ok("5" = CLng(5),  """5"" = CLng(5) should be true")
+Call ok("5" = CSng(5),  """5"" = CSng(5) should be true")
+Call ok("5" = CDbl(5),  """5"" = CDbl(5) should be true")
+Call ok("5" = CCur(5),  """5"" = CCur(5) should be true")
+Call ok(CByte(5) = "5", "CByte(5) = ""5"" should be true")
+Call ok(CCur(5)  = "5", "CCur(5) = ""5"" should be true")
+
+' Hex / scientific BSTRs parse as numeric.
+Call ok("1e2" = 100, """1e2"" = 100 should be true")
+Call ok("&hff" = 255, """&hff"" = 255 should be true")
+Call ok("&H1F" = 31,  """&H1F"" = 31 should be true")
+
+' VT_UI1/VT_CY vs BSTR diverge from VT_I2: string-compare against CStr(numeric).
+' Non-numeric BSTR returns False with NO error (VT_I2 raises 13 for the same).
+Call ok(not ("abc" = CByte(5)), """abc"" = CByte(5) should be false (no error)")
+Call ok(not ("abc" = CCur(5)),  """abc"" = CCur(5) should be false (no error)")
+Call ok(not ("" = CByte(0)),    """"" = CByte(0) should be false (no error)")
+Call ok(not ("" = CCur(0)),     """"" = CCur(0) should be false (no error)")
+' Relational confirms lex compare: 10 > 5 numerically would be true; lex "10" < "5".
+Call ok(not ("10" > CByte(5)),  """10"" > CByte(5) should be false (lex)")
+Call ok(not ("5" < CCur(10)),   """5"" < CCur(10) should be false (lex)")
+
+' VT_I8/UI8/I1/UI2/UI4/UINT cannot be produced by VBScript natively; obtain
+' them via a host IDispatch (testobj). Native VBScript:
+'  - VT_UI8/UI2/UI4/UINT: error 458 (VBSE_INVALID_TYPELIB_VARIABLE) on
+'    both 32-bit and 64-bit when used in any expression.
+'  - VT_I8: error 458 on 32-bit; on 64-bit no error but BSTR-vs-I8 compares
+'    as not-equal (no CStr coercion of the numeric side).
+'  - VT_I1: no error on either arch (treated as a small integer); BSTR
+'    literal vs I1 compares equal via numeric coercion, matching the
+'    baseline "5" = CInt(5) behavior.
+Call ok("5" = testobj.i1val, """5"" = testobj.i1val should be true")
+
+Dim x_str : x_str = "5"
+Dim cmp_result
+On Error Resume Next
+
+' VT_I8 vs non-literal BSTR. 32-bit: err 458. 64-bit: cmp = False (default
+' VarCmp returns BSTR > other since I8 isn't in is_numeric_vt).
+Err.Clear : cmp_result = (x_str = testobj.i8val) : saved_err = Err.number : Err.Clear
+Call ok(saved_err = 458 or cmp_result = False, _
+    "x_str = testobj.i8val: err=" & saved_err & " result=" & cmp_result)
+
+' VT_UI8/UI2/UI4/UINT: native errors 458 on both archs. Wine's VarCmp
+' rejects VT_UI8 and VT_UINT via DISP_E_BADVARTYPE (mapped to 458)
+' without a script-level gate; UI2/UI4 still go through DISP_E_TYPEMISMATCH
+' (mapped to 13) and need the gate, so they remain todo_wine for now.
+Err.Clear : cmp_result = ("5" = testobj.ui8val) : saved_err = Err.number : Err.Clear
+Call ok(saved_err = 458, _
+    "BSTR = testobj.ui8val should err 458, got " & saved_err)
+
+Err.Clear : cmp_result = ("5" = testobj.ui2val) : saved_err = Err.number : Err.Clear
+Call ok(saved_err = 458, _
+    "BSTR = testobj.ui2val should err 458, got " & saved_err)
+
+Err.Clear : cmp_result = ("5" = testobj.ui4val) : saved_err = Err.number : Err.Clear
+Call ok(saved_err = 458, _
+    "BSTR = testobj.ui4val should err 458, got " & saved_err)
+
+Err.Clear : cmp_result = ("5" = testobj.uintval) : saved_err = Err.number : Err.Clear
+Call ok(saved_err = 458, _
+    "BSTR = testobj.uintval should err 458, got " & saved_err)
+
+On Error Goto 0
+
+' --- BSTR vs numeric LITERAL: BSTR coerces to a number, parse failure raises 13. ---
+Dim saved_err
+on error resume next
+err.clear
+x = ("abc" = 5.5)        : saved_err = err.number : err.clear
+Call ok(saved_err = 13, "literal R8: ""abc"" = 5.5 should error 13 (got " & saved_err & "; needs literal tracking)")
+x = ("abc" = 1e2)        : saved_err = err.number : err.clear
+Call ok(saved_err = 13, "literal sci: ""abc"" = 1e2 should error 13 (got " & saved_err & "; needs literal tracking)")
+x = ("abc" = &hff)       : saved_err = err.number : err.clear
+Call ok(saved_err = 13, "literal hex: ""abc"" = &hff should error 13 (got " & saved_err & ")")
+x = ("abc" = 100000)     : saved_err = err.number : err.clear
+Call ok(saved_err = 13, "literal I4: ""abc"" = 100000 should error 13 (got " & saved_err & ")")
+x = ("abc" = #1/15/2024#): saved_err = err.number : err.clear
+Call ok(saved_err = 13, "literal date: ""abc"" = #1/15/2024# should error 13 (got " & saved_err & "; needs literal tracking)")
+on error goto 0
+
+' --- Variable holding a numeric / arithmetic / unary / function return ---
+' VBScript on Windows treats these as non-literal: BSTR vs numeric uses
+' string-compare, non-numeric BSTR returns False with no error.
+Dim n5  : n5  = 5
+Dim n10 : n10 = 10
+Call ok(not ("abc" = n5),       "var: ""abc"" = (n=5) should be false")
+Call ok(not ("010" = n10),      "var: ""010"" = (n=10) should be false (string)")
+Call ok(not ("abc" = (5+0)),    "arith: ""abc"" = (5+0) should be false")
+Call ok(not ("010" = (5+5)),    "arith: ""010"" = (5+5) should be false")
+Call ok(not ("010" = (10*1)),   "arith: ""010"" = (10*1) should be false")
+Call ok(not ("abc" = -5),       "neg: ""abc"" = -5 should be false")
+
+' --- C-coercion functions return non-literal values; BSTR vs numeric
+' uses string-compare regardless of the underlying VT. ---
+Call ok(not ("010" = CInt(10)), "CInt: ""010"" = CInt(10) should be false")
+Call ok(not ("010" = CLng(10)), "CLng: ""010"" = CLng(10) should be false")
+Call ok(not ("010" = CSng(10)), "CSng: ""010"" = CSng(10) should be false")
+Call ok(not ("010" = CDbl(10)), "CDbl: ""010"" = CDbl(10) should be false")
+Call ok(not ("abc" = CInt(5)),  "CInt: ""abc"" = CInt(5) should be false")
+Call ok(not ("abc" = CLng(5)),  "CLng: ""abc"" = CLng(5) should be false")
+Call ok(not ("abc" = CSng(5)),  "CSng: ""abc"" = CSng(5) should be false")
+Call ok(not ("abc" = CDbl(5)),  "CDbl: ""abc"" = CDbl(5) should be false")
+
+' VT_R4 / VT_R8 from CSng/CDbl: relational uses lex compare.
+Call ok(not ("10" > CDbl(5)), """10"" > CDbl(5) should be false (lex)")
+Call ok(not ("10" > CSng(5)), """10"" > CSng(5) should be false (lex)")
+Call ok(not ("9" < CDbl(10)), """9"" < CDbl(10) should be false (lex)")
+
+' --- VT_DATE from CDate is non-literal: string compare, no error. ---
+Dim cdt : cdt = CDate("2024-01-15")
+Call ok(not ("abc" = cdt), "CDate: ""abc"" = CDate(...) should be false")
+
+' --- Function return / ByVal / ByRef strip "literal" status. ---
+Function GetFiveLit()
+    GetFiveLit = 5
+End Function
+Call ok(not ("abc" = GetFiveLit()), "fn return: ""abc"" = GetFiveLit() should be false")
+
+Sub TestByValStripsLit(ByVal v)
+    Call ok(not ("abc" = v), "ByVal: ""abc"" = v should be false")
+End Sub
+TestByValStripsLit 5
+
+Sub TestByRefStripsLit(ByRef v)
+    Call ok(not ("abc" = v), "ByRef: ""abc"" = v should be false")
+End Sub
+Dim litvar : litvar = 5
+TestByRefStripsLit litvar
+
+' Const references compile to an EXPR_MEMBER node so the comparison is
+' tagged non-literal even though the value is inlined; "abc" = FIVE goes
+' through the BSTR-vs-numeric string-compare path and returns False with
+' no error.
+Const FIVE_C = 5
+Call ok(not ("abc" = FIVE_C), "Const: ""abc"" = FIVE_C should be false")
 
 Call ok(getVT(false) = "VT_BOOL", "getVT(false) is not VT_BOOL")
 Call ok(getVT(true) = "VT_BOOL", "getVT(true) is not VT_BOOL")
