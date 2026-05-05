@@ -370,6 +370,22 @@ end sub
 call testLBoundError()
 call testUBoundError()
 
+sub testBoundUninitArray()
+    Dim u()
+    on error resume next
+    call Err.clear()
+    call UBound(u)
+    call ok(Err.number = 9, "UBound(uninit) Err.number = " & Err.number)
+    call Err.clear()
+    call LBound(u)
+    call ok(Err.number = 9, "LBound(uninit) Err.number = " & Err.number)
+    call Err.clear()
+    call UBound(u, 1)
+    call ok(Err.number = 9, "UBound(uninit,1) Err.number = " & Err.number)
+end sub
+
+call testBoundUninitArray()
+
 Dim newObject
 Set newObject = New ValClass
 newObject.myval = 1
@@ -1710,6 +1726,9 @@ Call ok(TypeName(collectionObj) = "Object", "TypeName(collectionObj) = " & TypeN
 Dim regex
 set regex = new RegExp
 Call ok(TypeName(regex) = "IRegExp2", "TypeName(regex) = " & TypeName(regex))
+Dim ec
+set ec = new EmptyClass
+Call ok(TypeName(ec) = "EmptyClass", "TypeName(EmptyClass) = " & TypeName(ec))
 
 Call ok(VarType(Empty) = vbEmpty, "VarType(Empty) = " & VarType(Empty))
 Call ok(getVT(VarType(Empty)) = "VT_I2", "getVT(VarType(Empty)) = " & getVT(VarType(Empty)))
@@ -2078,6 +2097,13 @@ Call ok(Minute(2) = 0, "Minute(2) = " & Minute(2))
 Call ok(Minute(2.02083) = 30, "Minute(2.02083) = " & Minute(2.02083))
 Call ok(getVT(Second(now)) = "VT_I2", "getVT(Second(now)) = " & getVT(Second(now)))
 Call ok(Second(2) = 0, "Second(2) = " & Second(2))
+
+Call ok(getVT(Day(Null)) = "VT_NULL", "getVT(Day(Null)) = " & getVT(Day(Null)))
+Call ok(getVT(Month(Null)) = "VT_NULL", "getVT(Month(Null)) = " & getVT(Month(Null)))
+Call ok(getVT(Year(Null)) = "VT_NULL", "getVT(Year(Null)) = " & getVT(Year(Null)))
+Call ok(getVT(Hour(Null)) = "VT_NULL", "getVT(Hour(Null)) = " & getVT(Hour(Null)))
+Call ok(getVT(Minute(Null)) = "VT_NULL", "getVT(Minute(Null)) = " & getVT(Minute(Null)))
+Call ok(getVT(Second(Null)) = "VT_NULL", "getVT(Second(Null)) = " & getVT(Second(Null)))
 
 Sub testRGBError(arg1, arg2, arg3, error_num)
     on error resume next
@@ -2900,6 +2926,26 @@ sub testFilterError()
 end sub
 
 call testFilterError()
+
+sub testLeftNull()
+    on error resume next
+    dim r
+
+    call Err.clear()
+    r = Left(Null, 3)
+    Call ok(Err.number = 0, "Left(Null, 3) Err.number = " & Err.number)
+    Call ok(IsNull(r),       "Left(Null, 3) should be Null")
+
+    call Err.clear()
+    r = Left("abcde", Null)
+    Call ok(Err.number = 94, "Left(""abcde"", Null) Err.number = " & Err.number)
+
+    call Err.clear()
+    r = Left("abcde", -1)
+    Call ok(Err.number = 5,  "Left(""abcde"", -1) Err.number = " & Err.number)
+end sub
+
+call testLeftNull()
 
 ' GetLocale/SetLocale tests
 Dim origLocale

@@ -2097,7 +2097,18 @@ static HRESULT interp_imp(exec_ctx_t *ctx)
 
     hres = stack_pop_val(ctx, &l);
     if(SUCCEEDED(hres)) {
-        hres = VarImp(l.v, r.v, &v);
+        /* Native VarImp returns VT_NULL for UI1 0xFF Imp Null under the
+         * three-valued "all-ones Imp unknown = unknown" rule, but native
+         * VBScript keeps UI1 width and returns the bitwise complement of
+         * the left operand. Handle UI1 Imp Null directly. */
+        if ((V_VT(l.v) & VT_TYPEMASK) == VT_UI1 &&
+            (V_VT(r.v) & VT_TYPEMASK) == VT_NULL) {
+            V_VT(&v) = VT_UI1;
+            V_UI1(&v) = ~V_UI1(l.v);
+            hres = S_OK;
+        } else {
+            hres = VarImp(l.v, r.v, &v);
+        }
         release_val(&l);
     }
     release_val(&r);
@@ -2168,8 +2179,30 @@ static HRESULT var_cmp(exec_ctx_t *ctx, VARIANT *l, VARIANT *r, unsigned flags)
        (rvt == VT_BSTR && (is_numeric_vt(lvt) || lvt == VT_BOOL))) {
         VARIANT *num = lvt == VT_BSTR ? r : l;
         VARIANT *str = lvt == VT_BSTR ? l : r;
+        BSTR str_bstr = V_BSTR(str);
         VARIANT num_str;
         HRESULT hres;
+
+        /* Native treats a BSTR as greater than any numeric or boolean,
+         * regardless of binary lex order, when it is non-empty and either
+         * all-whitespace or contains any C0 control character (Chr(0)..
+         * Chr(31)). BSTRs are length-prefixed and may contain embedded
+         * NUL, so use SysStringLen rather than NUL-terminated scan. */
+        if(str_bstr) {
+            UINT len = SysStringLen(str_bstr);
+            BOOL has_ctrl = FALSE, all_space = TRUE;
+            UINT i;
+            for(i = 0; i < len; i++) {
+                if(str_bstr[i] < 0x20) {
+                    has_ctrl = TRUE;
+                    break;
+                }
+                if(!iswspace(str_bstr[i]))
+                    all_space = FALSE;
+            }
+            if(len && (has_ctrl || all_space))
+                return lvt == VT_BSTR ? VARCMP_GT : VARCMP_LT;
+        }
 
         VariantInit(&num_str);
         if((V_VT(num) & VT_TYPEMASK) == VT_BOOL) {

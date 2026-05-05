@@ -317,6 +317,47 @@ Call ok(not ("10" > CDbl(5)), """10"" > CDbl(5) should be false (lex)")
 Call ok(not ("10" > CSng(5)), """10"" > CSng(5) should be false (lex)")
 Call ok(not ("9" < CDbl(10)), """9"" < CDbl(10) should be false (lex)")
 
+Dim ws_space : ws_space = Space(3)
+Dim ws_tab   : ws_tab   = Chr(9)
+Dim ws_lf    : ws_lf    = Chr(10)
+Dim ws_cr    : ws_cr    = Chr(13)
+Dim ws_nbsp  : ws_nbsp  = Chr(160)
+Call ok(not (Len("ab") > ws_space), "Len(""ab"") > Space(3) should be false")
+Call ok((Len("ab") < ws_space),     "Len(""ab"") < Space(3) should be true")
+Call ok(not (Len("ab") = ws_space),           "Len(""ab"") = Space(3) should be false")
+Call ok(not (Len("ab") > ws_tab),   "Len(""ab"") > Chr(9) should be false")
+Call ok((Len("ab") < ws_tab),       "Len(""ab"") < Chr(9) should be true")
+Call ok(not (Len("ab") > ws_lf),    "Len(""ab"") > Chr(10) should be false")
+Call ok((Len("ab") < ws_lf),        "Len(""ab"") < Chr(10) should be true")
+Call ok(not (Len("ab") > ws_cr),    "Len(""ab"") > Chr(13) should be false")
+Call ok((Len("ab") < ws_cr),        "Len(""ab"") < Chr(13) should be true")
+Call ok(not (Len("ab") > ws_nbsp),  "Len(""ab"") > Chr(160) should be false")
+Call ok((Len("ab") < ws_nbsp),      "Len(""ab"") < Chr(160) should be true")
+
+Dim ctl_nul  : ctl_nul  = Chr(0)
+Dim ctl_soh  : ctl_soh  = Chr(1)
+Dim ctl_us   : ctl_us   = Chr(31)
+Call ok((Len("ab") < ctl_nul), "Len(""ab"") < Chr(0) should be true")
+Call ok((Len("ab") < ctl_soh), "Len(""ab"") < Chr(1) should be true")
+Call ok((Len("ab") < ctl_us),  "Len(""ab"") < Chr(31) should be true")
+Call ok((Len("ab") < (ctl_nul & "5")), "Len(""ab"") < Chr(0)&""5"" should be true")
+Call ok((Len("ab") < (ctl_nul & " ")), "Len(""ab"") < Chr(0)&"" "" should be true")
+Call ok((Len("ab") < (" " & ctl_nul)), "Len(""ab"") < "" ""&Chr(0) should be true")
+
+Call ok((Len("ab") > ""),                     "Len(""ab"") > """" should be true")
+
+Dim guard_str : guard_str = "ab"
+Dim guard_err, guard_r
+On Error Resume Next
+Err.Clear
+If Len(guard_str) > Space(3) Then
+    guard_r = Left(guard_str, Space(3))
+End If
+guard_err = Err.number
+Err.Clear
+On Error Goto 0
+Call ok(guard_err = 0, "Len(""ab"") > Space(3) guard should not raise (got " & guard_err & ")")
+
 ' --- VT_DATE from CDate is non-literal: string compare, no error. ---
 Dim cdt : cdt = CDate("2024-01-15")
 Call ok(not ("abc" = cdt), "CDate: ""abc"" = CDate(...) should be false")
@@ -422,6 +463,37 @@ call ok(true imp true, "true does not imp true?")
 call ok(false imp false, "false does not imp false?")
 call ok(not (true imp false), "true imp false?")
 call ok(false imp null, "false imp null is false?")
+
+' Smoke check that VBScript's `And` operator reaches VarAnd correctly and
+' propagates the result payload. The full VarAnd+Null conformance table
+' lives in dlls/oleaut32/tests/vartest.c.
+Call ok((False And Null) = False,            "False And Null is not False")
+Call ok(isNull(True And Null),               "True And Null is not Null")
+Call ok(isNull(Null And Null),               "Null And Null is not Null")
+Call ok((CInt(0) And Null) = 0,              "CInt(0) And Null is not 0")
+Call ok(getVT(CInt(0) And Null) = "VT_I2",   "getVT(CInt(0) And Null) = " & getVT(CInt(0) And Null))
+Call ok(isNull(CInt(5) And Null),            "CInt(5) And Null is not Null")
+
+' Smoke checks that VBScript's sibling logical operators reach Var*
+' correctly and propagate the result payload. The full conformance tables
+' live in dlls/oleaut32/tests/vartest.c.
+Call ok((True Or Null) = True,               "True Or Null is not True")
+Call ok(isNull(False Or Null),               "False Or Null is not Null")
+Call ok(isNull(CInt(5) Xor Null),            "CInt(5) Xor Null is not Null")
+Call ok(isNull(CInt(5) Eqv Null),            "CInt(5) Eqv Null is not Null")
+Call ok(isNull(CDate(-1) Imp Null),          "CDate(-1) Imp Null is not Null")
+Call ok((Not CLng(0)) = -1,                  "Not CLng(0) is not -1")
+
+' VBScript-specific: for VT_UI1 Imp VT_NULL, native VBScript keeps UI1
+' width and returns the bitwise complement of the left operand, rather
+' than applying VarImp's three-valued "all-ones Imp unknown = unknown"
+' rule (which returns VT_NULL at the C level for UI1 0xFF). interp_imp
+' has a narrow special case to match this native behavior.
+Call ok((CByte(0) Imp Null) = 255,           "CByte(0) Imp Null is not 255")
+Call ok(getVT(CByte(0) Imp Null) = "VT_UI1", "getVT(CByte(0) Imp Null) = " & getVT(CByte(0) Imp Null))
+Call ok((CByte(170) Imp Null) = 85,          "CByte(170) Imp Null is not 85")
+Call ok((CByte(255) Imp Null) = 0,           "CByte(255) Imp Null is not 0")
+Call ok(getVT(CByte(255) Imp Null) = "VT_UI1",    "getVT(CByte(255) Imp Null) = " & getVT(CByte(255) Imp Null))
 
 Call ok(2 >= 1, "! 2 >= 1")
 Call ok(2 >= 2, "! 2 >= 2")
