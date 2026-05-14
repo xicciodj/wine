@@ -65,11 +65,11 @@ static inline BOOL is_machine_64bit( WORD machine )
 #ifdef _WIN64
 typedef TEB32 WOW_TEB;
 typedef PEB32 WOW_PEB;
-static inline TEB64 *NtCurrentTeb64(void) { return NULL; }
+static inline TEB64 *get_teb64( TEB *teb ) { return NULL; }
 #else
 typedef TEB64 WOW_TEB;
 typedef PEB64 WOW_PEB;
-static inline TEB64 *NtCurrentTeb64(void) { return (TEB64 *)NtCurrentTeb()->GdiBatchCount; }
+static inline TEB64 *get_teb64( TEB *teb ) { return teb ? (TEB64 *)(ULONG_PTR)teb->GdiBatchCount : NULL; }
 #endif
 
 extern WOW_PEB *wow_peb;
@@ -278,7 +278,7 @@ extern void copy_xstate( XSAVE_AREA_HEADER *dst, XSAVE_AREA_HEADER *src, UINT64 
 
 extern void set_process_instrumentation_callback( void *callback );
 
-extern void *get_cpu_area( USHORT machine );
+extern void *get_cpu_area( struct thread_data *data, USHORT machine );
 extern void set_thread_id( struct thread_data *data );
 extern NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE_T commit_size );
 extern void DECLSPEC_NORETURN abort_thread( int status );
@@ -483,6 +483,12 @@ static inline BOOL is_ec_code( ULONG_PTR ptr )
     const UINT64 *map = (const UINT64 *)peb->EcCodeBitMap;
     ULONG_PTR page = ptr / page_size;
     return (map[page / 64] >> (page & 63)) & 1;
+}
+
+static inline CLIENT_ID make_client_id( ULONG pid, ULONG tid )
+{
+    CLIENT_ID id = { .UniqueProcess = ULongToHandle(pid), .UniqueThread = ULongToHandle(tid) };
+    return id;
 }
 
 static inline void mutex_lock( pthread_mutex_t *mutex )
