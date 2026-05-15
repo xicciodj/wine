@@ -64,6 +64,18 @@ WINE_DEFAULT_DEBUG_CHANNEL(seh);
 #define NTDLL_DWARF_H_NO_UNWINDER
 #include "dwarf.h"
 
+struct arm64_thread_data
+{
+    BOOL suspend_pending;
+};
+
+C_ASSERT( sizeof(struct arm64_thread_data) <= sizeof(((struct teb_data *)0)->cpu_data) );
+
+static inline struct arm64_thread_data *arm64_thread_data( struct thread_data *data )
+{
+    return (struct arm64_thread_data *)get_teb_data(data)->cpu_data;
+}
+
 /***********************************************************************
  * signal context platform-specific definitions
  */
@@ -183,6 +195,18 @@ struct syscall_frame
 
 C_ASSERT( sizeof( struct syscall_frame ) == 0x330 );
 
+
+#define ESR_ELx_EC(esr)                 (((DWORD64)(esr) >> 26) & 0x3f)
+#define ESR_ELx_EC_IABT_LOW             0x20
+#define ESR_ELx_EC_IABT_CUR             0x21
+#define ESR_ELx_EC_PC_ALIGN             0x22
+#define ESR_ELx_EC_DABT_LOW             0x24
+#define ESR_ELx_EC_DABT_CUR             0x25
+#define ESR_ELx_EC_SOFTSTP_LOW          0x32
+#define ESR_ELx_EC_SOFTSTP_CUR          0x33
+#define ESR_ELx_EC_BRK64                0x3c
+#define ESR_ELx_ISS_DABT_WNR(esr)       (((esr) >> 6) & 0x01)
+#define ESR_ELx_ISS_BRK_COMMENT(esr)    ((esr) & 0xffff)
 
 static DWORD64 make_esr( ULONG ec, ULONG info )
 {
@@ -320,7 +344,20 @@ NTSTATUS signal_set_full_context( CONTEXT *context )
 {
     struct thread_data *data = get_thread_data();
     struct syscall_frame *frame = get_syscall_frame( data );
-    NTSTATUS status = NtSetContextThread( GetCurrentThread(), context );
+    struct arm64_thread_data *arm64_data = arm64_thread_data( data );
+    NTSTATUS status;
+
+    if (arm64_data->suspend_pending)
+    {
+        sigset_t old_set;
+        pthread_sigmask( SIG_BLOCK, &server_block_set, &old_set );
+        *data->teb->ChpeV2CpuAreaInfo->SuspendDoorbell = 0;
+        arm64_data->suspend_pending = FALSE;
+        wait_suspend( context );
+        status = NtSetContextThread( GetCurrentThread(), context );
+        pthread_sigmask( SIG_SETMASK, &old_set, NULL );
+    }
+    else status = NtSetContextThread( GetCurrentThread(), context );
 
     if (!status && (context->ContextFlags & CONTEXT_INTEGER) == CONTEXT_INTEGER)
         frame->restore_flags |= CONTEXT_INTEGER;
@@ -1071,11 +1108,26 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
     EXCEPTION_RECORD rec = { .ExceptionAddress = (void *)PC_sig(sigcontext) };
     DWORD64 esr = get_fault_esr( sigcontext );
 
-    rec.NumberParameters = 2;
-    if ((esr & 0xf0000000) == 0x80000000) rec.ExceptionInformation[0] = EXCEPTION_EXECUTE_FAULT;
-    else if (esr & 0x40) rec.ExceptionInformation[0] = EXCEPTION_WRITE_FAULT;
-    else rec.ExceptionInformation[0] = EXCEPTION_READ_FAULT;
+    switch (ESR_ELx_EC(esr))
+    {
+    case ESR_ELx_EC_IABT_LOW:
+    case ESR_ELx_EC_IABT_CUR:
+    case ESR_ELx_EC_PC_ALIGN:
+        rec.ExceptionInformation[0] = EXCEPTION_EXECUTE_FAULT;
+        break;
+    case ESR_ELx_EC_DABT_LOW:
+    case ESR_ELx_EC_DABT_CUR:
+        if (ESR_ELx_ISS_DABT_WNR(esr))
+            rec.ExceptionInformation[0] = EXCEPTION_WRITE_FAULT;
+        else
+            rec.ExceptionInformation[0] = EXCEPTION_READ_FAULT;
+        break;
+    default:
+        rec.ExceptionInformation[0] = EXCEPTION_READ_FAULT;
+        break;
+    }
     rec.ExceptionInformation[1] = (ULONG_PTR)siginfo->si_addr;
+    rec.NumberParameters = 2;
 
     if (!virtual_handle_fault( data, &rec, (void *)SP_sig(sigcontext) )) return;
     if (handle_syscall_fault( data, sigcontext, &rec )) return;
@@ -1156,25 +1208,26 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
     switch (siginfo->si_code)
     {
     case TRAP_TRACE:
-        esr = make_esr( 0x33, 0 );
+        esr = make_esr( ESR_ELx_EC_SOFTSTP_CUR, 0 );
         break;
     case TRAP_BRKPT:
         if (!(PSTATE_sig( sigcontext ) & 0x10) && /* AArch64 (not WoW) */
             !(PC_sig( sigcontext ) & 3))
-            esr = make_esr( 0x3c, *(ULONG *)PC_sig( sigcontext ) >> 5 );
+            esr = make_esr( ESR_ELx_EC_BRK64, *(ULONG *)PC_sig( sigcontext ) >> 5 );
         break;
     }
 #else
     esr = get_fault_esr( sigcontext );
 #endif
 
-    switch ((esr >> 26) & 0x3c)
+    switch (ESR_ELx_EC(esr))
     {
-    case 0x30: /* software step */
+    case ESR_ELx_EC_SOFTSTP_LOW:
+    case ESR_ELx_EC_SOFTSTP_CUR:
         rec.ExceptionCode = EXCEPTION_SINGLE_STEP;
         break;
-    case 0x3c: /* bkpt */
-        switch (esr & 0xffff)
+    case ESR_ELx_EC_BRK64: /* bkpt */
+        switch (ESR_ELx_ISS_BRK_COMMENT(esr))
         {
         case 0xf000:
             context.Pc += 4;  /* skip the brk instruction */
@@ -1321,11 +1374,22 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
 {
     ucontext_t *sigcontext = _sigcontext;
     struct thread_data *data = get_thread_data();
+    CHPE_V2_CPU_AREA_INFO *chpe;
     CONTEXT context;
 
     if (!data->teb)
     {
         server_select( NULL, 0, SELECT_INTERRUPTIBLE, 0, NULL, NULL );
+    }
+    else if ((chpe = data->teb->ChpeV2CpuAreaInfo) && chpe->InSimulation && chpe->SuspendDoorbell)
+    {
+        NTSTATUS status = server_select( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_COOPERATIVE_SUSPEND,
+                                         0, NULL, NULL );
+        if (status == STATUS_THREAD_WAS_SUSPENDED)
+        {
+            *chpe->SuspendDoorbell = -1;
+            arm64_thread_data( data )->suspend_pending = TRUE;
+        }
     }
     else if (is_inside_syscall( data, SP_sig(sigcontext) ))
     {

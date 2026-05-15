@@ -72,6 +72,17 @@ Call ok(&H000000031& = 49, "&H000000031& <> 49")
 Call ok(getVT(&H00000000000000FF) = "VT_I2", "getVT(&H00000000000000FF) is not VT_I2")
 Call ok(getVT(&H007FFFFFFF) = "VT_I4", "getVT(&H007FFFFFFF) is not VT_I4")
 Call ok(&h0 = 0, "&h0 <> 0")
+
+' &H8000 (INT16_MIN bit pattern) is the one 16-bit value parsed as Long, not
+' Integer: -32768 has no positive Int16 representation, so native promotes it.
+Call ok(&H8000 = -32768, "&H8000 <> -32768")
+Call ok(getVT(&H8000) = "VT_I4", "getVT(&H8000) is not VT_I4")
+Call ok(&H8001 = -32767, "&H8001 <> -32767")
+Call ok(getVT(&H8001) = "VT_I2", "getVT(&H8001) is not VT_I2")
+Call ok(&H7FFF = 32767, "&H7FFF <> 32767")
+Call ok(getVT(&H7FFF) = "VT_I2", "getVT(&H7FFF) is not VT_I2")
+Call ok(&H8000& = 32768, "&H8000& <> 32768")
+Call ok(getVT(&H8000&) = "VT_I4", "getVT(&H8000&) is not VT_I4")
 Call ok(&h0& = 0, "&h0& <> 0")
 Call ok(&h00 = 0, "&h00 <> 0")
 Call ok(&h000000000 = 0, "&h000000000 <> 0")
@@ -345,6 +356,24 @@ Call ok((Len("ab") < (ctl_nul & " ")), "Len(""ab"") < Chr(0)&"" "" should be tru
 Call ok((Len("ab") < (" " & ctl_nul)), "Len(""ab"") < "" ""&Chr(0) should be true")
 
 Call ok((Len("ab") > ""),                     "Len(""ab"") > """" should be true")
+
+' --- BSTR vs numeric/bool with NEITHER side literal: native treats BSTR
+'     as greater than the numeric/boolean, regardless of values. ---
+Sub testNonLitBstrCmp
+    Dim s : s = "5"
+    Dim n : n = CInt(5)
+    Dim b : b = True
+    Dim sb : sb = "True"
+    call ok(not (s = n),       "var ""5"" = var 5 should be false")
+    call ok(s > n,             "var ""5"" > var 5 should be true (BSTR > num)")
+    call ok(not (s < n),       "var ""5"" < var 5 should be false")
+    call ok(not (sb = b),      "var ""True"" = var True should be false")
+    call ok(sb > b,            "var ""True"" > var True should be true (BSTR > bool)")
+    Dim e : e = ""
+    call ok(not (e = n),       "var """" = var 5 should be false")
+    call ok(e > n,             "var """" > var 5 should be true (BSTR > num)")
+End Sub
+Call testNonLitBstrCmp
 
 Dim guard_str : guard_str = "ab"
 Dim guard_err, guard_r
@@ -4054,6 +4083,15 @@ Sub TestExecuteReDim
     Call ok(dynArr(1) = 20, "Execute ReDim dynArr(1) = " & dynArr(1))
 End Sub
 Call TestExecuteReDim
+
+' Execute: fixed-size Dim array in caller's scope
+Sub TestExecuteFixedDim
+    Execute "Dim fixedArr(2) : fixedArr(0) = 1 : fixedArr(1) = 2 : fixedArr(2) = 3"
+    Call ok(fixedArr(0) = 1, "Execute Dim fixedArr(0) = " & fixedArr(0))
+    Call ok(fixedArr(2) = 3, "Execute Dim fixedArr(2) = " & fixedArr(2))
+    Call ok(UBound(fixedArr) = 2, "Execute Dim UBound(fixedArr) = " & UBound(fixedArr))
+End Sub
+Call TestExecuteFixedDim
 
 ' Option Explicit is per-compilation-unit in Execute/ExecuteGlobal
 On Error Resume Next
