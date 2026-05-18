@@ -563,6 +563,34 @@ Call ok(getVT(Empty Imp Null) = "VT_I4",     "getVT(Empty Imp Null) = " & getVT(
 Call ok((Not Empty) = -1,                    "Not Empty is not -1")
 Call ok(getVT(Not Empty) = "VT_I4",          "getVT(Not Empty) = " & getVT(Not Empty))
 
+' Logical/bitwise ops with BSTR operands coerce the string to a number when
+' parseable (matching VarXor), giving a Long result instead of treating the
+' string as a Boolean.
+Call ok(("1" And "2") = 0,                   """1"" And ""2"" is not 0")
+Call ok(("5" And "3") = 1,                   """5"" And ""3"" is not 1")
+Call ok(getVT("1" And "2") = "VT_I4",        "getVT(""1"" And ""2"") = " & getVT("1" And "2"))
+Call ok(("1" Or "2") = 3,                    """1"" Or ""2"" is not 3")
+Call ok(("5" Or "3") = 7,                    """5"" Or ""3"" is not 7")
+Call ok(getVT("1" Or "2") = "VT_I4",         "getVT(""1"" Or ""2"") = " & getVT("1" Or "2"))
+Call ok(("1" Imp "2") = -2,                  """1"" Imp ""2"" is not -2")
+Call ok(getVT("1" Imp "2") = "VT_I4",        "getVT(""1"" Imp ""2"") = " & getVT("1" Imp "2"))
+
+' Mixed BSTR + numeric stays Long.
+Call ok((5 And "3") = 1,                     "5 And ""3"" is not 1")
+Call ok(("5" And 3) = 1,                     """5"" And 3 is not 1")
+Call ok(getVT(5 And "3") = "VT_I4",          "getVT(5 And ""3"") = " & getVT(5 And "3"))
+
+' BSTR with non-numeric content falls back to Boolean conversion, which
+' fails with type mismatch for arbitrary text.
+Sub testLogicalBstrErr
+    Dim r
+    on error resume next
+    Err.Clear : r = "abc" And "2" : call ok(Err.Number = 13, """abc"" And ""2"" err=" & Err.Number)
+    Err.Clear : r = "abc" Or  "2" : call ok(Err.Number = 13, """abc"" Or ""2"" err=" & Err.Number)
+    Err.Clear : r = "abc" Imp "2" : call ok(Err.Number = 13, """abc"" Imp ""2"" err=" & Err.Number)
+End Sub
+Call testLogicalBstrErr
+
 ' Arithmetic binary ops coerce Empty to VT_I2 0 — narrower than the logical
 ' family — so the widening picks up whichever side has the larger numeric
 ' type and the result reflects that.
@@ -2799,6 +2827,41 @@ sub TestRedimInputArg
 end sub
 Call TestRedimInputArg
 
+sub TestExecuteGlobalRedim
+    on error resume next
+
+    ' Dim arr() already declared as a dynamic array in a prior compile unit.
+    err.clear : ExecuteGlobal "Dim egDynArr()"
+    call ok(err.number = 0, "first Dim egDynArr() err=" & err.number)
+
+    err.clear : ExecuteGlobal "Dim egDynArr()"
+    call ok(err.number = 13, "second Dim egDynArr() err=" & err.number)
+
+    err.clear : ExecuteGlobal "Dim egDynArr() : ReDim egDynArr(5)"
+    call ok(err.number = 13, "Dim+ReDim egDynArr() err=" & err.number)
+
+    ' Dim arr(N) already declared as a fixed array in a prior compile unit.
+    err.clear : ExecuteGlobal "Dim egFixArr(2)"
+    call ok(err.number = 0, "first Dim egFixArr(2) err=" & err.number)
+
+    err.clear : ExecuteGlobal "Dim egFixArr(2)"
+    call ok(err.number = 13, "second Dim egFixArr(2) err=" & err.number)
+
+    err.clear : ExecuteGlobal "Dim egFixArr()"
+    call ok(err.number = 13, "second Dim egFixArr() err=" & err.number)
+
+    ' Re-Dim'ing a previously scalar Dim is allowed.
+    err.clear : ExecuteGlobal "Dim egScalar"
+    call ok(err.number = 0, "first Dim egScalar err=" & err.number)
+
+    err.clear : ExecuteGlobal "Dim egScalar"
+    call ok(err.number = 0, "second Dim egScalar (scalar) err=" & err.number)
+
+    err.clear : ExecuteGlobal "Dim egScalar()"
+    call ok(err.number = 0, "second Dim egScalar() (array) err=" & err.number)
+end sub
+Call TestExecuteGlobalRedim
+
 sub TestReDimList
     dim x, y
 
@@ -4284,7 +4347,30 @@ Call ok(Err.Number = 11, "division by zero: err.number = " & Err.Number)
 Err.Clear
 Dim nullResult
 nullResult = CLng(Null)
-todo_wine_ok Err.Number = 94, "CLng(Null): err.number = " & Err.Number
+call ok(Err.Number = 94, "CLng(Null): err.number = " & Err.Number)
+
+' Each Cxxx coercion raises err 94 on Null and err 91 on Nothing.
+Sub testCoerceNullNothing
+    Dim nothingObj : Set nothingObj = Nothing
+    on error resume next
+
+    Err.Clear : call CInt(Null)        : call ok(Err.Number = 94, "CInt(Null) err=" & Err.Number)
+    Err.Clear : call CInt(nothingObj)  : call ok(Err.Number = 91, "CInt(Nothing) err=" & Err.Number)
+    Err.Clear : call CLng(nothingObj)  : call ok(Err.Number = 91, "CLng(Nothing) err=" & Err.Number)
+    Err.Clear : call CBool(Null)       : call ok(Err.Number = 94, "CBool(Null) err=" & Err.Number)
+    Err.Clear : call CBool(nothingObj) : call ok(Err.Number = 91, "CBool(Nothing) err=" & Err.Number)
+    Err.Clear : call CByte(Null)       : call ok(Err.Number = 94, "CByte(Null) err=" & Err.Number)
+    Err.Clear : call CByte(nothingObj) : call ok(Err.Number = 91, "CByte(Nothing) err=" & Err.Number)
+    Err.Clear : call CDbl(Null)        : call ok(Err.Number = 94, "CDbl(Null) err=" & Err.Number)
+    Err.Clear : call CDbl(nothingObj)  : call ok(Err.Number = 91, "CDbl(Nothing) err=" & Err.Number)
+    Err.Clear : call CSng(Null)        : call ok(Err.Number = 94, "CSng(Null) err=" & Err.Number)
+    Err.Clear : call CSng(nothingObj)  : call ok(Err.Number = 91, "CSng(Nothing) err=" & Err.Number)
+    Err.Clear : call CCur(Null)        : call ok(Err.Number = 94, "CCur(Null) err=" & Err.Number)
+    Err.Clear : call CCur(nothingObj)  : call ok(Err.Number = 91, "CCur(Nothing) err=" & Err.Number)
+    Err.Clear : call CDate(nothingObj) : call ok(Err.Number = 91, "CDate(Nothing) err=" & Err.Number)
+    Err.Clear : call CStr(nothingObj)  : call ok(Err.Number = 91, "CStr(Nothing) err=" & Err.Number)
+End Sub
+Call testCoerceNullNothing
 
 ' Error 429: ActiveX component can't create object
 Err.Clear
