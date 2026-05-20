@@ -121,13 +121,8 @@ static inline NTSTATUS KeUserDispatchCallback( const struct dispatch_callback_pa
 /* TEB thread info, not compatible with Windows */
 struct ntuser_thread_info
 {
-    DWORD          message_time;      /* value for GetMessageTime */
-    DWORD          message_pos;       /* value for GetMessagePos */
-    UINT64         message_extra;     /* value for GetMessageExtraInfo */
     INPUT_MESSAGE_SOURCE msg_source;  /* Message source for current message */
     WORD           recursion_count;   /* SendMessage recursion counter */
-    UINT           top_window;        /* desktop window */
-    UINT           msg_window;        /* HWND_MESSAGE parent window */
     UINT           dpi_context;       /* DPI awareness context */
     UINT           default_imc;       /* default input context */
     UINT64         client_imm;        /* client IMM thread info */
