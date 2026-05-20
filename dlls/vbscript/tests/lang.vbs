@@ -87,6 +87,29 @@ Call ok(&h0& = 0, "&h0& <> 0")
 Call ok(&h00 = 0, "&h00 <> 0")
 Call ok(&h000000000 = 0, "&h000000000 <> 0")
 
+' Octal literals (&O...)
+Call ok(&O0 = 0, "&O0 <> 0")
+Call ok(&O17 = 15, "&O17 <> 15")
+Call ok(&o17 = 15, "&o17 (lowercase) <> 15")
+Call ok(&O77 = 63, "&O77 <> 63")
+Call ok(&O777 = 511, "&O777 <> 511")
+Call ok(&O177777 = -1, "&O177777 <> -1")
+Call ok(&O200000 = 65536, "&O200000 <> 65536")
+Call ok(&O17777777777 = 2147483647, "&O17777777777 <> 2147483647")
+Call ok(&O37777777777 = -1, "&O37777777777 <> -1")
+Call ok(&O17& = 15, "&O17& <> 15")
+Call ok(&O177777& = 65535, "&O177777& <> 65535")
+Call ok(getVT(&O77) = "VT_I2", "getVT(&O77) is not VT_I2")
+Call ok(getVT(&O200000) = "VT_I4", "getVT(&O200000) is not VT_I4")
+Call ok(getVT(&O177777&) = "VT_I4", "getVT(&O177777&) is not VT_I4")
+
+sub testOctalLiteralErrors()
+    Dim oct
+    on error resume next
+    Err.Clear : oct = Eval("&O8") : call ok(Err.number = 1002, "&O8 should be syntax error, got err=" & Err.number)
+end sub
+call testOctalLiteralErrors()
+
 ' Test concat when no space and var begins with h
 hi = "y"
 x = "x" &hi
@@ -2861,6 +2884,68 @@ sub TestExecuteGlobalRedim
     call ok(err.number = 0, "second Dim egScalar() (array) err=" & err.number)
 end sub
 Call TestExecuteGlobalRedim
+
+Class FixedClassArr
+    Private mArr(2)
+    Public LastErr
+    Public Sub Resize(n)
+        On Error Resume Next
+        Err.Clear : ReDim mArr(n) : LastErr = Err.Number
+    End Sub
+    Public Sub ResizePreserve(n)
+        On Error Resume Next
+        Err.Clear : ReDim Preserve mArr(n) : LastErr = Err.Number
+    End Sub
+End Class
+
+Class FixedClassArr2D
+    Private mArr(2, 3)
+    Public LastErr
+    Public Sub Resize(a, b)
+        On Error Resume Next
+        Err.Clear : ReDim mArr(a, b) : LastErr = Err.Number
+    End Sub
+End Class
+
+Class DynamicClassArr
+    Private mArr()
+    Public LastErr
+    Public Function UB : UB = UBound(mArr) : End Function
+    Public Sub Resize(n)
+        On Error Resume Next
+        Err.Clear : ReDim mArr(n) : LastErr = Err.Number
+    End Sub
+End Class
+
+Class ScalarClassMember
+    Private mArr
+    Public LastErr
+    Public Function UB : UB = UBound(mArr) : End Function
+    Public Sub Resize(n)
+        On Error Resume Next
+        Err.Clear : ReDim mArr(n) : LastErr = Err.Number
+    End Sub
+End Class
+
+dim cFix : Set cFix = New FixedClassArr
+cFix.Resize 5
+call ok(cFix.LastErr = 10, "ReDim fixed class member err = " & cFix.LastErr)
+cFix.ResizePreserve 5
+call ok(cFix.LastErr = 10, "ReDim Preserve fixed class member err = " & cFix.LastErr)
+
+dim cFix2D : Set cFix2D = New FixedClassArr2D
+cFix2D.Resize 5, 7
+call ok(cFix2D.LastErr = 10, "ReDim fixed 2D class member err = " & cFix2D.LastErr)
+
+dim cDyn : Set cDyn = New DynamicClassArr
+cDyn.Resize 5
+call ok(cDyn.LastErr = 0, "ReDim dynamic class member err = " & cDyn.LastErr)
+call ok(cDyn.UB = 5, "ReDim dynamic class member UB = " & cDyn.UB)
+
+dim cScalar : Set cScalar = New ScalarClassMember
+cScalar.Resize 5
+call ok(cScalar.LastErr = 0, "ReDim scalar->array class member err = " & cScalar.LastErr)
+call ok(cScalar.UB = 5, "ReDim scalar->array class member UB = " & cScalar.UB)
 
 sub TestReDimList
     dim x, y
