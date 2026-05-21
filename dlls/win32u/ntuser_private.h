@@ -109,16 +109,16 @@ struct mouse_tracking_info
     POINT last_mouse_message_pos;
 };
 
-/* this is the structure stored in TEB->Win32ClientInfo */
-/* no attempt is made to keep the layout compatible with the Windows one */
+/* internal per-thread data */
 struct user_thread_info
 {
-    struct ntuser_thread_info     client_info;            /* Data shared with client */
+    struct ntuser_thread_info    *client_info;            /* Data shared with client */
     HANDLE                        server_queue;           /* Handle to server-side queue */
     HANDLE                        idle_event;             /* Handle to the process idle event */
     LONGLONG                      last_driver_time;       /* Get/PeekMessage driver event time */
     HWND                          top_window;             /* desktop window */
     HWND                          msg_window;             /* HWND_MESSAGE parent window */
+    WORD                          msg_call_depth;         /* SendMessage recursion counter */
     WORD                          hook_call_depth;        /* Number of recursively called hook procs */
     WORD                          hook_unicode;           /* Is current hook unicode? */
     HHOOK                         hook;                   /* Current hook */
@@ -127,6 +127,7 @@ struct user_thread_info
     UINT                          message_pos;            /* value for GetMessagePos */
     LPARAM                        message_extra;          /* value for GetMessageExtraInfo */
     struct imm_thread_data       *imm_thread_data;        /* IMM thread data */
+    HIMC                          default_imc;            /* default input context */
     HKL                           kbd_layout;             /* Current keyboard layout */
     UINT                          kbd_layout_id;          /* Current keyboard layout ID */
     struct hardware_msg_data     *rawinput;               /* Current rawinput message data */
@@ -137,12 +138,7 @@ struct user_thread_info
     struct mouse_tracking_info   *mouse_tracking_info;    /* NtUserTrackMouseEvent handling */
 };
 
-C_ASSERT( sizeof(struct user_thread_info) <= sizeof(((TEB *)0)->Win32ClientInfo) );
-
-static inline struct user_thread_info *get_user_thread_info(void)
-{
-    return CONTAINING_RECORD( NtUserGetThreadInfo(), struct user_thread_info, client_info );
-}
+extern struct user_thread_info *get_user_thread_info(void);
 
 struct hook_extra_info
 {

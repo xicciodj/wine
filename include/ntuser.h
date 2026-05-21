@@ -124,11 +124,11 @@ struct ntuser_thread_info
     INPUT_MESSAGE_SOURCE msg_source;  /* Message source for current message */
     WORD           recursion_count;   /* SendMessage recursion counter */
     UINT           dpi_context;       /* DPI awareness context */
-    UINT           default_imc;       /* default input context */
     UINT64         client_imm;        /* client IMM thread info */
     UINT64         wmchar_data;       /* client data for WM_CHAR mappings */
 };
 
+#ifndef WINE_UNIX_LIB
 static inline struct ntuser_thread_info *NtUserGetThreadInfo(void)
 {
 #ifndef _WIN64
@@ -140,6 +140,7 @@ static inline struct ntuser_thread_info *NtUserGetThreadInfo(void)
 #endif
     return (struct ntuser_thread_info *)NtCurrentTeb()->Win32ClientInfo;
 }
+#endif
 
 /* NtUserCallEnumDisplayMonitor params */
 struct enum_display_monitor_params
