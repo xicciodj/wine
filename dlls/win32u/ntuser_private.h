@@ -74,10 +74,8 @@ typedef struct tagWND
     int                swap_interval; /* OpenGL surface swap interval */
     int                pixel_format;  /* Pixel format set by the graphics driver */
     int                clip_clients;  /* Has client surfaces that needs to be clipped out */
-    int                cbWndExtra;    /* class cbWndExtra at window creation */
+    unsigned int       cbWndExtra;    /* class cbWndExtra at window creation */
     DWORD_PTR          userdata;      /* User private data */
-    int                private_off;   /* offset of private extra bytes range */
-    int                private_len;   /* length of private extra bytes range */
     DWORD              wExtra[1];     /* Window extra bytes */
 } WND;
 
@@ -199,6 +197,7 @@ struct dce *set_class_dce( struct tagCLASS *class, struct dce *dce );
 extern atom_t wine_server_add_atom( void *req, UNICODE_STRING *str );
 extern BOOL is_desktop_class( UNICODE_STRING *name );
 extern BOOL is_message_class( UNICODE_STRING *name );
+extern ATOM get_builtin_class_atom( enum ntuser_client_procs proc );
 extern void register_builtin_classes(void);
 extern void register_desktop_class(void);
 

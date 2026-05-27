@@ -1067,6 +1067,7 @@ typedef volatile struct
 {
     struct obj_locator   class;            /* object locator for the window class shared object */
     unsigned int         dpi_context;      /* DPI awareness context */
+    data_size_t          private_size;     /* length of private extra bytes range */
 } window_shm_t;
 
 typedef volatile union
@@ -2690,6 +2691,13 @@ enum message_type
     lparam_t       new_info;      /* new window info value */
 @REPLY
     lparam_t       old_info;      /* previous window info value */
+@END
+
+
+/* Set the window builtin class FNID */
+@REQ(set_window_fnid)
+    user_handle_t  handle;        /* handle to the window */
+    atom_t         atom;          /* class atom */
 @END
 
 
