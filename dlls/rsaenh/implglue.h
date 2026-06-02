@@ -25,11 +25,15 @@
 #define __WINE_IMPLGLUE_H
 
 #include "tomcrypt.h"
+#include "symcrypt.h"
 
 #define RSAENH_MAX_HASH_SIZE        104
 
 typedef union tagKEY_CONTEXT {
-    symmetric_key key;
+    SYMCRYPT_DES_EXPANDED_KEY  des;
+    SYMCRYPT_3DES_EXPANDED_KEY des3;
+    SYMCRYPT_RC2_EXPANDED_KEY  rc2;
+    SYMCRYPT_AES_EXPANDED_KEY  aes;
     prng_state prng;
     rsa_key rsa;
 } KEY_CONTEXT;
@@ -39,13 +43,21 @@ extern int wprng;
 
 struct hash
 {
-    const struct ltc_hash_descriptor *desc;
-    hash_state state;
+    const SYMCRYPT_HASH *desc;
+    SYMCRYPT_HASH_STATE  state;
 };
 
 BOOL init_hash_impl(ALG_ID algid, struct hash *hash);
-BOOL update_hash_impl(struct hash *hash, const BYTE *data, DWORD len);
-BOOL finalize_hash_impl(struct hash *hash, BYTE *hash_value, DWORD hash_size);
+
+static inline void update_hash_impl(struct hash *hash, const BYTE *data, DWORD len)
+{
+    SymCryptHashAppend( hash->desc, &hash->state, data, len );
+}
+
+static inline void finalize_hash_impl(struct hash *hash, BYTE *hash_value, DWORD hash_size)
+{
+    SymCryptHashResult( hash->desc, &hash->state, hash_value, hash_size );
+}
 
 BOOL new_key_impl(ALG_ID aiAlgid, KEY_CONTEXT *pKeyContext, DWORD dwKeyLen);
 BOOL free_key_impl(ALG_ID aiAlgid, KEY_CONTEXT *pKeyContext);
