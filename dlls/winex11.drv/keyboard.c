@@ -1547,35 +1547,6 @@ BOOL X11DRV_KeyEvent( HWND hwnd, XEvent *xev )
     return TRUE;
 }
 
-static BOOL find_xkb_layout_variant( const char *name, const char **layout, const char **variant )
-{
-#ifdef SONAME_LIBXKBREGISTRY
-    struct rxkb_layout *iter;
-
-    if (rxkb_context)
-    {
-        for (iter = p_rxkb_layout_first( rxkb_context ); iter; iter = p_rxkb_layout_next( iter ))
-        {
-            const char *desc = p_rxkb_layout_get_description( iter );
-
-            if (desc && !strcmp( name, desc ))
-            {
-                *layout = p_rxkb_layout_get_name( iter );
-                *variant = p_rxkb_layout_get_variant( iter );
-                return TRUE;
-            }
-        }
-
-        WARN( "Unknown Xkb layout name %s\n", debugstr_a(name) );
-    }
-    else
-        WARN( "libxkbregistry not available, falling back to fuzzy layout detection\n" );
-#else
-    WARN( "libxkbregistry support not compiled in, falling back to fuzzy layout detection\n" );
-#endif
-    return FALSE;
-}
-
 static const struct layout_id_map_entry
 {
     const char *name;
@@ -1698,6 +1669,14 @@ static LANGID langid_from_xkb_layout( const char *layout )
     return MAKELANGID(LANG_NEUTRAL, SUBLANG_CUSTOM_UNSPECIFIED);
 };
 
+static const char *xkb_layout_from_langid( LANGID langid )
+{
+    for (int i = 0; i < ARRAY_SIZE(layout_ids); i++)
+        if (langid == layout_ids[i].langid)
+            return layout_ids[i].name;
+    return NULL;
+}
+
 static const struct klid_map_entry
 {
     const char *layout;
@@ -1736,9 +1715,9 @@ static DWORD klid_from_xkb_layout( const char *layout, const char *variant )
 }
 
 /* fuzzy layout detection through keysym / keycode matching, kbd_section must be held */
-static void detect_keyboard_layout( Display *display, XModifierKeymap *modmap, unsigned int xkb_group )
+static unsigned int detect_keyboard_layout( Display *display, XModifierKeymap *modmap, unsigned int xkb_group )
 {
-  unsigned current, match, mismatch, seq, i, syms;
+  unsigned current, match, mismatch, seq, i, syms, best_layout = 0;
   int score, keyc, key, pkey, ok;
   KeySym keysym;
   const char (*lkey)[MAIN_LEN][4];
@@ -1843,7 +1822,7 @@ static void detect_keyboard_layout( Display *display, XModifierKeymap *modmap, u
 	   match, mismatch, seq, score);
     if (score + (int)seq > max_score + (int)max_seq) {
       /* best match so far */
-      kbd_layout = current;
+      best_layout = current;
       max_score = score;
       max_seq = seq;
       ismatch = !mismatch;
@@ -1852,9 +1831,10 @@ static void detect_keyboard_layout( Display *display, XModifierKeymap *modmap, u
   /* we're done, report results if necessary */
   if (!ismatch)
     WARN("Using closest match (%s) for scan/virtual codes mapping.\n",
-        main_key_tab[kbd_layout].comment);
+        main_key_tab[best_layout].comment);
 
-  TRACE("detected layout is \"%s\"\n", main_key_tab[kbd_layout].comment);
+  TRACE("detected layout is \"%s\"\n", main_key_tab[best_layout].comment);
+  return best_layout;
 }
 
 
@@ -2090,10 +2070,44 @@ static void init_keycode_mappings( Display *display )
       }
 }
 
+static void find_xkb_layout_variant( Display *display, XModifierKeymap *mmp, int group, const char *name,
+                                     const char **layout, const char **variant )
+{
+    unsigned int index;
+#ifdef SONAME_LIBXKBREGISTRY
+    struct rxkb_layout *iter;
+
+    if (!rxkb_context) WARN( "libxkbregistry not available, falling back to fuzzy layout detection\n" );
+    else if (!name) WARN( "Xkb layout name not found, falling back to fuzzy layout detection\n" );
+    else
+    {
+        for (iter = p_rxkb_layout_first( rxkb_context ); iter; iter = p_rxkb_layout_next( iter ))
+        {
+            const char *desc = p_rxkb_layout_get_description( iter );
+
+            if (desc && !strcmp( name, desc ))
+            {
+                *layout = p_rxkb_layout_get_name( iter );
+                *variant = p_rxkb_layout_get_variant( iter );
+                return;
+            }
+        }
+
+        WARN( "Unknown Xkb layout name %s\n", debugstr_a(name) );
+    }
+#else
+    WARN( "libxkbregistry support not compiled in, falling back to fuzzy layout detection\n" );
+#endif
+
+    index = detect_keyboard_layout( display, mmp, group );
+    *layout = xkb_layout_from_langid( main_key_tab[index].lcid );
+    if (strstr( main_key_tab[index].comment, "dvorak" )) *variant = "dvorak";
+}
 
 /* initialize or update keyboard layouts */
 void init_keyboard_layouts( Display *display )
 {
+    char *names[4] = { NULL };
     unsigned int xkb_group;
     XkbStateRec xkb_state;
     XModifierKeymap *mmp;
@@ -2102,6 +2116,7 @@ void init_keyboard_layouts( Display *display )
     LANGID xkb_lang = 0;
     Status status;
     KeyCode *kcp;
+    int count;
 
     pthread_mutex_lock( &kbd_mutex );
     XDisplayKeycodes( display, &min_keycode, &max_keycode );
@@ -2139,42 +2154,38 @@ void init_keyboard_layouts( Display *display )
 
     if ((xkb_desc = XkbGetMap( display, XkbAllClientInfoMask, XkbUseCoreKbd )))
     {
-        char *names[4];
-        int count;
-
         XkbGetNames( display, XkbGroupNamesMask, xkb_desc );
         for (count = 0; count < ARRAY_SIZE(xkb_desc->names->groups); count++)
             if (!xkb_desc->names->groups[count]) break;
 
         if (!XGetAtomNames( display, xkb_desc->names->groups, count, names )) count = 0;
-        TRACE("Found %u group names\n", count);
-        for (int i = 0; i < count; i++)
-        {
-            const char *layout, *variant = NULL;
-            char buffer[1024];
-            DWORD klid;
-            LANGID lang;
-
-            if (!names[i]) continue;
-            if (find_xkb_layout_variant( names[i], &layout, &variant ))
-            {
-                lang = langid_from_xkb_layout( layout );
-                klid = klid_from_xkb_layout( layout, variant );
-                if (i == xkb_group) xkb_lang = lang;
-
-                TRACE( "Found group %u with name %s -> layout %s:%s, lang %04x, klid %08x\n", i, debugstr_a(names[i]),
-                       debugstr_a(layout), debugstr_a(variant), lang, klid );
-
-                snprintf( buffer, ARRAY_SIZE(buffer), "%s:%s", layout, variant );
-                create_layout_from_xkb( i, buffer, lang, klid );
-            }
-            XFree( names[i] );
-        }
-
+        TRACE( "Found %u group names\n", count );
         XkbFreeKeyboard( xkb_desc, 0, True );
     }
+    else count = status ? 1 : 4;
 
-    detect_keyboard_layout( display, mmp, xkb_group );
+    for (int i = 0; i < count; i++)
+    {
+        const char *layout, *variant = NULL;
+        char buffer[1024];
+        DWORD klid;
+        LANGID lang;
+
+        find_xkb_layout_variant( display, mmp, i, names[i], &layout, &variant );
+        lang = langid_from_xkb_layout( layout );
+        klid = klid_from_xkb_layout( layout, variant );
+        if (i == xkb_group) xkb_lang = lang;
+
+        TRACE( "Found group %u with name %s -> layout %s:%s, lang %04x, klid %08x\n", i, debugstr_a(names[i]),
+               debugstr_a(layout), debugstr_a(variant), lang, klid );
+
+        snprintf( buffer, ARRAY_SIZE(buffer), "%s:%s", layout, variant );
+        create_layout_from_xkb( i, buffer, lang, klid );
+
+        if (names[i]) XFree( names[i] );
+    }
+
+    kbd_layout = detect_keyboard_layout( display, mmp, xkb_group );
     XFreeModifiermap( mmp );
 
     if (xkb_lang && xkb_lang != main_key_tab[kbd_layout].lcid)

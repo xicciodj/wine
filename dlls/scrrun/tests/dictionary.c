@@ -828,6 +828,22 @@ if (0) { /* crashes on native */
     ok(V_VT(&hash) == VT_I4, "got %d\n", V_VT(&hash));
     ok(V_I4(&hash) == expected, "got hash %#lx, expected %#lx\n", V_I4(&hash), expected);
 
+    V_VT(&key) = VT_BOOL;
+    V_BOOL(&key) = VARIANT_FALSE;
+    V_I4(&hash) = 5678;
+    hr = IDictionary_get_HashVal(dict, &key, &hash);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(V_VT(&hash) == VT_I4, "Unexpected hash type %d.\n", V_VT(&hash));
+    ok(V_I4(&hash) == get_num_hash(0.0f), "Unexpected hash value %#lx.\n", V_I4(&hash));
+
+    V_VT(&key) = VT_BOOL;
+    V_BOOL(&key) = VARIANT_TRUE;
+    V_I4(&hash) = 5678;
+    hr = IDictionary_get_HashVal(dict, &key, &hash);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(V_VT(&hash) == VT_I4, "Unexpected hash type %d.\n", V_VT(&hash));
+    ok(V_I4(&hash) == get_num_hash((FLOAT)VARIANT_TRUE), "Unexpected hash value %#lx.\n", V_I4(&hash));
+
     V_VT(&key) = VT_EMPTY;
     V_I4(&key) = 1234;
     V_I4(&hash) = 5678;
@@ -1269,6 +1285,171 @@ static void test_put_Key(void)
     IDictionary_Release(dict);
 }
 
+/* Add two keys to a fresh dictionary; returns TRUE if the second key is
+ * treated as a duplicate of the first. */
+static BOOL keys_match(VARIANT *key1, VARIANT *key2)
+{
+    IDictionary *dict;
+    VARIANT item;
+    HRESULT hr;
+
+    if (FAILED(CoCreateInstance(&CLSID_Dictionary, NULL, CLSCTX_INPROC_SERVER|CLSCTX_INPROC_HANDLER,
+            &IID_IDictionary, (void**)&dict)))
+        return FALSE;
+
+    V_VT(&item) = VT_I2;
+    V_I2(&item) = 1;
+    if (FAILED(IDictionary_Add(dict, key1, &item)))
+    {
+        IDictionary_Release(dict);
+        return FALSE;
+    }
+
+    hr = IDictionary_Add(dict, key2, &item);
+    IDictionary_Release(dict);
+    return hr == CTL_E_KEY_ALREADY_EXISTS;
+}
+
+static void test_empty_key(void)
+{
+    static const VARTYPE zero_keys[] = {
+        VT_I2, VT_I4, VT_UI1, VT_R4, VT_R8, VT_DATE,
+    };
+    VARIANT_BOOL exists;
+    IDictionary *dict;
+    VARIANT a, b, item;
+    HRESULT hr;
+    unsigned i;
+
+    /* Empty matches the zero/default value of any numeric type. */
+    for (i = 0; i < ARRAY_SIZE(zero_keys); i++)
+    {
+        V_VT(&a) = VT_EMPTY;
+        V_VT(&b) = zero_keys[i];
+        if (zero_keys[i] == VT_R8 || zero_keys[i] == VT_DATE)
+            V_R8(&b) = 0.0;
+        else if (zero_keys[i] == VT_R4)
+            V_R4(&b) = 0.0f;
+        else
+            V_I4(&b) = 0;
+        ok(keys_match(&a, &b), "Empty should match zero key vt %d\n", zero_keys[i]);
+    }
+
+    /* Empty matches the empty string, but not a non-empty one. */
+    V_VT(&a) = VT_EMPTY;
+    V_VT(&b) = VT_BSTR;
+    V_BSTR(&b) = SysAllocString(L"");
+    ok(keys_match(&a, &b), "Empty should match empty string\n");
+    VariantClear(&b);
+
+    V_VT(&b) = VT_BSTR;
+    V_BSTR(&b) = SysAllocString(L"0");
+    ok(!keys_match(&a, &b), "Empty should not match \"0\"\n");
+    VariantClear(&b);
+
+    /* Empty does not match a non-zero number or Null. */
+    V_VT(&b) = VT_I2;
+    V_I2(&b) = 5;
+    ok(!keys_match(&a, &b), "Empty should not match I2 5\n");
+
+    V_VT(&b) = VT_NULL;
+    ok(!keys_match(&a, &b), "Empty should not match Null\n");
+
+    /* A numeric zero does not match the empty string (only Empty bridges). */
+    V_VT(&a) = VT_I2;
+    V_I2(&a) = 0;
+    V_VT(&b) = VT_BSTR;
+    V_BSTR(&b) = SysAllocString(L"");
+    ok(!keys_match(&a, &b), "I2 0 should not match empty string\n");
+    VariantClear(&b);
+
+    /* Null matches only Null. */
+    V_VT(&a) = VT_NULL;
+    V_VT(&b) = VT_NULL;
+    ok(keys_match(&a, &b), "Null should match Null\n");
+
+    /* Exists and Remove accept an Empty key, matching a zero-valued entry. */
+    hr = CoCreateInstance(&CLSID_Dictionary, NULL, CLSCTX_INPROC_SERVER|CLSCTX_INPROC_HANDLER,
+            &IID_IDictionary, (void**)&dict);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    V_VT(&a) = VT_I2;
+    V_I2(&a) = 0;
+    VariantInit(&item);
+    hr = IDictionary_Add(dict, &a, &item);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    V_VT(&b) = VT_EMPTY;
+    exists = VARIANT_FALSE;
+    hr = IDictionary_Exists(dict, &b, &exists);
+    ok(hr == S_OK, "Exists with Empty key: %#lx.\n", hr);
+    ok(exists == VARIANT_TRUE, "Empty should find I2 0, got %x\n", exists);
+
+    hr = IDictionary_Remove(dict, &b);
+    ok(hr == S_OK, "Remove with Empty key: %#lx.\n", hr);
+
+    IDictionary_Release(dict);
+}
+
+static void test_bool_key(void)
+{
+    VARIANT_BOOL exists;
+    IDictionary *dict;
+    VARIANT a, b, item;
+    HRESULT hr;
+
+    /* Boolean keys match the equal numeric value across types: True is -1,
+     * False is 0. */
+    V_VT(&a) = VT_BOOL;
+    V_BOOL(&a) = VARIANT_TRUE;
+    V_VT(&b) = VT_I2;
+    V_I2(&b) = -1;
+    ok(keys_match(&a, &b), "True should match I2 -1\n");
+
+    V_VT(&a) = VT_BOOL;
+    V_BOOL(&a) = VARIANT_FALSE;
+    V_VT(&b) = VT_I2;
+    V_I2(&b) = 0;
+    ok(keys_match(&a, &b), "False should match I2 0\n");
+
+    /* False is the zero/default value, so it matches an Empty key. */
+    V_VT(&a) = VT_BOOL;
+    V_BOOL(&a) = VARIANT_FALSE;
+    V_VT(&b) = VT_EMPTY;
+    ok(keys_match(&a, &b), "False should match Empty\n");
+
+    /* True and False are distinct keys. */
+    V_VT(&a) = VT_BOOL;
+    V_BOOL(&a) = VARIANT_TRUE;
+    V_VT(&b) = VT_BOOL;
+    V_BOOL(&b) = VARIANT_FALSE;
+    ok(!keys_match(&a, &b), "True should not match False\n");
+
+    /* A script can use a comparison result (a Boolean) as the key to Exists
+     * and Remove. */
+    hr = CoCreateInstance(&CLSID_Dictionary, NULL, CLSCTX_INPROC_SERVER|CLSCTX_INPROC_HANDLER,
+            &IID_IDictionary, (void**)&dict);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    V_VT(&a) = VT_I2;
+    V_I2(&a) = -1;
+    VariantInit(&item);
+    hr = IDictionary_Add(dict, &a, &item);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    V_VT(&b) = VT_BOOL;
+    V_BOOL(&b) = VARIANT_TRUE;
+    exists = VARIANT_FALSE;
+    hr = IDictionary_Exists(dict, &b, &exists);
+    ok(hr == S_OK, "Exists with Boolean key: %#lx.\n", hr);
+    ok(exists == VARIANT_TRUE, "True should find I2 -1, got %x\n", exists);
+
+    hr = IDictionary_Remove(dict, &b);
+    ok(hr == S_OK, "Remove with Boolean key: %#lx.\n", hr);
+
+    IDictionary_Release(dict);
+}
+
 static void test_IEnumVARIANT(void)
 {
     IUnknown *enum1, *enum2;
@@ -1451,6 +1632,8 @@ START_TEST(dictionary)
     test_Add();
     test_object_key_hashfail();
     test_put_Key();
+    test_empty_key();
+    test_bool_key();
     test_IEnumVARIANT();
     test_putref_Item();
 

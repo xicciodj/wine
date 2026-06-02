@@ -1772,7 +1772,6 @@ static void dump_set_window_fnid_request( const struct set_window_fnid_request *
 {
     fprintf( stderr, " handle=%08x", req->handle );
     fprintf( stderr, ", atom=%04x", req->atom );
-    fprintf( stderr, ", fnid=%08x", req->fnid );
 }
 
 static void dump_set_parent_request( const struct set_parent_request *req )
@@ -2403,6 +2402,7 @@ static void dump_create_class_request( const struct create_class_request *req )
 {
     fprintf( stderr, " local=%d", req->local );
     fprintf( stderr, ", atom=%04x", req->atom );
+    fprintf( stderr, ", fnid=%08x", req->fnid );
     dump_uint64( ", client_ptr=", &req->client_ptr );
     fprintf( stderr, ", name_offset=%u", req->name_offset );
     dump_varargs_class_info( ", info=", cur_size );
