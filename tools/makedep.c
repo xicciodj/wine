@@ -98,7 +98,8 @@ struct incl_file
 #define FLAG_C_IMPLIB       0x01000000  /* file is part of an import library */
 #define FLAG_C_UNIX         0x02000000  /* file is part of a Unix library */
 #define FLAG_C_CXX          0x04000000  /* file uses C++ */
-#define FLAG_ARM64EC_X64    0x08000000  /* use x86_64 object on ARM64EC */
+#define FLAG_C_ASM          0x08000000  /* file uses assembly */
+#define FLAG_ARM64EC_X64    0x10000000  /* use x86_64 object on ARM64EC */
 
 static const struct
 {
@@ -634,7 +635,6 @@ static bool is_subdir_other_arch( const char *name, unsigned int arch )
     if (!p || p == name) return false;
     dir = get_basename( strmake( "%.*s", (int)(p - name), name ));
     if ((cpu = get_cpu_from_name( dir )) == -1) return false;
-    if (native_archs[arch] && cpu == get_cpu_from_name( archs.str[native_archs[arch]] )) return false;
     return cpu != get_cpu_from_name( archs.str[arch] );
 }
 
@@ -1142,6 +1142,16 @@ static void parse_c_file( struct file *source, FILE *file )
 
 
 /*******************************************************************
+ *         parse_asm_file
+ */
+static void parse_asm_file( struct file *source, FILE *file )
+{
+    source->flags |= FLAG_C_ASM;
+    parse_c_file( source, file );
+}
+
+
+/*******************************************************************
  *         parse_cxx_file
  */
 static void parse_cxx_file( struct file *source, FILE *file )
@@ -1260,12 +1270,14 @@ static const struct
 {
     { ".c",   parse_c_file },
     { ".h",   parse_c_file },
+    { ".inc", parse_c_file },
     { ".inl", parse_c_file },
     { ".l",   parse_c_file },
     { ".m",   parse_c_file },
     { ".rh",  parse_c_file },
     { ".x",   parse_c_file },
     { ".y",   parse_c_file },
+    { ".S",   parse_asm_file },
     { ".idl", parse_idl_file },
     { ".cpp", parse_cxx_file },
     { ".hpp", parse_cxx_file },
@@ -3547,12 +3559,13 @@ static void output_source_one_arch( struct makefile *make, struct incl_file *sou
         if (!is_multiarch( arch )) return;
         if (!is_using_msvcrt( make ) && !make->staticlib && !(source->file->flags & FLAG_C_IMPLIB)) return;
         if ((source->file->flags & FLAG_C_CXX) && !get_expanded_arch_var( make, "CXX", arch )) return;
+        if ((source->file->flags & FLAG_C_ASM) && is_subdir_other_arch( source->name, arch )) return;
     }
     else if (source->file->flags & FLAG_C_UNIX)
     {
         if (!unix_lib_supported) return;
     }
-    else if (source->file->flags & FLAG_C_CXX)
+    else if (source->file->flags & (FLAG_C_CXX | FLAG_C_ASM))
     {
         return;
     }
@@ -3561,8 +3574,6 @@ static void output_source_one_arch( struct makefile *make, struct incl_file *sou
         if (!so_dll_supported) return;
         if (!(source->file->flags & FLAG_C_IMPLIB) && (!make->staticlib || make->external)) return;
     }
-
-    if (strendswith( source->name, ".S" ) && is_subdir_other_arch( source->name, arch )) return;
 
     obj_name = strmake( "%s%s.o", source->arch ? "" : arch_dirs[arch], obj );
     strarray_add( targets, obj_name );
