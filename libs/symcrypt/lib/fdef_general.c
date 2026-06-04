@@ -1536,7 +1536,7 @@ cleanup:
     return res;
 }
 
-/* Wine hack: asm not supported yet */
+#ifndef __WINE_PE_BUILD
 
 VOID
 SYMCRYPT_CALL
@@ -1548,3 +1548,5 @@ SymCryptFdefMaskedCopyAsm(
 {
     SymCryptFdefMaskedCopyC( pbSrc, pbDst, nDigits, mask );
 }
+
+#endif

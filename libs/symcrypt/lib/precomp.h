@@ -29,8 +29,7 @@
     #endif
 #endif
 
-/* Wine hack: disable some asm functions */
-#ifdef SYMCRYPT_PLATFORM_WINE
+#ifndef __WINE_PE_BUILD
 #define SymCryptSha256AppendBlocks_xmm_ssse3_asm SymCryptSha256AppendBlocks_ul1
 #define SymCryptXtsAesEncryptInternalAsm SymCryptXtsAesEncryptInternalC
 #define SymCryptXtsAesDecryptInternalAsm SymCryptXtsAesDecryptInternalC
