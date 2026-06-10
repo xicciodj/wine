@@ -836,8 +836,8 @@ void WINAPI glGetBooleanv( GLenum pname, GLboolean *data )
     NTSTATUS status;
     int integer;
     TRACE( "pname %d, data %p\n", pname, data );
-    if (get_integer( pname, &integer )) *data = integer;
-    else if ((status = UNIX_CALL( glGetBooleanv, &args ))) WARN( "glGetBooleanv returned %#lx\n", status );
+    if ((status = UNIX_CALL( glGetBooleanv, &args ))) WARN( "glGetBooleanv returned %#lx\n", status );
+    else if (get_integer( pname, 0, *data, &integer )) *data = integer;
 }
 
 void WINAPI glGetClipPlane( GLenum plane, GLdouble *equation )
@@ -854,8 +854,8 @@ void WINAPI glGetDoublev( GLenum pname, GLdouble *data )
     NTSTATUS status;
     int integer;
     TRACE( "pname %d, data %p\n", pname, data );
-    if (get_integer( pname, &integer )) *data = integer;
-    else if ((status = UNIX_CALL( glGetDoublev, &args ))) WARN( "glGetDoublev returned %#lx\n", status );
+    if ((status = UNIX_CALL( glGetDoublev, &args ))) WARN( "glGetDoublev returned %#lx\n", status );
+    else if (get_integer( pname, 0, *data, &integer )) *data = integer;
 }
 
 GLenum WINAPI glGetError(void)
@@ -873,8 +873,8 @@ void WINAPI glGetFloatv( GLenum pname, GLfloat *data )
     NTSTATUS status;
     int integer;
     TRACE( "pname %d, data %p\n", pname, data );
-    if (get_integer( pname, &integer )) *data = integer;
-    else if ((status = UNIX_CALL( glGetFloatv, &args ))) WARN( "glGetFloatv returned %#lx\n", status );
+    if ((status = UNIX_CALL( glGetFloatv, &args ))) WARN( "glGetFloatv returned %#lx\n", status );
+    else if (get_integer( pname, 0, *data, &integer )) *data = integer;
 }
 
 void WINAPI glGetIntegerv( GLenum pname, GLint *data )
@@ -883,8 +883,8 @@ void WINAPI glGetIntegerv( GLenum pname, GLint *data )
     NTSTATUS status;
     int integer;
     TRACE( "pname %d, data %p\n", pname, data );
-    if (get_integer( pname, &integer )) *data = integer;
-    else if ((status = UNIX_CALL( glGetIntegerv, &args ))) WARN( "glGetIntegerv returned %#lx\n", status );
+    if ((status = UNIX_CALL( glGetIntegerv, &args ))) WARN( "glGetIntegerv returned %#lx\n", status );
+    else if (get_integer( pname, 0, *data, &integer )) *data = integer;
 }
 
 void WINAPI glGetLightfv( GLenum light, GLenum pname, GLfloat *params )
@@ -971,8 +971,10 @@ void WINAPI glGetPointerv( GLenum pname, void **params )
 {
     struct glGetPointerv_params args = { .teb = NtCurrentTeb(), .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "pname %d, params %p\n", pname, params );
     if ((status = UNIX_CALL( glGetPointerv, &args ))) WARN( "glGetPointerv returned %#lx\n", status );
+    else if (get_integer( pname, 0, (UINT_PTR)*params, &integer )) *params = (void *)(UINT_PTR)integer;
 }
 
 void WINAPI glGetPolygonStipple( GLubyte *mask )
@@ -1035,16 +1037,20 @@ void WINAPI glGetTexLevelParameterfv( GLenum target, GLint level, GLenum pname, 
 {
     struct glGetTexLevelParameterfv_params args = { .teb = NtCurrentTeb(), .target = target, .level = level, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, level %d, pname %d, params %p\n", target, level, pname, params );
     if ((status = UNIX_CALL( glGetTexLevelParameterfv, &args ))) WARN( "glGetTexLevelParameterfv returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 void WINAPI glGetTexLevelParameteriv( GLenum target, GLint level, GLenum pname, GLint *params )
 {
     struct glGetTexLevelParameteriv_params args = { .teb = NtCurrentTeb(), .target = target, .level = level, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, level %d, pname %d, params %p\n", target, level, pname, params );
     if ((status = UNIX_CALL( glGetTexLevelParameteriv, &args ))) WARN( "glGetTexLevelParameteriv returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 void WINAPI glGetTexParameterfv( GLenum target, GLenum pname, GLfloat *params )
@@ -2888,17 +2894,20 @@ static void WINAPI glArrayElementEXT( GLint i )
 
 static void WINAPI glArrayObjectATI( GLenum array, GLint size, GLenum type, GLsizei stride, GLuint buffer, GLuint offset )
 {
-    struct glArrayObjectATI_params args = { .teb = NtCurrentTeb(), .array = array, .size = size, .type = type, .stride = stride, .buffer = buffer, .offset = offset };
+    struct glArrayObjectATI_params args = { .teb = NtCurrentTeb(), .array = array, .size = size, .type = type, .stride = stride, .offset = offset };
     NTSTATUS status;
     TRACE( "array %d, size %d, type %d, stride %d, buffer %d, offset %d\n", array, size, type, stride, buffer, offset );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glArrayObjectATI, &args ))) WARN( "glArrayObjectATI returned %#lx\n", status );
 }
 
 static GLuint WINAPI glAsyncCopyBufferSubDataNVX( GLsizei waitSemaphoreCount, const GLuint *waitSemaphoreArray, const GLuint64 *fenceValueArray, GLuint readGpu, GLbitfield writeGpuMask, GLuint readBuffer, GLuint writeBuffer, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size, GLsizei signalSemaphoreCount, const GLuint *signalSemaphoreArray, const GLuint64 *signalValueArray )
 {
-    struct glAsyncCopyBufferSubDataNVX_params args = { .teb = NtCurrentTeb(), .waitSemaphoreCount = waitSemaphoreCount, .waitSemaphoreArray = waitSemaphoreArray, .fenceValueArray = fenceValueArray, .readGpu = readGpu, .writeGpuMask = writeGpuMask, .readBuffer = readBuffer, .writeBuffer = writeBuffer, .readOffset = readOffset, .writeOffset = writeOffset, .size = size, .signalSemaphoreCount = signalSemaphoreCount, .signalSemaphoreArray = signalSemaphoreArray, .signalValueArray = signalValueArray };
+    struct glAsyncCopyBufferSubDataNVX_params args = { .teb = NtCurrentTeb(), .waitSemaphoreCount = waitSemaphoreCount, .waitSemaphoreArray = waitSemaphoreArray, .fenceValueArray = fenceValueArray, .readGpu = readGpu, .writeGpuMask = writeGpuMask, .readOffset = readOffset, .writeOffset = writeOffset, .size = size, .signalSemaphoreCount = signalSemaphoreCount, .signalSemaphoreArray = signalSemaphoreArray, .signalValueArray = signalValueArray };
     NTSTATUS status;
     TRACE( "waitSemaphoreCount %d, waitSemaphoreArray %p, fenceValueArray %p, readGpu %d, writeGpuMask %d, readBuffer %d, writeBuffer %d, readOffset %Id, writeOffset %Id, size %Id, signalSemaphoreCount %d, signalSemaphoreArray %p, signalValueArray %p\n", waitSemaphoreCount, waitSemaphoreArray, fenceValueArray, readGpu, writeGpuMask, readBuffer, writeBuffer, readOffset, writeOffset, size, signalSemaphoreCount, signalSemaphoreArray, signalValueArray );
+    args.readBuffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &readBuffer );
+    args.writeBuffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &writeBuffer );
     if ((status = UNIX_CALL( glAsyncCopyBufferSubDataNVX, &args ))) WARN( "glAsyncCopyBufferSubDataNVX returned %#lx\n", status );
     return args.ret;
 }
@@ -3074,108 +3083,128 @@ static void WINAPI glBindAttribLocationARB( GLhandleARB programObj, GLuint index
 
 static void WINAPI glBindBuffer( GLenum target, GLuint buffer )
 {
-    struct glBindBuffer_params args = { .teb = NtCurrentTeb(), .target = target, .buffer = buffer };
+    struct glBindBuffer_params args = { .teb = NtCurrentTeb(), .target = target };
     NTSTATUS status;
     TRACE( "target %d, buffer %d\n", target, buffer );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, FALSE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glBindBuffer, &args ))) WARN( "glBindBuffer returned %#lx\n", status );
 }
 
 static void WINAPI glBindBufferARB( GLenum target, GLuint buffer )
 {
-    struct glBindBufferARB_params args = { .teb = NtCurrentTeb(), .target = target, .buffer = buffer };
+    struct glBindBufferARB_params args = { .teb = NtCurrentTeb(), .target = target };
     NTSTATUS status;
     TRACE( "target %d, buffer %d\n", target, buffer );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glBindBufferARB, &args ))) WARN( "glBindBufferARB returned %#lx\n", status );
 }
 
 static void WINAPI glBindBufferBase( GLenum target, GLuint index, GLuint buffer )
 {
-    struct glBindBufferBase_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .buffer = buffer };
+    struct glBindBufferBase_params args = { .teb = NtCurrentTeb(), .target = target, .index = index };
     NTSTATUS status;
     TRACE( "target %d, index %d, buffer %d\n", target, index, buffer );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, FALSE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glBindBufferBase, &args ))) WARN( "glBindBufferBase returned %#lx\n", status );
 }
 
 static void WINAPI glBindBufferBaseEXT( GLenum target, GLuint index, GLuint buffer )
 {
-    struct glBindBufferBaseEXT_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .buffer = buffer };
+    struct glBindBufferBaseEXT_params args = { .teb = NtCurrentTeb(), .target = target, .index = index };
     NTSTATUS status;
     TRACE( "target %d, index %d, buffer %d\n", target, index, buffer );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glBindBufferBaseEXT, &args ))) WARN( "glBindBufferBaseEXT returned %#lx\n", status );
 }
 
 static void WINAPI glBindBufferBaseNV( GLenum target, GLuint index, GLuint buffer )
 {
-    struct glBindBufferBaseNV_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .buffer = buffer };
+    struct glBindBufferBaseNV_params args = { .teb = NtCurrentTeb(), .target = target, .index = index };
     NTSTATUS status;
     TRACE( "target %d, index %d, buffer %d\n", target, index, buffer );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glBindBufferBaseNV, &args ))) WARN( "glBindBufferBaseNV returned %#lx\n", status );
 }
 
 static void WINAPI glBindBufferOffsetEXT( GLenum target, GLuint index, GLuint buffer, GLintptr offset )
 {
-    struct glBindBufferOffsetEXT_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .buffer = buffer, .offset = offset };
+    struct glBindBufferOffsetEXT_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .offset = offset };
     NTSTATUS status;
     TRACE( "target %d, index %d, buffer %d, offset %Id\n", target, index, buffer, offset );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glBindBufferOffsetEXT, &args ))) WARN( "glBindBufferOffsetEXT returned %#lx\n", status );
 }
 
 static void WINAPI glBindBufferOffsetNV( GLenum target, GLuint index, GLuint buffer, GLintptr offset )
 {
-    struct glBindBufferOffsetNV_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .buffer = buffer, .offset = offset };
+    struct glBindBufferOffsetNV_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .offset = offset };
     NTSTATUS status;
     TRACE( "target %d, index %d, buffer %d, offset %Id\n", target, index, buffer, offset );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glBindBufferOffsetNV, &args ))) WARN( "glBindBufferOffsetNV returned %#lx\n", status );
 }
 
 static void WINAPI glBindBufferRange( GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size )
 {
-    struct glBindBufferRange_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .buffer = buffer, .offset = offset, .size = size };
+    struct glBindBufferRange_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .offset = offset, .size = size };
     NTSTATUS status;
     TRACE( "target %d, index %d, buffer %d, offset %Id, size %Id\n", target, index, buffer, offset, size );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, FALSE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glBindBufferRange, &args ))) WARN( "glBindBufferRange returned %#lx\n", status );
 }
 
 static void WINAPI glBindBufferRangeEXT( GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size )
 {
-    struct glBindBufferRangeEXT_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .buffer = buffer, .offset = offset, .size = size };
+    struct glBindBufferRangeEXT_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .offset = offset, .size = size };
     NTSTATUS status;
     TRACE( "target %d, index %d, buffer %d, offset %Id, size %Id\n", target, index, buffer, offset, size );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glBindBufferRangeEXT, &args ))) WARN( "glBindBufferRangeEXT returned %#lx\n", status );
 }
 
 static void WINAPI glBindBufferRangeNV( GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size )
 {
-    struct glBindBufferRangeNV_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .buffer = buffer, .offset = offset, .size = size };
+    struct glBindBufferRangeNV_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .offset = offset, .size = size };
     NTSTATUS status;
     TRACE( "target %d, index %d, buffer %d, offset %Id, size %Id\n", target, index, buffer, offset, size );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glBindBufferRangeNV, &args ))) WARN( "glBindBufferRangeNV returned %#lx\n", status );
 }
 
 static void WINAPI glBindBuffersBase( GLenum target, GLuint first, GLsizei count, const GLuint *buffers )
 {
-    struct glBindBuffersBase_params args = { .teb = NtCurrentTeb(), .target = target, .first = first, .count = count, .buffers = buffers };
+    GLuint buffers_buf[64], *buffers_tmp;
+    struct glBindBuffersBase_params args = { .teb = NtCurrentTeb(), .target = target, .first = first, .count = count };
     NTSTATUS status;
     TRACE( "target %d, first %d, count %d, buffers %p\n", target, first, count, buffers );
+    if (!alloc_context_objects( OBJ_TYPE_BUFFER, count, buffers, FALSE )) return;
+    buffers_tmp = count > 0 ? memdup_objects( count, buffers, buffers_buf, ARRAY_SIZE(buffers_buf) ) : NULL;
+    args.buffers = count > 0 ? map_context_objects( OBJ_TYPE_BUFFER, count, buffers_tmp ) : NULL;
     if ((status = UNIX_CALL( glBindBuffersBase, &args ))) WARN( "glBindBuffersBase returned %#lx\n", status );
+    if (buffers_tmp != buffers_buf) free( buffers_tmp );
 }
 
 static void WINAPI glBindBuffersRange( GLenum target, GLuint first, GLsizei count, const GLuint *buffers, const GLintptr *offsets, const GLsizeiptr *sizes )
 {
-    struct glBindBuffersRange_params args = { .teb = NtCurrentTeb(), .target = target, .first = first, .count = count, .buffers = buffers, .offsets = offsets, .sizes = sizes };
+    GLuint buffers_buf[64], *buffers_tmp;
+    struct glBindBuffersRange_params args = { .teb = NtCurrentTeb(), .target = target, .first = first, .count = count, .offsets = offsets, .sizes = sizes };
     NTSTATUS status;
     TRACE( "target %d, first %d, count %d, buffers %p, offsets %p, sizes %p\n", target, first, count, buffers, offsets, sizes );
+    if (!alloc_context_objects( OBJ_TYPE_BUFFER, count, buffers, FALSE )) return;
+    buffers_tmp = count > 0 ? memdup_objects( count, buffers, buffers_buf, ARRAY_SIZE(buffers_buf) ) : NULL;
+    args.buffers = count > 0 ? map_context_objects( OBJ_TYPE_BUFFER, count, buffers_tmp ) : NULL;
     if ((status = UNIX_CALL( glBindBuffersRange, &args ))) WARN( "glBindBuffersRange returned %#lx\n", status );
+    if (buffers_tmp != buffers_buf) free( buffers_tmp );
 }
 
 static void WINAPI glBindFragDataLocation( GLuint program, GLuint color, const GLchar *name )
@@ -3425,18 +3454,23 @@ static void WINAPI glBindVertexArrayAPPLE( GLuint array )
 
 static void WINAPI glBindVertexBuffer( GLuint bindingindex, GLuint buffer, GLintptr offset, GLsizei stride )
 {
-    struct glBindVertexBuffer_params args = { .teb = NtCurrentTeb(), .bindingindex = bindingindex, .buffer = buffer, .offset = offset, .stride = stride };
+    struct glBindVertexBuffer_params args = { .teb = NtCurrentTeb(), .bindingindex = bindingindex, .offset = offset, .stride = stride };
     NTSTATUS status;
     TRACE( "bindingindex %d, buffer %d, offset %Id, stride %d\n", bindingindex, buffer, offset, stride );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glBindVertexBuffer, &args ))) WARN( "glBindVertexBuffer returned %#lx\n", status );
 }
 
 static void WINAPI glBindVertexBuffers( GLuint first, GLsizei count, const GLuint *buffers, const GLintptr *offsets, const GLsizei *strides )
 {
-    struct glBindVertexBuffers_params args = { .teb = NtCurrentTeb(), .first = first, .count = count, .buffers = buffers, .offsets = offsets, .strides = strides };
+    GLuint buffers_buf[64], *buffers_tmp;
+    struct glBindVertexBuffers_params args = { .teb = NtCurrentTeb(), .first = first, .count = count, .offsets = offsets, .strides = strides };
     NTSTATUS status;
     TRACE( "first %d, count %d, buffers %p, offsets %p, strides %p\n", first, count, buffers, offsets, strides );
+    buffers_tmp = count > 0 ? memdup_objects( count, buffers, buffers_buf, ARRAY_SIZE(buffers_buf) ) : NULL;
+    args.buffers = count > 0 ? map_context_objects( OBJ_TYPE_BUFFER, count, buffers_tmp ) : NULL;
     if ((status = UNIX_CALL( glBindVertexBuffers, &args ))) WARN( "glBindVertexBuffers returned %#lx\n", status );
+    if (buffers_tmp != buffers_buf) free( buffers_tmp );
 }
 
 static void WINAPI glBindVertexShaderEXT( GLuint id )
@@ -4102,35 +4136,39 @@ static void WINAPI glClearDepthxOES( GLfixed depth )
 
 static void WINAPI glClearNamedBufferData( GLuint buffer, GLenum internalformat, GLenum format, GLenum type, const void *data )
 {
-    struct glClearNamedBufferData_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .internalformat = internalformat, .format = format, .type = type, .data = data };
+    struct glClearNamedBufferData_params args = { .teb = NtCurrentTeb(), .internalformat = internalformat, .format = format, .type = type, .data = data };
     NTSTATUS status;
     TRACE( "buffer %d, internalformat %d, format %d, type %d, data %p\n", buffer, internalformat, format, type, data );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glClearNamedBufferData, &args ))) WARN( "glClearNamedBufferData returned %#lx\n", status );
 }
 
 static void WINAPI glClearNamedBufferDataEXT( GLuint buffer, GLenum internalformat, GLenum format, GLenum type, const void *data )
 {
-    struct glClearNamedBufferDataEXT_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .internalformat = internalformat, .format = format, .type = type, .data = data };
+    struct glClearNamedBufferDataEXT_params args = { .teb = NtCurrentTeb(), .internalformat = internalformat, .format = format, .type = type, .data = data };
     NTSTATUS status;
     TRACE( "buffer %d, internalformat %d, format %d, type %d, data %p\n", buffer, internalformat, format, type, data );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glClearNamedBufferDataEXT, &args ))) WARN( "glClearNamedBufferDataEXT returned %#lx\n", status );
 }
 
 static void WINAPI glClearNamedBufferSubData( GLuint buffer, GLenum internalformat, GLintptr offset, GLsizeiptr size, GLenum format, GLenum type, const void *data )
 {
-    struct glClearNamedBufferSubData_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .internalformat = internalformat, .offset = offset, .size = size, .format = format, .type = type, .data = data };
+    struct glClearNamedBufferSubData_params args = { .teb = NtCurrentTeb(), .internalformat = internalformat, .offset = offset, .size = size, .format = format, .type = type, .data = data };
     NTSTATUS status;
     TRACE( "buffer %d, internalformat %d, offset %Id, size %Id, format %d, type %d, data %p\n", buffer, internalformat, offset, size, format, type, data );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glClearNamedBufferSubData, &args ))) WARN( "glClearNamedBufferSubData returned %#lx\n", status );
 }
 
 static void WINAPI glClearNamedBufferSubDataEXT( GLuint buffer, GLenum internalformat, GLsizeiptr offset, GLsizeiptr size, GLenum format, GLenum type, const void *data )
 {
-    struct glClearNamedBufferSubDataEXT_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .internalformat = internalformat, .offset = offset, .size = size, .format = format, .type = type, .data = data };
+    struct glClearNamedBufferSubDataEXT_params args = { .teb = NtCurrentTeb(), .internalformat = internalformat, .offset = offset, .size = size, .format = format, .type = type, .data = data };
     NTSTATUS status;
     TRACE( "buffer %d, internalformat %d, offset %Id, size %Id, format %d, type %d, data %p\n", buffer, internalformat, offset, size, format, type, data );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glClearNamedBufferSubDataEXT, &args ))) WARN( "glClearNamedBufferSubDataEXT returned %#lx\n", status );
 }
 
@@ -5154,9 +5192,11 @@ static void WINAPI glCopyMultiTexSubImage3DEXT( GLenum texunit, GLenum target, G
 
 static void WINAPI glCopyNamedBufferSubData( GLuint readBuffer, GLuint writeBuffer, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size )
 {
-    struct glCopyNamedBufferSubData_params args = { .teb = NtCurrentTeb(), .readBuffer = readBuffer, .writeBuffer = writeBuffer, .readOffset = readOffset, .writeOffset = writeOffset, .size = size };
+    struct glCopyNamedBufferSubData_params args = { .teb = NtCurrentTeb(), .readOffset = readOffset, .writeOffset = writeOffset, .size = size };
     NTSTATUS status;
     TRACE( "readBuffer %d, writeBuffer %d, readOffset %Id, writeOffset %Id, size %Id\n", readBuffer, writeBuffer, readOffset, writeOffset, size );
+    args.readBuffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &readBuffer );
+    args.writeBuffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &writeBuffer );
     if ((status = UNIX_CALL( glCopyNamedBufferSubData, &args ))) WARN( "glCopyNamedBufferSubData returned %#lx\n", status );
 }
 
@@ -6251,9 +6291,10 @@ static void WINAPI glDrawCommandsAddressNV( GLenum primitiveMode, const GLuint64
 
 static void WINAPI glDrawCommandsNV( GLenum primitiveMode, GLuint buffer, const GLintptr *indirects, const GLsizei *sizes, GLuint count )
 {
-    struct glDrawCommandsNV_params args = { .teb = NtCurrentTeb(), .primitiveMode = primitiveMode, .buffer = buffer, .indirects = indirects, .sizes = sizes, .count = count };
+    struct glDrawCommandsNV_params args = { .teb = NtCurrentTeb(), .primitiveMode = primitiveMode, .indirects = indirects, .sizes = sizes, .count = count };
     NTSTATUS status;
     TRACE( "primitiveMode %d, buffer %d, indirects %p, sizes %p, count %d\n", primitiveMode, buffer, indirects, sizes, count );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glDrawCommandsNV, &args ))) WARN( "glDrawCommandsNV returned %#lx\n", status );
 }
 
@@ -6267,9 +6308,10 @@ static void WINAPI glDrawCommandsStatesAddressNV( const GLuint64 *indirects, con
 
 static void WINAPI glDrawCommandsStatesNV( GLuint buffer, const GLintptr *indirects, const GLsizei *sizes, const GLuint *states, const GLuint *fbos, GLuint count )
 {
-    struct glDrawCommandsStatesNV_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .indirects = indirects, .sizes = sizes, .states = states, .fbos = fbos, .count = count };
+    struct glDrawCommandsStatesNV_params args = { .teb = NtCurrentTeb(), .indirects = indirects, .sizes = sizes, .states = states, .fbos = fbos, .count = count };
     NTSTATUS status;
     TRACE( "buffer %d, indirects %p, sizes %p, states %p, fbos %p, count %d\n", buffer, indirects, sizes, states, fbos, count );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glDrawCommandsStatesNV, &args ))) WARN( "glDrawCommandsStatesNV returned %#lx\n", status );
 }
 
@@ -6892,18 +6934,20 @@ static void WINAPI glFlushMappedBufferRangeAPPLE( GLenum target, GLintptr offset
 
 static void WINAPI glFlushMappedNamedBufferRange( GLuint buffer, GLintptr offset, GLsizeiptr length )
 {
-    struct glFlushMappedNamedBufferRange_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .offset = offset, .length = length };
+    struct glFlushMappedNamedBufferRange_params args = { .teb = NtCurrentTeb(), .offset = offset, .length = length };
     NTSTATUS status;
     TRACE( "buffer %d, offset %Id, length %Id\n", buffer, offset, length );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glFlushMappedNamedBufferRange, &args ))) WARN( "glFlushMappedNamedBufferRange returned %#lx\n", status );
 }
 
 static void WINAPI glFlushMappedNamedBufferRangeEXT( GLuint buffer, GLintptr offset, GLsizeiptr length )
 {
-    struct glFlushMappedNamedBufferRangeEXT_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .offset = offset, .length = length };
+    struct glFlushMappedNamedBufferRangeEXT_params args = { .teb = NtCurrentTeb(), .offset = offset, .length = length };
     NTSTATUS status;
     TRACE( "buffer %d, offset %Id, length %Id\n", buffer, offset, length );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glFlushMappedNamedBufferRangeEXT, &args ))) WARN( "glFlushMappedNamedBufferRangeEXT returned %#lx\n", status );
 }
 
@@ -7445,9 +7489,10 @@ static void WINAPI glFramebufferTextureMultiviewOVR( GLenum target, GLenum attac
 
 static void WINAPI glFreeObjectBufferATI( GLuint buffer )
 {
-    struct glFreeObjectBufferATI_params args = { .teb = NtCurrentTeb(), .buffer = buffer };
+    struct glFreeObjectBufferATI_params args = { .teb = NtCurrentTeb() };
     NTSTATUS status;
     TRACE( "buffer %d\n", buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glFreeObjectBufferATI, &args ))) WARN( "glFreeObjectBufferATI returned %#lx\n", status );
 }
 
@@ -7920,16 +7965,20 @@ static void WINAPI glGetBooleanIndexedvEXT( GLenum target, GLuint index, GLboole
 {
     struct glGetBooleanIndexedvEXT_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .data = data };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, index %d, data %p\n", target, index, data );
     if ((status = UNIX_CALL( glGetBooleanIndexedvEXT, &args ))) WARN( "glGetBooleanIndexedvEXT returned %#lx\n", status );
+    else if (get_integer( target, index, *data, &integer )) *data = integer;
 }
 
 static void WINAPI glGetBooleani_v( GLenum target, GLuint index, GLboolean *data )
 {
     struct glGetBooleani_v_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .data = data };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, index %d, data %p\n", target, index, data );
     if ((status = UNIX_CALL( glGetBooleani_v, &args ))) WARN( "glGetBooleani_v returned %#lx\n", status );
+    else if (get_integer( target, index, *data, &integer )) *data = integer;
 }
 
 static void WINAPI glGetBufferParameteri64v( GLenum target, GLenum pname, GLint64 *params )
@@ -8300,24 +8349,30 @@ static void WINAPI glGetDoubleIndexedvEXT( GLenum target, GLuint index, GLdouble
 {
     struct glGetDoubleIndexedvEXT_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .data = data };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, index %d, data %p\n", target, index, data );
     if ((status = UNIX_CALL( glGetDoubleIndexedvEXT, &args ))) WARN( "glGetDoubleIndexedvEXT returned %#lx\n", status );
+    else if (get_integer( target, index, *data, &integer )) *data = integer;
 }
 
 static void WINAPI glGetDoublei_v( GLenum target, GLuint index, GLdouble *data )
 {
     struct glGetDoublei_v_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .data = data };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, index %d, data %p\n", target, index, data );
     if ((status = UNIX_CALL( glGetDoublei_v, &args ))) WARN( "glGetDoublei_v returned %#lx\n", status );
+    else if (get_integer( target, index, *data, &integer )) *data = integer;
 }
 
 static void WINAPI glGetDoublei_vEXT( GLenum pname, GLuint index, GLdouble *params )
 {
     struct glGetDoublei_vEXT_params args = { .teb = NtCurrentTeb(), .pname = pname, .index = index, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "pname %d, index %d, params %p\n", pname, index, params );
     if ((status = UNIX_CALL( glGetDoublei_vEXT, &args ))) WARN( "glGetDoublei_vEXT returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetFenceivNV( GLuint fence, GLenum pname, GLint *params )
@@ -8356,40 +8411,50 @@ static void WINAPI glGetFixedv( GLenum pname, GLfixed *params )
 {
     struct glGetFixedv_params args = { .teb = NtCurrentTeb(), .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "pname %d, params %p\n", pname, params );
     if ((status = UNIX_CALL( glGetFixedv, &args ))) WARN( "glGetFixedv returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetFixedvOES( GLenum pname, GLfixed *params )
 {
     struct glGetFixedvOES_params args = { .teb = NtCurrentTeb(), .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "pname %d, params %p\n", pname, params );
     if ((status = UNIX_CALL( glGetFixedvOES, &args ))) WARN( "glGetFixedvOES returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetFloatIndexedvEXT( GLenum target, GLuint index, GLfloat *data )
 {
     struct glGetFloatIndexedvEXT_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .data = data };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, index %d, data %p\n", target, index, data );
     if ((status = UNIX_CALL( glGetFloatIndexedvEXT, &args ))) WARN( "glGetFloatIndexedvEXT returned %#lx\n", status );
+    else if (get_integer( target, index, *data, &integer )) *data = integer;
 }
 
 static void WINAPI glGetFloati_v( GLenum target, GLuint index, GLfloat *data )
 {
     struct glGetFloati_v_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .data = data };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, index %d, data %p\n", target, index, data );
     if ((status = UNIX_CALL( glGetFloati_v, &args ))) WARN( "glGetFloati_v returned %#lx\n", status );
+    else if (get_integer( target, index, *data, &integer )) *data = integer;
 }
 
 static void WINAPI glGetFloati_vEXT( GLenum pname, GLuint index, GLfloat *params )
 {
     struct glGetFloati_vEXT_params args = { .teb = NtCurrentTeb(), .pname = pname, .index = index, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "pname %d, index %d, params %p\n", pname, index, params );
     if ((status = UNIX_CALL( glGetFloati_vEXT, &args ))) WARN( "glGetFloati_vEXT returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetFogFuncSGIS( GLfloat *points )
@@ -8471,16 +8536,20 @@ static void WINAPI glGetFramebufferAttachmentParameteriv( GLenum target, GLenum 
 {
     struct glGetFramebufferAttachmentParameteriv_params args = { .teb = NtCurrentTeb(), .target = target, .attachment = attachment, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, attachment %d, pname %d, params %p\n", target, attachment, pname, params );
     if ((status = UNIX_CALL( glGetFramebufferAttachmentParameteriv, &args ))) WARN( "glGetFramebufferAttachmentParameteriv returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetFramebufferAttachmentParameterivEXT( GLenum target, GLenum attachment, GLenum pname, GLint *params )
 {
     struct glGetFramebufferAttachmentParameterivEXT_params args = { .teb = NtCurrentTeb(), .target = target, .attachment = attachment, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, attachment %d, pname %d, params %p\n", target, attachment, pname, params );
     if ((status = UNIX_CALL( glGetFramebufferAttachmentParameterivEXT, &args ))) WARN( "glGetFramebufferAttachmentParameterivEXT returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetFramebufferParameterfvAMD( GLenum target, GLenum pname, GLuint numsamples, GLuint pixelindex, GLsizei size, GLfloat *values )
@@ -8653,8 +8722,10 @@ static void WINAPI glGetInteger64i_v( GLenum target, GLuint index, GLint64 *data
 {
     struct glGetInteger64i_v_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .data = data };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, index %d, data %p\n", target, index, data );
     if ((status = UNIX_CALL( glGetInteger64i_v, &args ))) WARN( "glGetInteger64i_v returned %#lx\n", status );
+    else if (get_integer( target, index, *data, &integer )) *data = integer;
 }
 
 static void WINAPI glGetInteger64v( GLenum pname, GLint64 *data )
@@ -8663,40 +8734,48 @@ static void WINAPI glGetInteger64v( GLenum pname, GLint64 *data )
     NTSTATUS status;
     int integer;
     TRACE( "pname %d, data %p\n", pname, data );
-    if (get_integer( pname, &integer )) *data = integer;
-    else if ((status = UNIX_CALL( glGetInteger64v, &args ))) WARN( "glGetInteger64v returned %#lx\n", status );
+    if ((status = UNIX_CALL( glGetInteger64v, &args ))) WARN( "glGetInteger64v returned %#lx\n", status );
+    else if (get_integer( pname, 0, *data, &integer )) *data = integer;
 }
 
 static void WINAPI glGetIntegerIndexedvEXT( GLenum target, GLuint index, GLint *data )
 {
     struct glGetIntegerIndexedvEXT_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .data = data };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, index %d, data %p\n", target, index, data );
     if ((status = UNIX_CALL( glGetIntegerIndexedvEXT, &args ))) WARN( "glGetIntegerIndexedvEXT returned %#lx\n", status );
+    else if (get_integer( target, index, *data, &integer )) *data = integer;
 }
 
 static void WINAPI glGetIntegeri_v( GLenum target, GLuint index, GLint *data )
 {
     struct glGetIntegeri_v_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .data = data };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, index %d, data %p\n", target, index, data );
     if ((status = UNIX_CALL( glGetIntegeri_v, &args ))) WARN( "glGetIntegeri_v returned %#lx\n", status );
+    else if (get_integer( target, index, *data, &integer )) *data = integer;
 }
 
 static void WINAPI glGetIntegerui64i_vNV( GLenum value, GLuint index, GLuint64EXT *result )
 {
     struct glGetIntegerui64i_vNV_params args = { .teb = NtCurrentTeb(), .value = value, .index = index, .result = result };
     NTSTATUS status;
+    int integer;
     TRACE( "value %d, index %d, result %p\n", value, index, result );
     if ((status = UNIX_CALL( glGetIntegerui64i_vNV, &args ))) WARN( "glGetIntegerui64i_vNV returned %#lx\n", status );
+    else if (get_integer( value, index, *result, &integer )) *result = integer;
 }
 
 static void WINAPI glGetIntegerui64vNV( GLenum value, GLuint64EXT *result )
 {
     struct glGetIntegerui64vNV_params args = { .teb = NtCurrentTeb(), .value = value, .result = result };
     NTSTATUS status;
+    int integer;
     TRACE( "value %d, result %p\n", value, result );
     if ((status = UNIX_CALL( glGetIntegerui64vNV, &args ))) WARN( "glGetIntegerui64vNV returned %#lx\n", status );
+    else if (get_integer( value, 0, *result, &integer )) *result = integer;
 }
 
 static void WINAPI glGetInternalformatSampleivNV( GLenum target, GLenum internalformat, GLsizei samples, GLenum pname, GLsizei count, GLint *params )
@@ -8983,16 +9062,20 @@ static void WINAPI glGetMultiTexLevelParameterfvEXT( GLenum texunit, GLenum targ
 {
     struct glGetMultiTexLevelParameterfvEXT_params args = { .teb = NtCurrentTeb(), .texunit = texunit, .target = target, .level = level, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "texunit %d, target %d, level %d, pname %d, params %p\n", texunit, target, level, pname, params );
     if ((status = UNIX_CALL( glGetMultiTexLevelParameterfvEXT, &args ))) WARN( "glGetMultiTexLevelParameterfvEXT returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetMultiTexLevelParameterivEXT( GLenum texunit, GLenum target, GLint level, GLenum pname, GLint *params )
 {
     struct glGetMultiTexLevelParameterivEXT_params args = { .teb = NtCurrentTeb(), .texunit = texunit, .target = target, .level = level, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "texunit %d, target %d, level %d, pname %d, params %p\n", texunit, target, level, pname, params );
     if ((status = UNIX_CALL( glGetMultiTexLevelParameterivEXT, &args ))) WARN( "glGetMultiTexLevelParameterivEXT returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetMultiTexParameterIivEXT( GLenum texunit, GLenum target, GLenum pname, GLint *params )
@@ -9045,68 +9128,76 @@ static void WINAPI glGetMultisamplefvNV( GLenum pname, GLuint index, GLfloat *va
 
 static void WINAPI glGetNamedBufferParameteri64v( GLuint buffer, GLenum pname, GLint64 *params )
 {
-    struct glGetNamedBufferParameteri64v_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .pname = pname, .params = params };
+    struct glGetNamedBufferParameteri64v_params args = { .teb = NtCurrentTeb(), .pname = pname, .params = params };
     NTSTATUS status;
     TRACE( "buffer %d, pname %d, params %p\n", buffer, pname, params );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glGetNamedBufferParameteri64v, &args ))) WARN( "glGetNamedBufferParameteri64v returned %#lx\n", status );
 }
 
 static void WINAPI glGetNamedBufferParameteriv( GLuint buffer, GLenum pname, GLint *params )
 {
-    struct glGetNamedBufferParameteriv_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .pname = pname, .params = params };
+    struct glGetNamedBufferParameteriv_params args = { .teb = NtCurrentTeb(), .pname = pname, .params = params };
     NTSTATUS status;
     TRACE( "buffer %d, pname %d, params %p\n", buffer, pname, params );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glGetNamedBufferParameteriv, &args ))) WARN( "glGetNamedBufferParameteriv returned %#lx\n", status );
 }
 
 static void WINAPI glGetNamedBufferParameterivEXT( GLuint buffer, GLenum pname, GLint *params )
 {
-    struct glGetNamedBufferParameterivEXT_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .pname = pname, .params = params };
+    struct glGetNamedBufferParameterivEXT_params args = { .teb = NtCurrentTeb(), .pname = pname, .params = params };
     NTSTATUS status;
     TRACE( "buffer %d, pname %d, params %p\n", buffer, pname, params );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glGetNamedBufferParameterivEXT, &args ))) WARN( "glGetNamedBufferParameterivEXT returned %#lx\n", status );
 }
 
 static void WINAPI glGetNamedBufferParameterui64vNV( GLuint buffer, GLenum pname, GLuint64EXT *params )
 {
-    struct glGetNamedBufferParameterui64vNV_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .pname = pname, .params = params };
+    struct glGetNamedBufferParameterui64vNV_params args = { .teb = NtCurrentTeb(), .pname = pname, .params = params };
     NTSTATUS status;
     TRACE( "buffer %d, pname %d, params %p\n", buffer, pname, params );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glGetNamedBufferParameterui64vNV, &args ))) WARN( "glGetNamedBufferParameterui64vNV returned %#lx\n", status );
 }
 
 static void WINAPI glGetNamedBufferPointerv( GLuint buffer, GLenum pname, void **params )
 {
-    struct glGetNamedBufferPointerv_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .pname = pname, .params = params };
+    struct glGetNamedBufferPointerv_params args = { .teb = NtCurrentTeb(), .pname = pname, .params = params };
     NTSTATUS status;
     TRACE( "buffer %d, pname %d, params %p\n", buffer, pname, params );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glGetNamedBufferPointerv, &args ))) WARN( "glGetNamedBufferPointerv returned %#lx\n", status );
 }
 
 static void WINAPI glGetNamedBufferPointervEXT( GLuint buffer, GLenum pname, void **params )
 {
-    struct glGetNamedBufferPointervEXT_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .pname = pname, .params = params };
+    struct glGetNamedBufferPointervEXT_params args = { .teb = NtCurrentTeb(), .pname = pname, .params = params };
     NTSTATUS status;
     TRACE( "buffer %d, pname %d, params %p\n", buffer, pname, params );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glGetNamedBufferPointervEXT, &args ))) WARN( "glGetNamedBufferPointervEXT returned %#lx\n", status );
 }
 
 static void WINAPI glGetNamedBufferSubData( GLuint buffer, GLintptr offset, GLsizeiptr size, void *data )
 {
-    struct glGetNamedBufferSubData_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .offset = offset, .size = size, .data = data };
+    struct glGetNamedBufferSubData_params args = { .teb = NtCurrentTeb(), .offset = offset, .size = size, .data = data };
     NTSTATUS status;
     TRACE( "buffer %d, offset %Id, size %Id, data %p\n", buffer, offset, size, data );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glGetNamedBufferSubData, &args ))) WARN( "glGetNamedBufferSubData returned %#lx\n", status );
 }
 
 static void WINAPI glGetNamedBufferSubDataEXT( GLuint buffer, GLintptr offset, GLsizeiptr size, void *data )
 {
-    struct glGetNamedBufferSubDataEXT_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .offset = offset, .size = size, .data = data };
+    struct glGetNamedBufferSubDataEXT_params args = { .teb = NtCurrentTeb(), .offset = offset, .size = size, .data = data };
     NTSTATUS status;
     TRACE( "buffer %d, offset %Id, size %Id, data %p\n", buffer, offset, size, data );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glGetNamedBufferSubDataEXT, &args ))) WARN( "glGetNamedBufferSubDataEXT returned %#lx\n", status );
 }
 
@@ -9114,16 +9205,20 @@ static void WINAPI glGetNamedFramebufferAttachmentParameteriv( GLuint framebuffe
 {
     struct glGetNamedFramebufferAttachmentParameteriv_params args = { .teb = NtCurrentTeb(), .framebuffer = framebuffer, .attachment = attachment, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "framebuffer %d, attachment %d, pname %d, params %p\n", framebuffer, attachment, pname, params );
     if ((status = UNIX_CALL( glGetNamedFramebufferAttachmentParameteriv, &args ))) WARN( "glGetNamedFramebufferAttachmentParameteriv returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetNamedFramebufferAttachmentParameterivEXT( GLuint framebuffer, GLenum attachment, GLenum pname, GLint *params )
 {
     struct glGetNamedFramebufferAttachmentParameterivEXT_params args = { .teb = NtCurrentTeb(), .framebuffer = framebuffer, .attachment = attachment, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "framebuffer %d, attachment %d, pname %d, params %p\n", framebuffer, attachment, pname, params );
     if ((status = UNIX_CALL( glGetNamedFramebufferAttachmentParameterivEXT, &args ))) WARN( "glGetNamedFramebufferAttachmentParameterivEXT returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetNamedFramebufferParameterfvAMD( GLuint framebuffer, GLenum pname, GLuint numsamples, GLuint pixelindex, GLsizei size, GLfloat *values )
@@ -9240,17 +9335,19 @@ static void WINAPI glGetNextPerfQueryIdINTEL( GLuint queryId, GLuint *nextQueryI
 
 static void WINAPI glGetObjectBufferfvATI( GLuint buffer, GLenum pname, GLfloat *params )
 {
-    struct glGetObjectBufferfvATI_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .pname = pname, .params = params };
+    struct glGetObjectBufferfvATI_params args = { .teb = NtCurrentTeb(), .pname = pname, .params = params };
     NTSTATUS status;
     TRACE( "buffer %d, pname %d, params %p\n", buffer, pname, params );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glGetObjectBufferfvATI, &args ))) WARN( "glGetObjectBufferfvATI returned %#lx\n", status );
 }
 
 static void WINAPI glGetObjectBufferivATI( GLuint buffer, GLenum pname, GLint *params )
 {
-    struct glGetObjectBufferivATI_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .pname = pname, .params = params };
+    struct glGetObjectBufferivATI_params args = { .teb = NtCurrentTeb(), .pname = pname, .params = params };
     NTSTATUS status;
     TRACE( "buffer %d, pname %d, params %p\n", buffer, pname, params );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glGetObjectBufferivATI, &args ))) WARN( "glGetObjectBufferivATI returned %#lx\n", status );
 }
 
@@ -9547,24 +9644,30 @@ static void WINAPI glGetPointerIndexedvEXT( GLenum target, GLuint index, void **
 {
     struct glGetPointerIndexedvEXT_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .data = data };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, index %d, data %p\n", target, index, data );
     if ((status = UNIX_CALL( glGetPointerIndexedvEXT, &args ))) WARN( "glGetPointerIndexedvEXT returned %#lx\n", status );
+    else if (get_integer( target, index, (UINT_PTR)*data, &integer )) *data = (void *)(UINT_PTR)integer;
 }
 
 static void WINAPI glGetPointeri_vEXT( GLenum pname, GLuint index, void **params )
 {
     struct glGetPointeri_vEXT_params args = { .teb = NtCurrentTeb(), .pname = pname, .index = index, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "pname %d, index %d, params %p\n", pname, index, params );
     if ((status = UNIX_CALL( glGetPointeri_vEXT, &args ))) WARN( "glGetPointeri_vEXT returned %#lx\n", status );
+    else if (get_integer( pname, index, (UINT_PTR)*params, &integer )) *params = (void *)(UINT_PTR)integer;
 }
 
 static void WINAPI glGetPointervEXT( GLenum pname, void **params )
 {
     struct glGetPointervEXT_params args = { .teb = NtCurrentTeb(), .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "pname %d, params %p\n", pname, params );
     if ((status = UNIX_CALL( glGetPointervEXT, &args ))) WARN( "glGetPointervEXT returned %#lx\n", status );
+    else if (get_integer( pname, 0, (UINT_PTR)*params, &integer )) *params = (void *)(UINT_PTR)integer;
 }
 
 static void WINAPI glGetProgramBinary( GLuint program, GLsizei bufSize, GLsizei *length, GLenum *binaryFormat, void *binary )
@@ -9699,8 +9802,10 @@ static void WINAPI glGetProgramPipelineiv( GLuint pipeline, GLenum pname, GLint 
 {
     struct glGetProgramPipelineiv_params args = { .teb = NtCurrentTeb(), .pipeline = pipeline, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "pipeline %d, pname %d, params %p\n", pipeline, pname, params );
     if ((status = UNIX_CALL( glGetProgramPipelineiv, &args ))) WARN( "glGetProgramPipelineiv returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 static GLuint WINAPI glGetProgramResourceIndex( GLuint program, GLenum programInterface, const GLchar *name )
@@ -9798,8 +9903,10 @@ static void WINAPI glGetProgramivARB( GLenum target, GLenum pname, GLint *params
 {
     struct glGetProgramivARB_params args = { .teb = NtCurrentTeb(), .target = target, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, pname %d, params %p\n", target, pname, params );
     if ((status = UNIX_CALL( glGetProgramivARB, &args ))) WARN( "glGetProgramivARB returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetProgramivNV( GLuint id, GLenum pname, GLint *params )
@@ -9812,33 +9919,37 @@ static void WINAPI glGetProgramivNV( GLuint id, GLenum pname, GLint *params )
 
 static void WINAPI glGetQueryBufferObjecti64v( GLuint id, GLuint buffer, GLenum pname, GLintptr offset )
 {
-    struct glGetQueryBufferObjecti64v_params args = { .teb = NtCurrentTeb(), .id = id, .buffer = buffer, .pname = pname, .offset = offset };
+    struct glGetQueryBufferObjecti64v_params args = { .teb = NtCurrentTeb(), .id = id, .pname = pname, .offset = offset };
     NTSTATUS status;
     TRACE( "id %d, buffer %d, pname %d, offset %Id\n", id, buffer, pname, offset );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glGetQueryBufferObjecti64v, &args ))) WARN( "glGetQueryBufferObjecti64v returned %#lx\n", status );
 }
 
 static void WINAPI glGetQueryBufferObjectiv( GLuint id, GLuint buffer, GLenum pname, GLintptr offset )
 {
-    struct glGetQueryBufferObjectiv_params args = { .teb = NtCurrentTeb(), .id = id, .buffer = buffer, .pname = pname, .offset = offset };
+    struct glGetQueryBufferObjectiv_params args = { .teb = NtCurrentTeb(), .id = id, .pname = pname, .offset = offset };
     NTSTATUS status;
     TRACE( "id %d, buffer %d, pname %d, offset %Id\n", id, buffer, pname, offset );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glGetQueryBufferObjectiv, &args ))) WARN( "glGetQueryBufferObjectiv returned %#lx\n", status );
 }
 
 static void WINAPI glGetQueryBufferObjectui64v( GLuint id, GLuint buffer, GLenum pname, GLintptr offset )
 {
-    struct glGetQueryBufferObjectui64v_params args = { .teb = NtCurrentTeb(), .id = id, .buffer = buffer, .pname = pname, .offset = offset };
+    struct glGetQueryBufferObjectui64v_params args = { .teb = NtCurrentTeb(), .id = id, .pname = pname, .offset = offset };
     NTSTATUS status;
     TRACE( "id %d, buffer %d, pname %d, offset %Id\n", id, buffer, pname, offset );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glGetQueryBufferObjectui64v, &args ))) WARN( "glGetQueryBufferObjectui64v returned %#lx\n", status );
 }
 
 static void WINAPI glGetQueryBufferObjectuiv( GLuint id, GLuint buffer, GLenum pname, GLintptr offset )
 {
-    struct glGetQueryBufferObjectuiv_params args = { .teb = NtCurrentTeb(), .id = id, .buffer = buffer, .pname = pname, .offset = offset };
+    struct glGetQueryBufferObjectuiv_params args = { .teb = NtCurrentTeb(), .id = id, .pname = pname, .offset = offset };
     NTSTATUS status;
     TRACE( "id %d, buffer %d, pname %d, offset %Id\n", id, buffer, pname, offset );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glGetQueryBufferObjectuiv, &args ))) WARN( "glGetQueryBufferObjectuiv returned %#lx\n", status );
 }
 
@@ -10162,8 +10273,10 @@ static void WINAPI glGetTexLevelParameterxvOES( GLenum target, GLint level, GLen
 {
     struct glGetTexLevelParameterxvOES_params args = { .teb = NtCurrentTeb(), .target = target, .level = level, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, level %d, pname %d, params %p\n", target, level, pname, params );
     if ((status = UNIX_CALL( glGetTexLevelParameterxvOES, &args ))) WARN( "glGetTexLevelParameterxvOES returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetTexParameterIiv( GLenum target, GLenum pname, GLint *params )
@@ -10260,32 +10373,40 @@ static void WINAPI glGetTextureLevelParameterfv( GLuint texture, GLint level, GL
 {
     struct glGetTextureLevelParameterfv_params args = { .teb = NtCurrentTeb(), .texture = texture, .level = level, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "texture %d, level %d, pname %d, params %p\n", texture, level, pname, params );
     if ((status = UNIX_CALL( glGetTextureLevelParameterfv, &args ))) WARN( "glGetTextureLevelParameterfv returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetTextureLevelParameterfvEXT( GLuint texture, GLenum target, GLint level, GLenum pname, GLfloat *params )
 {
     struct glGetTextureLevelParameterfvEXT_params args = { .teb = NtCurrentTeb(), .texture = texture, .target = target, .level = level, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "texture %d, target %d, level %d, pname %d, params %p\n", texture, target, level, pname, params );
     if ((status = UNIX_CALL( glGetTextureLevelParameterfvEXT, &args ))) WARN( "glGetTextureLevelParameterfvEXT returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetTextureLevelParameteriv( GLuint texture, GLint level, GLenum pname, GLint *params )
 {
     struct glGetTextureLevelParameteriv_params args = { .teb = NtCurrentTeb(), .texture = texture, .level = level, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "texture %d, level %d, pname %d, params %p\n", texture, level, pname, params );
     if ((status = UNIX_CALL( glGetTextureLevelParameteriv, &args ))) WARN( "glGetTextureLevelParameteriv returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetTextureLevelParameterivEXT( GLuint texture, GLenum target, GLint level, GLenum pname, GLint *params )
 {
     struct glGetTextureLevelParameterivEXT_params args = { .teb = NtCurrentTeb(), .texture = texture, .target = target, .level = level, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "texture %d, target %d, level %d, pname %d, params %p\n", texture, target, level, pname, params );
     if ((status = UNIX_CALL( glGetTextureLevelParameterivEXT, &args ))) WARN( "glGetTextureLevelParameterivEXT returned %#lx\n", status );
+    else if (get_integer( pname, 0, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetTextureParameterIiv( GLuint texture, GLenum pname, GLint *params )
@@ -10414,24 +10535,30 @@ static void WINAPI glGetTransformFeedbacki64_v( GLuint xfb, GLenum pname, GLuint
 {
     struct glGetTransformFeedbacki64_v_params args = { .teb = NtCurrentTeb(), .xfb = xfb, .pname = pname, .index = index, .param = param };
     NTSTATUS status;
+    int integer;
     TRACE( "xfb %d, pname %d, index %d, param %p\n", xfb, pname, index, param );
     if ((status = UNIX_CALL( glGetTransformFeedbacki64_v, &args ))) WARN( "glGetTransformFeedbacki64_v returned %#lx\n", status );
+    else if (get_integer( pname, index, *param, &integer )) *param = integer;
 }
 
 static void WINAPI glGetTransformFeedbacki_v( GLuint xfb, GLenum pname, GLuint index, GLint *param )
 {
     struct glGetTransformFeedbacki_v_params args = { .teb = NtCurrentTeb(), .xfb = xfb, .pname = pname, .index = index, .param = param };
     NTSTATUS status;
+    int integer;
     TRACE( "xfb %d, pname %d, index %d, param %p\n", xfb, pname, index, param );
     if ((status = UNIX_CALL( glGetTransformFeedbacki_v, &args ))) WARN( "glGetTransformFeedbacki_v returned %#lx\n", status );
+    else if (get_integer( pname, index, *param, &integer )) *param = integer;
 }
 
 static void WINAPI glGetTransformFeedbackiv( GLuint xfb, GLenum pname, GLint *param )
 {
     struct glGetTransformFeedbackiv_params args = { .teb = NtCurrentTeb(), .xfb = xfb, .pname = pname, .param = param };
     NTSTATUS status;
+    int integer;
     TRACE( "xfb %d, pname %d, param %p\n", xfb, pname, param );
     if ((status = UNIX_CALL( glGetTransformFeedbackiv, &args ))) WARN( "glGetTransformFeedbackiv returned %#lx\n", status );
+    else if (get_integer( pname, 0, *param, &integer )) *param = integer;
 }
 
 static GLuint WINAPI glGetUniformBlockIndex( GLuint program, const GLchar *uniformBlockName )
@@ -10587,16 +10714,20 @@ static void WINAPI glGetUnsignedBytei_vEXT( GLenum target, GLuint index, GLubyte
 {
     struct glGetUnsignedBytei_vEXT_params args = { .teb = NtCurrentTeb(), .target = target, .index = index, .data = data };
     NTSTATUS status;
+    int integer;
     TRACE( "target %d, index %d, data %p\n", target, index, data );
     if ((status = UNIX_CALL( glGetUnsignedBytei_vEXT, &args ))) WARN( "glGetUnsignedBytei_vEXT returned %#lx\n", status );
+    else if (get_integer( target, index, *data, &integer )) *data = integer;
 }
 
 static void WINAPI glGetUnsignedBytevEXT( GLenum pname, GLubyte *data )
 {
     struct glGetUnsignedBytevEXT_params args = { .teb = NtCurrentTeb(), .pname = pname, .data = data };
     NTSTATUS status;
+    int integer;
     TRACE( "pname %d, data %p\n", pname, data );
     if ((status = UNIX_CALL( glGetUnsignedBytevEXT, &args ))) WARN( "glGetUnsignedBytevEXT returned %#lx\n", status );
+    else if (get_integer( pname, 0, *data, &integer )) *data = integer;
 }
 
 static void WINAPI glGetVariantArrayObjectfvATI( GLuint id, GLenum pname, GLfloat *params )
@@ -10660,240 +10791,300 @@ static void WINAPI glGetVertexArrayIndexed64iv( GLuint vaobj, GLuint index, GLen
 {
     struct glGetVertexArrayIndexed64iv_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .index = index, .pname = pname, .param = param };
     NTSTATUS status;
+    int integer;
     TRACE( "vaobj %d, index %d, pname %d, param %p\n", vaobj, index, pname, param );
     if ((status = UNIX_CALL( glGetVertexArrayIndexed64iv, &args ))) WARN( "glGetVertexArrayIndexed64iv returned %#lx\n", status );
+    else if (get_integer( pname, index, *param, &integer )) *param = integer;
 }
 
 static void WINAPI glGetVertexArrayIndexediv( GLuint vaobj, GLuint index, GLenum pname, GLint *param )
 {
     struct glGetVertexArrayIndexediv_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .index = index, .pname = pname, .param = param };
     NTSTATUS status;
+    int integer;
     TRACE( "vaobj %d, index %d, pname %d, param %p\n", vaobj, index, pname, param );
     if ((status = UNIX_CALL( glGetVertexArrayIndexediv, &args ))) WARN( "glGetVertexArrayIndexediv returned %#lx\n", status );
+    else if (get_integer( pname, index, *param, &integer )) *param = integer;
 }
 
 static void WINAPI glGetVertexArrayIntegeri_vEXT( GLuint vaobj, GLuint index, GLenum pname, GLint *param )
 {
     struct glGetVertexArrayIntegeri_vEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .index = index, .pname = pname, .param = param };
     NTSTATUS status;
+    int integer;
     TRACE( "vaobj %d, index %d, pname %d, param %p\n", vaobj, index, pname, param );
     if ((status = UNIX_CALL( glGetVertexArrayIntegeri_vEXT, &args ))) WARN( "glGetVertexArrayIntegeri_vEXT returned %#lx\n", status );
+    else if (get_integer( pname, index, *param, &integer )) *param = integer;
 }
 
 static void WINAPI glGetVertexArrayIntegervEXT( GLuint vaobj, GLenum pname, GLint *param )
 {
     struct glGetVertexArrayIntegervEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .pname = pname, .param = param };
     NTSTATUS status;
+    int integer;
     TRACE( "vaobj %d, pname %d, param %p\n", vaobj, pname, param );
     if ((status = UNIX_CALL( glGetVertexArrayIntegervEXT, &args ))) WARN( "glGetVertexArrayIntegervEXT returned %#lx\n", status );
+    else if (get_integer( pname, 0, *param, &integer )) *param = integer;
 }
 
 static void WINAPI glGetVertexArrayPointeri_vEXT( GLuint vaobj, GLuint index, GLenum pname, void **param )
 {
     struct glGetVertexArrayPointeri_vEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .index = index, .pname = pname, .param = param };
     NTSTATUS status;
+    int integer;
     TRACE( "vaobj %d, index %d, pname %d, param %p\n", vaobj, index, pname, param );
     if ((status = UNIX_CALL( glGetVertexArrayPointeri_vEXT, &args ))) WARN( "glGetVertexArrayPointeri_vEXT returned %#lx\n", status );
+    else if (get_integer( pname, index, (UINT_PTR)*param, &integer )) *param = (void *)(UINT_PTR)integer;
 }
 
 static void WINAPI glGetVertexArrayPointervEXT( GLuint vaobj, GLenum pname, void **param )
 {
     struct glGetVertexArrayPointervEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .pname = pname, .param = param };
     NTSTATUS status;
+    int integer;
     TRACE( "vaobj %d, pname %d, param %p\n", vaobj, pname, param );
     if ((status = UNIX_CALL( glGetVertexArrayPointervEXT, &args ))) WARN( "glGetVertexArrayPointervEXT returned %#lx\n", status );
+    else if (get_integer( pname, 0, (UINT_PTR)*param, &integer )) *param = (void *)(UINT_PTR)integer;
 }
 
 static void WINAPI glGetVertexArrayiv( GLuint vaobj, GLenum pname, GLint *param )
 {
     struct glGetVertexArrayiv_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .pname = pname, .param = param };
     NTSTATUS status;
+    int integer;
     TRACE( "vaobj %d, pname %d, param %p\n", vaobj, pname, param );
     if ((status = UNIX_CALL( glGetVertexArrayiv, &args ))) WARN( "glGetVertexArrayiv returned %#lx\n", status );
+    else if (get_integer( pname, 0, *param, &integer )) *param = integer;
 }
 
 static void WINAPI glGetVertexAttribArrayObjectfvATI( GLuint index, GLenum pname, GLfloat *params )
 {
     struct glGetVertexAttribArrayObjectfvATI_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribArrayObjectfvATI, &args ))) WARN( "glGetVertexAttribArrayObjectfvATI returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribArrayObjectivATI( GLuint index, GLenum pname, GLint *params )
 {
     struct glGetVertexAttribArrayObjectivATI_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribArrayObjectivATI, &args ))) WARN( "glGetVertexAttribArrayObjectivATI returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribIiv( GLuint index, GLenum pname, GLint *params )
 {
     struct glGetVertexAttribIiv_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribIiv, &args ))) WARN( "glGetVertexAttribIiv returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribIivEXT( GLuint index, GLenum pname, GLint *params )
 {
     struct glGetVertexAttribIivEXT_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribIivEXT, &args ))) WARN( "glGetVertexAttribIivEXT returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribIuiv( GLuint index, GLenum pname, GLuint *params )
 {
     struct glGetVertexAttribIuiv_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribIuiv, &args ))) WARN( "glGetVertexAttribIuiv returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribIuivEXT( GLuint index, GLenum pname, GLuint *params )
 {
     struct glGetVertexAttribIuivEXT_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribIuivEXT, &args ))) WARN( "glGetVertexAttribIuivEXT returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribLdv( GLuint index, GLenum pname, GLdouble *params )
 {
     struct glGetVertexAttribLdv_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribLdv, &args ))) WARN( "glGetVertexAttribLdv returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribLdvEXT( GLuint index, GLenum pname, GLdouble *params )
 {
     struct glGetVertexAttribLdvEXT_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribLdvEXT, &args ))) WARN( "glGetVertexAttribLdvEXT returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribLi64vNV( GLuint index, GLenum pname, GLint64EXT *params )
 {
     struct glGetVertexAttribLi64vNV_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribLi64vNV, &args ))) WARN( "glGetVertexAttribLi64vNV returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribLui64vARB( GLuint index, GLenum pname, GLuint64EXT *params )
 {
     struct glGetVertexAttribLui64vARB_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribLui64vARB, &args ))) WARN( "glGetVertexAttribLui64vARB returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribLui64vNV( GLuint index, GLenum pname, GLuint64EXT *params )
 {
     struct glGetVertexAttribLui64vNV_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribLui64vNV, &args ))) WARN( "glGetVertexAttribLui64vNV returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribPointerv( GLuint index, GLenum pname, void **pointer )
 {
     struct glGetVertexAttribPointerv_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .pointer = pointer };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, pointer %p\n", index, pname, pointer );
     if ((status = UNIX_CALL( glGetVertexAttribPointerv, &args ))) WARN( "glGetVertexAttribPointerv returned %#lx\n", status );
+    else if (get_integer( pname, index, (UINT_PTR)*pointer, &integer )) *pointer = (void *)(UINT_PTR)integer;
 }
 
 static void WINAPI glGetVertexAttribPointervARB( GLuint index, GLenum pname, void **pointer )
 {
     struct glGetVertexAttribPointervARB_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .pointer = pointer };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, pointer %p\n", index, pname, pointer );
     if ((status = UNIX_CALL( glGetVertexAttribPointervARB, &args ))) WARN( "glGetVertexAttribPointervARB returned %#lx\n", status );
+    else if (get_integer( pname, index, (UINT_PTR)*pointer, &integer )) *pointer = (void *)(UINT_PTR)integer;
 }
 
 static void WINAPI glGetVertexAttribPointervNV( GLuint index, GLenum pname, void **pointer )
 {
     struct glGetVertexAttribPointervNV_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .pointer = pointer };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, pointer %p\n", index, pname, pointer );
     if ((status = UNIX_CALL( glGetVertexAttribPointervNV, &args ))) WARN( "glGetVertexAttribPointervNV returned %#lx\n", status );
+    else if (get_integer( pname, index, (UINT_PTR)*pointer, &integer )) *pointer = (void *)(UINT_PTR)integer;
 }
 
 static void WINAPI glGetVertexAttribdv( GLuint index, GLenum pname, GLdouble *params )
 {
     struct glGetVertexAttribdv_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribdv, &args ))) WARN( "glGetVertexAttribdv returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribdvARB( GLuint index, GLenum pname, GLdouble *params )
 {
     struct glGetVertexAttribdvARB_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribdvARB, &args ))) WARN( "glGetVertexAttribdvARB returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribdvNV( GLuint index, GLenum pname, GLdouble *params )
 {
     struct glGetVertexAttribdvNV_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribdvNV, &args ))) WARN( "glGetVertexAttribdvNV returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribfv( GLuint index, GLenum pname, GLfloat *params )
 {
     struct glGetVertexAttribfv_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribfv, &args ))) WARN( "glGetVertexAttribfv returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribfvARB( GLuint index, GLenum pname, GLfloat *params )
 {
     struct glGetVertexAttribfvARB_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribfvARB, &args ))) WARN( "glGetVertexAttribfvARB returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribfvNV( GLuint index, GLenum pname, GLfloat *params )
 {
     struct glGetVertexAttribfvNV_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribfvNV, &args ))) WARN( "glGetVertexAttribfvNV returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribiv( GLuint index, GLenum pname, GLint *params )
 {
     struct glGetVertexAttribiv_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribiv, &args ))) WARN( "glGetVertexAttribiv returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribivARB( GLuint index, GLenum pname, GLint *params )
 {
     struct glGetVertexAttribivARB_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribivARB, &args ))) WARN( "glGetVertexAttribivARB returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVertexAttribivNV( GLuint index, GLenum pname, GLint *params )
 {
     struct glGetVertexAttribivNV_params args = { .teb = NtCurrentTeb(), .index = index, .pname = pname, .params = params };
     NTSTATUS status;
+    int integer;
     TRACE( "index %d, pname %d, params %p\n", index, pname, params );
     if ((status = UNIX_CALL( glGetVertexAttribivNV, &args ))) WARN( "glGetVertexAttribivNV returned %#lx\n", status );
+    else if (get_integer( pname, index, *params, &integer )) *params = integer;
 }
 
 static void WINAPI glGetVideoCaptureStreamdvNV( GLuint video_capture_slot, GLuint stream, GLenum pname, GLdouble *params )
@@ -11523,17 +11714,19 @@ static void WINAPI glInterpolatePathsNV( GLuint resultPath, GLuint pathA, GLuint
 
 static void WINAPI glInvalidateBufferData( GLuint buffer )
 {
-    struct glInvalidateBufferData_params args = { .teb = NtCurrentTeb(), .buffer = buffer };
+    struct glInvalidateBufferData_params args = { .teb = NtCurrentTeb() };
     NTSTATUS status;
     TRACE( "buffer %d\n", buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glInvalidateBufferData, &args ))) WARN( "glInvalidateBufferData returned %#lx\n", status );
 }
 
 static void WINAPI glInvalidateBufferSubData( GLuint buffer, GLintptr offset, GLsizeiptr length )
 {
-    struct glInvalidateBufferSubData_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .offset = offset, .length = length };
+    struct glInvalidateBufferSubData_params args = { .teb = NtCurrentTeb(), .offset = offset, .length = length };
     NTSTATUS status;
     TRACE( "buffer %d, offset %Id, length %Id\n", buffer, offset, length );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glInvalidateBufferSubData, &args ))) WARN( "glInvalidateBufferSubData returned %#lx\n", status );
 }
 
@@ -11596,18 +11789,20 @@ static GLboolean WINAPI glIsAsyncMarkerSGIX( GLuint marker )
 
 static GLboolean WINAPI glIsBuffer( GLuint buffer )
 {
-    struct glIsBuffer_params args = { .teb = NtCurrentTeb(), .buffer = buffer };
+    struct glIsBuffer_params args = { .teb = NtCurrentTeb() };
     NTSTATUS status;
     TRACE( "buffer %d\n", buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glIsBuffer, &args ))) WARN( "glIsBuffer returned %#lx\n", status );
     return args.ret;
 }
 
 static GLboolean WINAPI glIsBufferARB( GLuint buffer )
 {
-    struct glIsBufferARB_params args = { .teb = NtCurrentTeb(), .buffer = buffer };
+    struct glIsBufferARB_params args = { .teb = NtCurrentTeb() };
     NTSTATUS status;
     TRACE( "buffer %d\n", buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glIsBufferARB, &args ))) WARN( "glIsBufferARB returned %#lx\n", status );
     return args.ret;
 }
@@ -11722,9 +11917,10 @@ static GLboolean WINAPI glIsNameAMD( GLenum identifier, GLuint name )
 
 static GLboolean WINAPI glIsNamedBufferResidentNV( GLuint buffer )
 {
-    struct glIsNamedBufferResidentNV_params args = { .teb = NtCurrentTeb(), .buffer = buffer };
+    struct glIsNamedBufferResidentNV_params args = { .teb = NtCurrentTeb() };
     NTSTATUS status;
     TRACE( "buffer %d\n", buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glIsNamedBufferResidentNV, &args ))) WARN( "glIsNamedBufferResidentNV returned %#lx\n", status );
     return args.ret;
 }
@@ -11740,9 +11936,10 @@ static GLboolean WINAPI glIsNamedStringARB( GLint namelen, const GLchar *name )
 
 static GLboolean WINAPI glIsObjectBufferATI( GLuint buffer )
 {
-    struct glIsObjectBufferATI_params args = { .teb = NtCurrentTeb(), .buffer = buffer };
+    struct glIsObjectBufferATI_params args = { .teb = NtCurrentTeb() };
     NTSTATUS status;
     TRACE( "buffer %d\n", buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glIsObjectBufferATI, &args ))) WARN( "glIsObjectBufferATI returned %#lx\n", status );
     return args.ret;
 }
@@ -12000,9 +12197,10 @@ static void WINAPI glLGPUInterlockNVX(void)
 
 static void WINAPI glLGPUNamedBufferSubDataNVX( GLbitfield gpuMask, GLuint buffer, GLintptr offset, GLsizeiptr size, const void *data )
 {
-    struct glLGPUNamedBufferSubDataNVX_params args = { .teb = NtCurrentTeb(), .gpuMask = gpuMask, .buffer = buffer, .offset = offset, .size = size, .data = data };
+    struct glLGPUNamedBufferSubDataNVX_params args = { .teb = NtCurrentTeb(), .gpuMask = gpuMask, .offset = offset, .size = size, .data = data };
     NTSTATUS status;
     TRACE( "gpuMask %d, buffer %d, offset %Id, size %Id, data %p\n", gpuMask, buffer, offset, size, data );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glLGPUNamedBufferSubDataNVX, &args ))) WARN( "glLGPUNamedBufferSubDataNVX returned %#lx\n", status );
 }
 
@@ -12304,17 +12502,19 @@ static void WINAPI glMakeImageHandleResidentNV( GLuint64 handle, GLenum access )
 
 static void WINAPI glMakeNamedBufferNonResidentNV( GLuint buffer )
 {
-    struct glMakeNamedBufferNonResidentNV_params args = { .teb = NtCurrentTeb(), .buffer = buffer };
+    struct glMakeNamedBufferNonResidentNV_params args = { .teb = NtCurrentTeb() };
     NTSTATUS status;
     TRACE( "buffer %d\n", buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glMakeNamedBufferNonResidentNV, &args ))) WARN( "glMakeNamedBufferNonResidentNV returned %#lx\n", status );
 }
 
 static void WINAPI glMakeNamedBufferResidentNV( GLuint buffer, GLenum access )
 {
-    struct glMakeNamedBufferResidentNV_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .access = access };
+    struct glMakeNamedBufferResidentNV_params args = { .teb = NtCurrentTeb(), .access = access };
     NTSTATUS status;
     TRACE( "buffer %d, access %d\n", buffer, access );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glMakeNamedBufferResidentNV, &args ))) WARN( "glMakeNamedBufferResidentNV returned %#lx\n", status );
 }
 
@@ -12419,47 +12619,52 @@ static void WINAPI glMapGrid2xOES( GLint n, GLfixed u1, GLfixed u2, GLfixed v1, 
 
 static void * WINAPI glMapNamedBuffer( GLuint buffer, GLenum access )
 {
-    struct glMapNamedBuffer_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .access = access };
+    struct glMapNamedBuffer_params args = { .teb = NtCurrentTeb(), .access = access };
     NTSTATUS status;
     TRACE( "buffer %d, access %d\n", buffer, access );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glMapNamedBuffer, &args ))) WARN( "glMapNamedBuffer returned %#lx\n", status );
     return args.ret;
 }
 
 static void * WINAPI glMapNamedBufferEXT( GLuint buffer, GLenum access )
 {
-    struct glMapNamedBufferEXT_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .access = access };
+    struct glMapNamedBufferEXT_params args = { .teb = NtCurrentTeb(), .access = access };
     NTSTATUS status;
     TRACE( "buffer %d, access %d\n", buffer, access );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return args.ret;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glMapNamedBufferEXT, &args ))) WARN( "glMapNamedBufferEXT returned %#lx\n", status );
     return args.ret;
 }
 
 static void * WINAPI glMapNamedBufferRange( GLuint buffer, GLintptr offset, GLsizeiptr length, GLbitfield access )
 {
-    struct glMapNamedBufferRange_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .offset = offset, .length = length, .access = access };
+    struct glMapNamedBufferRange_params args = { .teb = NtCurrentTeb(), .offset = offset, .length = length, .access = access };
     NTSTATUS status;
     TRACE( "buffer %d, offset %Id, length %Id, access %d\n", buffer, offset, length, access );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glMapNamedBufferRange, &args ))) WARN( "glMapNamedBufferRange returned %#lx\n", status );
     return args.ret;
 }
 
 static void * WINAPI glMapNamedBufferRangeEXT( GLuint buffer, GLintptr offset, GLsizeiptr length, GLbitfield access )
 {
-    struct glMapNamedBufferRangeEXT_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .offset = offset, .length = length, .access = access };
+    struct glMapNamedBufferRangeEXT_params args = { .teb = NtCurrentTeb(), .offset = offset, .length = length, .access = access };
     NTSTATUS status;
     TRACE( "buffer %d, offset %Id, length %Id, access %d\n", buffer, offset, length, access );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return args.ret;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glMapNamedBufferRangeEXT, &args ))) WARN( "glMapNamedBufferRangeEXT returned %#lx\n", status );
     return args.ret;
 }
 
 static void * WINAPI glMapObjectBufferATI( GLuint buffer )
 {
-    struct glMapObjectBufferATI_params args = { .teb = NtCurrentTeb(), .buffer = buffer };
+    struct glMapObjectBufferATI_params args = { .teb = NtCurrentTeb() };
     NTSTATUS status;
     TRACE( "buffer %d\n", buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glMapObjectBufferATI, &args ))) WARN( "glMapObjectBufferATI returned %#lx\n", status );
     return args.ret;
 }
@@ -13123,10 +13328,11 @@ static void WINAPI glMultiModeDrawElementsIBM( const GLenum *mode, const GLsizei
 
 static void WINAPI glMultiTexBufferEXT( GLenum texunit, GLenum target, GLenum internalformat, GLuint buffer )
 {
-    struct glMultiTexBufferEXT_params args = { .teb = NtCurrentTeb(), .texunit = texunit, .target = target, .internalformat = internalformat, .buffer = buffer };
+    struct glMultiTexBufferEXT_params args = { .teb = NtCurrentTeb(), .texunit = texunit, .target = target, .internalformat = internalformat };
     NTSTATUS status;
     TRACE( "texunit %d, target %d, internalformat %d, buffer %d\n", texunit, target, internalformat, buffer );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glMultiTexBufferEXT, &args ))) WARN( "glMultiTexBufferEXT returned %#lx\n", status );
 }
 
@@ -14380,17 +14586,20 @@ static void WINAPI glMulticastBlitFramebufferNV( GLuint srcGpu, GLuint dstGpu, G
 
 static void WINAPI glMulticastBufferSubDataNV( GLbitfield gpuMask, GLuint buffer, GLintptr offset, GLsizeiptr size, const void *data )
 {
-    struct glMulticastBufferSubDataNV_params args = { .teb = NtCurrentTeb(), .gpuMask = gpuMask, .buffer = buffer, .offset = offset, .size = size, .data = data };
+    struct glMulticastBufferSubDataNV_params args = { .teb = NtCurrentTeb(), .gpuMask = gpuMask, .offset = offset, .size = size, .data = data };
     NTSTATUS status;
     TRACE( "gpuMask %d, buffer %d, offset %Id, size %Id, data %p\n", gpuMask, buffer, offset, size, data );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glMulticastBufferSubDataNV, &args ))) WARN( "glMulticastBufferSubDataNV returned %#lx\n", status );
 }
 
 static void WINAPI glMulticastCopyBufferSubDataNV( GLuint readGpu, GLbitfield writeGpuMask, GLuint readBuffer, GLuint writeBuffer, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size )
 {
-    struct glMulticastCopyBufferSubDataNV_params args = { .teb = NtCurrentTeb(), .readGpu = readGpu, .writeGpuMask = writeGpuMask, .readBuffer = readBuffer, .writeBuffer = writeBuffer, .readOffset = readOffset, .writeOffset = writeOffset, .size = size };
+    struct glMulticastCopyBufferSubDataNV_params args = { .teb = NtCurrentTeb(), .readGpu = readGpu, .writeGpuMask = writeGpuMask, .readOffset = readOffset, .writeOffset = writeOffset, .size = size };
     NTSTATUS status;
     TRACE( "readGpu %d, writeGpuMask %d, readBuffer %d, writeBuffer %d, readOffset %Id, writeOffset %Id, size %Id\n", readGpu, writeGpuMask, readBuffer, writeBuffer, readOffset, writeOffset, size );
+    args.readBuffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &readBuffer );
+    args.writeBuffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &writeBuffer );
     if ((status = UNIX_CALL( glMulticastCopyBufferSubDataNV, &args ))) WARN( "glMulticastCopyBufferSubDataNV returned %#lx\n", status );
 }
 
@@ -14476,110 +14685,124 @@ static void WINAPI glMulticastWaitSyncNV( GLuint signalGpu, GLbitfield waitGpuMa
 
 static void WINAPI glNamedBufferAttachMemoryNV( GLuint buffer, GLuint memory, GLuint64 offset )
 {
-    struct glNamedBufferAttachMemoryNV_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .memory = memory, .offset = offset };
+    struct glNamedBufferAttachMemoryNV_params args = { .teb = NtCurrentTeb(), .memory = memory, .offset = offset };
     NTSTATUS status;
     TRACE( "buffer %d, memory %d, offset %s\n", buffer, memory, wine_dbgstr_longlong(offset) );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glNamedBufferAttachMemoryNV, &args ))) WARN( "glNamedBufferAttachMemoryNV returned %#lx\n", status );
 }
 
 static void WINAPI glNamedBufferData( GLuint buffer, GLsizeiptr size, const void *data, GLenum usage )
 {
-    struct glNamedBufferData_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .size = size, .data = data, .usage = usage };
+    struct glNamedBufferData_params args = { .teb = NtCurrentTeb(), .size = size, .data = data, .usage = usage };
     NTSTATUS status;
     TRACE( "buffer %d, size %Id, data %p, usage %d\n", buffer, size, data, usage );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glNamedBufferData, &args ))) WARN( "glNamedBufferData returned %#lx\n", status );
 }
 
 static void WINAPI glNamedBufferDataEXT( GLuint buffer, GLsizeiptr size, const void *data, GLenum usage )
 {
-    struct glNamedBufferDataEXT_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .size = size, .data = data, .usage = usage };
+    struct glNamedBufferDataEXT_params args = { .teb = NtCurrentTeb(), .size = size, .data = data, .usage = usage };
     NTSTATUS status;
     TRACE( "buffer %d, size %Id, data %p, usage %d\n", buffer, size, data, usage );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glNamedBufferDataEXT, &args ))) WARN( "glNamedBufferDataEXT returned %#lx\n", status );
 }
 
 static void WINAPI glNamedBufferPageCommitmentARB( GLuint buffer, GLintptr offset, GLsizeiptr size, GLboolean commit )
 {
-    struct glNamedBufferPageCommitmentARB_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .offset = offset, .size = size, .commit = commit };
+    struct glNamedBufferPageCommitmentARB_params args = { .teb = NtCurrentTeb(), .offset = offset, .size = size, .commit = commit };
     NTSTATUS status;
     TRACE( "buffer %d, offset %Id, size %Id, commit %d\n", buffer, offset, size, commit );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glNamedBufferPageCommitmentARB, &args ))) WARN( "glNamedBufferPageCommitmentARB returned %#lx\n", status );
 }
 
 static void WINAPI glNamedBufferPageCommitmentEXT( GLuint buffer, GLintptr offset, GLsizeiptr size, GLboolean commit )
 {
-    struct glNamedBufferPageCommitmentEXT_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .offset = offset, .size = size, .commit = commit };
+    struct glNamedBufferPageCommitmentEXT_params args = { .teb = NtCurrentTeb(), .offset = offset, .size = size, .commit = commit };
     NTSTATUS status;
     TRACE( "buffer %d, offset %Id, size %Id, commit %d\n", buffer, offset, size, commit );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glNamedBufferPageCommitmentEXT, &args ))) WARN( "glNamedBufferPageCommitmentEXT returned %#lx\n", status );
 }
 
 static void WINAPI glNamedBufferPageCommitmentMemNV( GLuint buffer, GLintptr offset, GLsizeiptr size, GLuint memory, GLuint64 memOffset, GLboolean commit )
 {
-    struct glNamedBufferPageCommitmentMemNV_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .offset = offset, .size = size, .memory = memory, .memOffset = memOffset, .commit = commit };
+    struct glNamedBufferPageCommitmentMemNV_params args = { .teb = NtCurrentTeb(), .offset = offset, .size = size, .memory = memory, .memOffset = memOffset, .commit = commit };
     NTSTATUS status;
     TRACE( "buffer %d, offset %Id, size %Id, memory %d, memOffset %s, commit %d\n", buffer, offset, size, memory, wine_dbgstr_longlong(memOffset), commit );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glNamedBufferPageCommitmentMemNV, &args ))) WARN( "glNamedBufferPageCommitmentMemNV returned %#lx\n", status );
 }
 
 static void WINAPI glNamedBufferStorage( GLuint buffer, GLsizeiptr size, const void *data, GLbitfield flags )
 {
-    struct glNamedBufferStorage_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .size = size, .data = data, .flags = flags };
+    struct glNamedBufferStorage_params args = { .teb = NtCurrentTeb(), .size = size, .data = data, .flags = flags };
     NTSTATUS status;
     TRACE( "buffer %d, size %Id, data %p, flags %d\n", buffer, size, data, flags );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glNamedBufferStorage, &args ))) WARN( "glNamedBufferStorage returned %#lx\n", status );
 }
 
 static void WINAPI glNamedBufferStorageEXT( GLuint buffer, GLsizeiptr size, const void *data, GLbitfield flags )
 {
-    struct glNamedBufferStorageEXT_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .size = size, .data = data, .flags = flags };
+    struct glNamedBufferStorageEXT_params args = { .teb = NtCurrentTeb(), .size = size, .data = data, .flags = flags };
     NTSTATUS status;
     TRACE( "buffer %d, size %Id, data %p, flags %d\n", buffer, size, data, flags );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glNamedBufferStorageEXT, &args ))) WARN( "glNamedBufferStorageEXT returned %#lx\n", status );
 }
 
 static void WINAPI glNamedBufferStorageExternalEXT( GLuint buffer, GLintptr offset, GLsizeiptr size, GLeglClientBufferEXT clientBuffer, GLbitfield flags )
 {
-    struct glNamedBufferStorageExternalEXT_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .offset = offset, .size = size, .clientBuffer = clientBuffer, .flags = flags };
+    struct glNamedBufferStorageExternalEXT_params args = { .teb = NtCurrentTeb(), .offset = offset, .size = size, .clientBuffer = clientBuffer, .flags = flags };
     NTSTATUS status;
     TRACE( "buffer %d, offset %Id, size %Id, clientBuffer %p, flags %d\n", buffer, offset, size, clientBuffer, flags );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glNamedBufferStorageExternalEXT, &args ))) WARN( "glNamedBufferStorageExternalEXT returned %#lx\n", status );
 }
 
 static void WINAPI glNamedBufferStorageMemEXT( GLuint buffer, GLsizeiptr size, GLuint memory, GLuint64 offset )
 {
-    struct glNamedBufferStorageMemEXT_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .size = size, .memory = memory, .offset = offset };
+    struct glNamedBufferStorageMemEXT_params args = { .teb = NtCurrentTeb(), .size = size, .memory = memory, .offset = offset };
     NTSTATUS status;
     TRACE( "buffer %d, size %Id, memory %d, offset %s\n", buffer, size, memory, wine_dbgstr_longlong(offset) );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glNamedBufferStorageMemEXT, &args ))) WARN( "glNamedBufferStorageMemEXT returned %#lx\n", status );
 }
 
 static void WINAPI glNamedBufferSubData( GLuint buffer, GLintptr offset, GLsizeiptr size, const void *data )
 {
-    struct glNamedBufferSubData_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .offset = offset, .size = size, .data = data };
+    struct glNamedBufferSubData_params args = { .teb = NtCurrentTeb(), .offset = offset, .size = size, .data = data };
     NTSTATUS status;
     TRACE( "buffer %d, offset %Id, size %Id, data %p\n", buffer, offset, size, data );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glNamedBufferSubData, &args ))) WARN( "glNamedBufferSubData returned %#lx\n", status );
 }
 
 static void WINAPI glNamedBufferSubDataEXT( GLuint buffer, GLintptr offset, GLsizeiptr size, const void *data )
 {
-    struct glNamedBufferSubDataEXT_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .offset = offset, .size = size, .data = data };
+    struct glNamedBufferSubDataEXT_params args = { .teb = NtCurrentTeb(), .offset = offset, .size = size, .data = data };
     NTSTATUS status;
     TRACE( "buffer %d, offset %Id, size %Id, data %p\n", buffer, offset, size, data );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glNamedBufferSubDataEXT, &args ))) WARN( "glNamedBufferSubDataEXT returned %#lx\n", status );
 }
 
 static void WINAPI glNamedCopyBufferSubDataEXT( GLuint readBuffer, GLuint writeBuffer, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size )
 {
-    struct glNamedCopyBufferSubDataEXT_params args = { .teb = NtCurrentTeb(), .readBuffer = readBuffer, .writeBuffer = writeBuffer, .readOffset = readOffset, .writeOffset = writeOffset, .size = size };
+    struct glNamedCopyBufferSubDataEXT_params args = { .teb = NtCurrentTeb(), .readOffset = readOffset, .writeOffset = writeOffset, .size = size };
     NTSTATUS status;
     TRACE( "readBuffer %d, writeBuffer %d, readOffset %Id, writeOffset %Id, size %Id\n", readBuffer, writeBuffer, readOffset, writeOffset, size );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &readBuffer, TRUE )) return;
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &writeBuffer, TRUE )) return;
+    args.readBuffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &readBuffer );
+    args.writeBuffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &writeBuffer );
     if ((status = UNIX_CALL( glNamedCopyBufferSubDataEXT, &args ))) WARN( "glNamedCopyBufferSubDataEXT returned %#lx\n", status );
 }
 
@@ -18510,10 +18733,14 @@ static void WINAPI glSharpenTexFuncSGIS( GLenum target, GLsizei n, const GLfloat
 
 static void WINAPI glSignalSemaphoreEXT( GLuint semaphore, GLuint numBufferBarriers, const GLuint *buffers, GLuint numTextureBarriers, const GLuint *textures, const GLenum *dstLayouts )
 {
-    struct glSignalSemaphoreEXT_params args = { .teb = NtCurrentTeb(), .semaphore = semaphore, .numBufferBarriers = numBufferBarriers, .buffers = buffers, .numTextureBarriers = numTextureBarriers, .textures = textures, .dstLayouts = dstLayouts };
+    GLuint buffers_buf[64], *buffers_tmp;
+    struct glSignalSemaphoreEXT_params args = { .teb = NtCurrentTeb(), .semaphore = semaphore, .numBufferBarriers = numBufferBarriers, .numTextureBarriers = numTextureBarriers, .textures = textures, .dstLayouts = dstLayouts };
     NTSTATUS status;
     TRACE( "semaphore %d, numBufferBarriers %d, buffers %p, numTextureBarriers %d, textures %p, dstLayouts %p\n", semaphore, numBufferBarriers, buffers, numTextureBarriers, textures, dstLayouts );
+    buffers_tmp = numBufferBarriers > 0 ? memdup_objects( numBufferBarriers, buffers, buffers_buf, ARRAY_SIZE(buffers_buf) ) : NULL;
+    args.buffers = numBufferBarriers > 0 ? map_context_objects( OBJ_TYPE_BUFFER, numBufferBarriers, buffers_tmp ) : NULL;
     if ((status = UNIX_CALL( glSignalSemaphoreEXT, &args ))) WARN( "glSignalSemaphoreEXT returned %#lx\n", status );
+    if (buffers_tmp != buffers_buf) free( buffers_tmp );
 }
 
 static void WINAPI glSignalSemaphoreui64NVX( GLuint signalGpu, GLsizei fenceObjectCount, const GLuint *semaphoreArray, const GLuint64 *fenceValueArray )
@@ -18921,33 +19148,37 @@ static void WINAPI glTexAttachMemoryNV( GLenum target, GLuint memory, GLuint64 o
 
 static void WINAPI glTexBuffer( GLenum target, GLenum internalformat, GLuint buffer )
 {
-    struct glTexBuffer_params args = { .teb = NtCurrentTeb(), .target = target, .internalformat = internalformat, .buffer = buffer };
+    struct glTexBuffer_params args = { .teb = NtCurrentTeb(), .target = target, .internalformat = internalformat };
     NTSTATUS status;
     TRACE( "target %d, internalformat %d, buffer %d\n", target, internalformat, buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glTexBuffer, &args ))) WARN( "glTexBuffer returned %#lx\n", status );
 }
 
 static void WINAPI glTexBufferARB( GLenum target, GLenum internalformat, GLuint buffer )
 {
-    struct glTexBufferARB_params args = { .teb = NtCurrentTeb(), .target = target, .internalformat = internalformat, .buffer = buffer };
+    struct glTexBufferARB_params args = { .teb = NtCurrentTeb(), .target = target, .internalformat = internalformat };
     NTSTATUS status;
     TRACE( "target %d, internalformat %d, buffer %d\n", target, internalformat, buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glTexBufferARB, &args ))) WARN( "glTexBufferARB returned %#lx\n", status );
 }
 
 static void WINAPI glTexBufferEXT( GLenum target, GLenum internalformat, GLuint buffer )
 {
-    struct glTexBufferEXT_params args = { .teb = NtCurrentTeb(), .target = target, .internalformat = internalformat, .buffer = buffer };
+    struct glTexBufferEXT_params args = { .teb = NtCurrentTeb(), .target = target, .internalformat = internalformat };
     NTSTATUS status;
     TRACE( "target %d, internalformat %d, buffer %d\n", target, internalformat, buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glTexBufferEXT, &args ))) WARN( "glTexBufferEXT returned %#lx\n", status );
 }
 
 static void WINAPI glTexBufferRange( GLenum target, GLenum internalformat, GLuint buffer, GLintptr offset, GLsizeiptr size )
 {
-    struct glTexBufferRange_params args = { .teb = NtCurrentTeb(), .target = target, .internalformat = internalformat, .buffer = buffer, .offset = offset, .size = size };
+    struct glTexBufferRange_params args = { .teb = NtCurrentTeb(), .target = target, .internalformat = internalformat, .offset = offset, .size = size };
     NTSTATUS status;
     TRACE( "target %d, internalformat %d, buffer %d, offset %Id, size %Id\n", target, internalformat, buffer, offset, size );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glTexBufferRange, &args ))) WARN( "glTexBufferRange returned %#lx\n", status );
 }
 
@@ -19745,35 +19976,39 @@ static void WINAPI glTextureBarrierNV(void)
 
 static void WINAPI glTextureBuffer( GLuint texture, GLenum internalformat, GLuint buffer )
 {
-    struct glTextureBuffer_params args = { .teb = NtCurrentTeb(), .texture = texture, .internalformat = internalformat, .buffer = buffer };
+    struct glTextureBuffer_params args = { .teb = NtCurrentTeb(), .texture = texture, .internalformat = internalformat };
     NTSTATUS status;
     TRACE( "texture %d, internalformat %d, buffer %d\n", texture, internalformat, buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glTextureBuffer, &args ))) WARN( "glTextureBuffer returned %#lx\n", status );
 }
 
 static void WINAPI glTextureBufferEXT( GLuint texture, GLenum target, GLenum internalformat, GLuint buffer )
 {
-    struct glTextureBufferEXT_params args = { .teb = NtCurrentTeb(), .texture = texture, .target = target, .internalformat = internalformat, .buffer = buffer };
+    struct glTextureBufferEXT_params args = { .teb = NtCurrentTeb(), .texture = texture, .target = target, .internalformat = internalformat };
     NTSTATUS status;
     TRACE( "texture %d, target %d, internalformat %d, buffer %d\n", texture, target, internalformat, buffer );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glTextureBufferEXT, &args ))) WARN( "glTextureBufferEXT returned %#lx\n", status );
 }
 
 static void WINAPI glTextureBufferRange( GLuint texture, GLenum internalformat, GLuint buffer, GLintptr offset, GLsizeiptr size )
 {
-    struct glTextureBufferRange_params args = { .teb = NtCurrentTeb(), .texture = texture, .internalformat = internalformat, .buffer = buffer, .offset = offset, .size = size };
+    struct glTextureBufferRange_params args = { .teb = NtCurrentTeb(), .texture = texture, .internalformat = internalformat, .offset = offset, .size = size };
     NTSTATUS status;
     TRACE( "texture %d, internalformat %d, buffer %d, offset %Id, size %Id\n", texture, internalformat, buffer, offset, size );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glTextureBufferRange, &args ))) WARN( "glTextureBufferRange returned %#lx\n", status );
 }
 
 static void WINAPI glTextureBufferRangeEXT( GLuint texture, GLenum target, GLenum internalformat, GLuint buffer, GLintptr offset, GLsizeiptr size )
 {
-    struct glTextureBufferRangeEXT_params args = { .teb = NtCurrentTeb(), .texture = texture, .target = target, .internalformat = internalformat, .buffer = buffer, .offset = offset, .size = size };
+    struct glTextureBufferRangeEXT_params args = { .teb = NtCurrentTeb(), .texture = texture, .target = target, .internalformat = internalformat, .offset = offset, .size = size };
     NTSTATUS status;
     TRACE( "texture %d, target %d, internalformat %d, buffer %d, offset %Id, size %Id\n", texture, target, internalformat, buffer, offset, size );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glTextureBufferRangeEXT, &args ))) WARN( "glTextureBufferRangeEXT returned %#lx\n", status );
 }
 
@@ -20195,17 +20430,19 @@ static void WINAPI glTransformFeedbackAttribsNV( GLsizei count, const GLint *att
 
 static void WINAPI glTransformFeedbackBufferBase( GLuint xfb, GLuint index, GLuint buffer )
 {
-    struct glTransformFeedbackBufferBase_params args = { .teb = NtCurrentTeb(), .xfb = xfb, .index = index, .buffer = buffer };
+    struct glTransformFeedbackBufferBase_params args = { .teb = NtCurrentTeb(), .xfb = xfb, .index = index };
     NTSTATUS status;
     TRACE( "xfb %d, index %d, buffer %d\n", xfb, index, buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glTransformFeedbackBufferBase, &args ))) WARN( "glTransformFeedbackBufferBase returned %#lx\n", status );
 }
 
 static void WINAPI glTransformFeedbackBufferRange( GLuint xfb, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size )
 {
-    struct glTransformFeedbackBufferRange_params args = { .teb = NtCurrentTeb(), .xfb = xfb, .index = index, .buffer = buffer, .offset = offset, .size = size };
+    struct glTransformFeedbackBufferRange_params args = { .teb = NtCurrentTeb(), .xfb = xfb, .index = index, .offset = offset, .size = size };
     NTSTATUS status;
     TRACE( "xfb %d, index %d, buffer %d, offset %Id, size %Id\n", xfb, index, buffer, offset, size );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glTransformFeedbackBufferRange, &args ))) WARN( "glTransformFeedbackBufferRange returned %#lx\n", status );
 }
 
@@ -20979,9 +21216,10 @@ static void WINAPI glUniformBlockBinding( GLuint program, GLuint uniformBlockInd
 
 static void WINAPI glUniformBufferEXT( GLuint program, GLint location, GLuint buffer )
 {
-    struct glUniformBufferEXT_params args = { .teb = NtCurrentTeb(), .program = program, .location = location, .buffer = buffer };
+    struct glUniformBufferEXT_params args = { .teb = NtCurrentTeb(), .program = program, .location = location };
     NTSTATUS status;
     TRACE( "program %d, location %d, buffer %d\n", program, location, buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glUniformBufferEXT, &args ))) WARN( "glUniformBufferEXT returned %#lx\n", status );
 }
 
@@ -21237,28 +21475,31 @@ static GLboolean WINAPI glUnmapBufferARB( GLenum target )
 
 static GLboolean WINAPI glUnmapNamedBuffer( GLuint buffer )
 {
-    struct glUnmapNamedBuffer_params args = { .teb = NtCurrentTeb(), .buffer = buffer };
+    struct glUnmapNamedBuffer_params args = { .teb = NtCurrentTeb() };
     NTSTATUS status;
     TRACE( "buffer %d\n", buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glUnmapNamedBuffer, &args ))) WARN( "glUnmapNamedBuffer returned %#lx\n", status );
     return args.ret;
 }
 
 static GLboolean WINAPI glUnmapNamedBufferEXT( GLuint buffer )
 {
-    struct glUnmapNamedBufferEXT_params args = { .teb = NtCurrentTeb(), .buffer = buffer };
+    struct glUnmapNamedBufferEXT_params args = { .teb = NtCurrentTeb() };
     NTSTATUS status;
     TRACE( "buffer %d\n", buffer );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return args.ret;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glUnmapNamedBufferEXT, &args ))) WARN( "glUnmapNamedBufferEXT returned %#lx\n", status );
     return args.ret;
 }
 
 static void WINAPI glUnmapObjectBufferATI( GLuint buffer )
 {
-    struct glUnmapObjectBufferATI_params args = { .teb = NtCurrentTeb(), .buffer = buffer };
+    struct glUnmapObjectBufferATI_params args = { .teb = NtCurrentTeb() };
     NTSTATUS status;
     TRACE( "buffer %d\n", buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glUnmapObjectBufferATI, &args ))) WARN( "glUnmapObjectBufferATI returned %#lx\n", status );
 }
 
@@ -21272,9 +21513,10 @@ static void WINAPI glUnmapTexture2DINTEL( GLuint texture, GLint level )
 
 static void WINAPI glUpdateObjectBufferATI( GLuint buffer, GLuint offset, GLsizei size, const void *pointer, GLenum preserve )
 {
-    struct glUpdateObjectBufferATI_params args = { .teb = NtCurrentTeb(), .buffer = buffer, .offset = offset, .size = size, .pointer = pointer, .preserve = preserve };
+    struct glUpdateObjectBufferATI_params args = { .teb = NtCurrentTeb(), .offset = offset, .size = size, .pointer = pointer, .preserve = preserve };
     NTSTATUS status;
     TRACE( "buffer %d, offset %d, size %d, pointer %p, preserve %d\n", buffer, offset, size, pointer, preserve );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glUpdateObjectBufferATI, &args ))) WARN( "glUpdateObjectBufferATI returned %#lx\n", status );
 }
 
@@ -21436,9 +21678,10 @@ static void WINAPI glValidateProgramPipeline( GLuint pipeline )
 
 static void WINAPI glVariantArrayObjectATI( GLuint id, GLenum type, GLsizei stride, GLuint buffer, GLuint offset )
 {
-    struct glVariantArrayObjectATI_params args = { .teb = NtCurrentTeb(), .id = id, .type = type, .stride = stride, .buffer = buffer, .offset = offset };
+    struct glVariantArrayObjectATI_params args = { .teb = NtCurrentTeb(), .id = id, .type = type, .stride = stride, .offset = offset };
     NTSTATUS status;
     TRACE( "id %d, type %d, stride %d, buffer %d, offset %d\n", id, type, stride, buffer, offset );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVariantArrayObjectATI, &args ))) WARN( "glVariantArrayObjectATI returned %#lx\n", status );
 }
 
@@ -21692,10 +21935,11 @@ static void WINAPI glVertexArrayAttribLFormat( GLuint vaobj, GLuint attribindex,
 
 static void WINAPI glVertexArrayBindVertexBufferEXT( GLuint vaobj, GLuint bindingindex, GLuint buffer, GLintptr offset, GLsizei stride )
 {
-    struct glVertexArrayBindVertexBufferEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .bindingindex = bindingindex, .buffer = buffer, .offset = offset, .stride = stride };
+    struct glVertexArrayBindVertexBufferEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .bindingindex = bindingindex, .offset = offset, .stride = stride };
     NTSTATUS status;
     TRACE( "vaobj %d, bindingindex %d, buffer %d, offset %Id, stride %d\n", vaobj, bindingindex, buffer, offset, stride );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexArrayBindVertexBufferEXT, &args ))) WARN( "glVertexArrayBindVertexBufferEXT returned %#lx\n", status );
 }
 
@@ -21709,63 +21953,70 @@ static void WINAPI glVertexArrayBindingDivisor( GLuint vaobj, GLuint bindinginde
 
 static void WINAPI glVertexArrayColorOffsetEXT( GLuint vaobj, GLuint buffer, GLint size, GLenum type, GLsizei stride, GLintptr offset )
 {
-    struct glVertexArrayColorOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .buffer = buffer, .size = size, .type = type, .stride = stride, .offset = offset };
+    struct glVertexArrayColorOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .size = size, .type = type, .stride = stride, .offset = offset };
     NTSTATUS status;
     TRACE( "vaobj %d, buffer %d, size %d, type %d, stride %d, offset %Id\n", vaobj, buffer, size, type, stride, offset );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexArrayColorOffsetEXT, &args ))) WARN( "glVertexArrayColorOffsetEXT returned %#lx\n", status );
 }
 
 static void WINAPI glVertexArrayEdgeFlagOffsetEXT( GLuint vaobj, GLuint buffer, GLsizei stride, GLintptr offset )
 {
-    struct glVertexArrayEdgeFlagOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .buffer = buffer, .stride = stride, .offset = offset };
+    struct glVertexArrayEdgeFlagOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .stride = stride, .offset = offset };
     NTSTATUS status;
     TRACE( "vaobj %d, buffer %d, stride %d, offset %Id\n", vaobj, buffer, stride, offset );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexArrayEdgeFlagOffsetEXT, &args ))) WARN( "glVertexArrayEdgeFlagOffsetEXT returned %#lx\n", status );
 }
 
 static void WINAPI glVertexArrayElementBuffer( GLuint vaobj, GLuint buffer )
 {
-    struct glVertexArrayElementBuffer_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .buffer = buffer };
+    struct glVertexArrayElementBuffer_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj };
     NTSTATUS status;
     TRACE( "vaobj %d, buffer %d\n", vaobj, buffer );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexArrayElementBuffer, &args ))) WARN( "glVertexArrayElementBuffer returned %#lx\n", status );
 }
 
 static void WINAPI glVertexArrayFogCoordOffsetEXT( GLuint vaobj, GLuint buffer, GLenum type, GLsizei stride, GLintptr offset )
 {
-    struct glVertexArrayFogCoordOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .buffer = buffer, .type = type, .stride = stride, .offset = offset };
+    struct glVertexArrayFogCoordOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .type = type, .stride = stride, .offset = offset };
     NTSTATUS status;
     TRACE( "vaobj %d, buffer %d, type %d, stride %d, offset %Id\n", vaobj, buffer, type, stride, offset );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexArrayFogCoordOffsetEXT, &args ))) WARN( "glVertexArrayFogCoordOffsetEXT returned %#lx\n", status );
 }
 
 static void WINAPI glVertexArrayIndexOffsetEXT( GLuint vaobj, GLuint buffer, GLenum type, GLsizei stride, GLintptr offset )
 {
-    struct glVertexArrayIndexOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .buffer = buffer, .type = type, .stride = stride, .offset = offset };
+    struct glVertexArrayIndexOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .type = type, .stride = stride, .offset = offset };
     NTSTATUS status;
     TRACE( "vaobj %d, buffer %d, type %d, stride %d, offset %Id\n", vaobj, buffer, type, stride, offset );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexArrayIndexOffsetEXT, &args ))) WARN( "glVertexArrayIndexOffsetEXT returned %#lx\n", status );
 }
 
 static void WINAPI glVertexArrayMultiTexCoordOffsetEXT( GLuint vaobj, GLuint buffer, GLenum texunit, GLint size, GLenum type, GLsizei stride, GLintptr offset )
 {
-    struct glVertexArrayMultiTexCoordOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .buffer = buffer, .texunit = texunit, .size = size, .type = type, .stride = stride, .offset = offset };
+    struct glVertexArrayMultiTexCoordOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .texunit = texunit, .size = size, .type = type, .stride = stride, .offset = offset };
     NTSTATUS status;
     TRACE( "vaobj %d, buffer %d, texunit %d, size %d, type %d, stride %d, offset %Id\n", vaobj, buffer, texunit, size, type, stride, offset );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexArrayMultiTexCoordOffsetEXT, &args ))) WARN( "glVertexArrayMultiTexCoordOffsetEXT returned %#lx\n", status );
 }
 
 static void WINAPI glVertexArrayNormalOffsetEXT( GLuint vaobj, GLuint buffer, GLenum type, GLsizei stride, GLintptr offset )
 {
-    struct glVertexArrayNormalOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .buffer = buffer, .type = type, .stride = stride, .offset = offset };
+    struct glVertexArrayNormalOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .type = type, .stride = stride, .offset = offset };
     NTSTATUS status;
     TRACE( "vaobj %d, buffer %d, type %d, stride %d, offset %Id\n", vaobj, buffer, type, stride, offset );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexArrayNormalOffsetEXT, &args ))) WARN( "glVertexArrayNormalOffsetEXT returned %#lx\n", status );
 }
 
@@ -21795,19 +22046,21 @@ static void WINAPI glVertexArrayRangeNV( GLsizei length, const void *pointer )
 
 static void WINAPI glVertexArraySecondaryColorOffsetEXT( GLuint vaobj, GLuint buffer, GLint size, GLenum type, GLsizei stride, GLintptr offset )
 {
-    struct glVertexArraySecondaryColorOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .buffer = buffer, .size = size, .type = type, .stride = stride, .offset = offset };
+    struct glVertexArraySecondaryColorOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .size = size, .type = type, .stride = stride, .offset = offset };
     NTSTATUS status;
     TRACE( "vaobj %d, buffer %d, size %d, type %d, stride %d, offset %Id\n", vaobj, buffer, size, type, stride, offset );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexArraySecondaryColorOffsetEXT, &args ))) WARN( "glVertexArraySecondaryColorOffsetEXT returned %#lx\n", status );
 }
 
 static void WINAPI glVertexArrayTexCoordOffsetEXT( GLuint vaobj, GLuint buffer, GLint size, GLenum type, GLsizei stride, GLintptr offset )
 {
-    struct glVertexArrayTexCoordOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .buffer = buffer, .size = size, .type = type, .stride = stride, .offset = offset };
+    struct glVertexArrayTexCoordOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .size = size, .type = type, .stride = stride, .offset = offset };
     NTSTATUS status;
     TRACE( "vaobj %d, buffer %d, size %d, type %d, stride %d, offset %Id\n", vaobj, buffer, size, type, stride, offset );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexArrayTexCoordOffsetEXT, &args ))) WARN( "glVertexArrayTexCoordOffsetEXT returned %#lx\n", status );
 }
 
@@ -21845,10 +22098,11 @@ static void WINAPI glVertexArrayVertexAttribIFormatEXT( GLuint vaobj, GLuint att
 
 static void WINAPI glVertexArrayVertexAttribIOffsetEXT( GLuint vaobj, GLuint buffer, GLuint index, GLint size, GLenum type, GLsizei stride, GLintptr offset )
 {
-    struct glVertexArrayVertexAttribIOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .buffer = buffer, .index = index, .size = size, .type = type, .stride = stride, .offset = offset };
+    struct glVertexArrayVertexAttribIOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .index = index, .size = size, .type = type, .stride = stride, .offset = offset };
     NTSTATUS status;
     TRACE( "vaobj %d, buffer %d, index %d, size %d, type %d, stride %d, offset %Id\n", vaobj, buffer, index, size, type, stride, offset );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexArrayVertexAttribIOffsetEXT, &args ))) WARN( "glVertexArrayVertexAttribIOffsetEXT returned %#lx\n", status );
 }
 
@@ -21862,19 +22116,21 @@ static void WINAPI glVertexArrayVertexAttribLFormatEXT( GLuint vaobj, GLuint att
 
 static void WINAPI glVertexArrayVertexAttribLOffsetEXT( GLuint vaobj, GLuint buffer, GLuint index, GLint size, GLenum type, GLsizei stride, GLintptr offset )
 {
-    struct glVertexArrayVertexAttribLOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .buffer = buffer, .index = index, .size = size, .type = type, .stride = stride, .offset = offset };
+    struct glVertexArrayVertexAttribLOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .index = index, .size = size, .type = type, .stride = stride, .offset = offset };
     NTSTATUS status;
     TRACE( "vaobj %d, buffer %d, index %d, size %d, type %d, stride %d, offset %Id\n", vaobj, buffer, index, size, type, stride, offset );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexArrayVertexAttribLOffsetEXT, &args ))) WARN( "glVertexArrayVertexAttribLOffsetEXT returned %#lx\n", status );
 }
 
 static void WINAPI glVertexArrayVertexAttribOffsetEXT( GLuint vaobj, GLuint buffer, GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, GLintptr offset )
 {
-    struct glVertexArrayVertexAttribOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .buffer = buffer, .index = index, .size = size, .type = type, .normalized = normalized, .stride = stride, .offset = offset };
+    struct glVertexArrayVertexAttribOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .index = index, .size = size, .type = type, .normalized = normalized, .stride = stride, .offset = offset };
     NTSTATUS status;
     TRACE( "vaobj %d, buffer %d, index %d, size %d, type %d, normalized %d, stride %d, offset %Id\n", vaobj, buffer, index, size, type, normalized, stride, offset );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexArrayVertexAttribOffsetEXT, &args ))) WARN( "glVertexArrayVertexAttribOffsetEXT returned %#lx\n", status );
 }
 
@@ -21888,26 +22144,32 @@ static void WINAPI glVertexArrayVertexBindingDivisorEXT( GLuint vaobj, GLuint bi
 
 static void WINAPI glVertexArrayVertexBuffer( GLuint vaobj, GLuint bindingindex, GLuint buffer, GLintptr offset, GLsizei stride )
 {
-    struct glVertexArrayVertexBuffer_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .bindingindex = bindingindex, .buffer = buffer, .offset = offset, .stride = stride };
+    struct glVertexArrayVertexBuffer_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .bindingindex = bindingindex, .offset = offset, .stride = stride };
     NTSTATUS status;
     TRACE( "vaobj %d, bindingindex %d, buffer %d, offset %Id, stride %d\n", vaobj, bindingindex, buffer, offset, stride );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexArrayVertexBuffer, &args ))) WARN( "glVertexArrayVertexBuffer returned %#lx\n", status );
 }
 
 static void WINAPI glVertexArrayVertexBuffers( GLuint vaobj, GLuint first, GLsizei count, const GLuint *buffers, const GLintptr *offsets, const GLsizei *strides )
 {
-    struct glVertexArrayVertexBuffers_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .first = first, .count = count, .buffers = buffers, .offsets = offsets, .strides = strides };
+    GLuint buffers_buf[64], *buffers_tmp;
+    struct glVertexArrayVertexBuffers_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .first = first, .count = count, .offsets = offsets, .strides = strides };
     NTSTATUS status;
     TRACE( "vaobj %d, first %d, count %d, buffers %p, offsets %p, strides %p\n", vaobj, first, count, buffers, offsets, strides );
+    buffers_tmp = count > 0 ? memdup_objects( count, buffers, buffers_buf, ARRAY_SIZE(buffers_buf) ) : NULL;
+    args.buffers = count > 0 ? map_context_objects( OBJ_TYPE_BUFFER, count, buffers_tmp ) : NULL;
     if ((status = UNIX_CALL( glVertexArrayVertexBuffers, &args ))) WARN( "glVertexArrayVertexBuffers returned %#lx\n", status );
+    if (buffers_tmp != buffers_buf) free( buffers_tmp );
 }
 
 static void WINAPI glVertexArrayVertexOffsetEXT( GLuint vaobj, GLuint buffer, GLint size, GLenum type, GLsizei stride, GLintptr offset )
 {
-    struct glVertexArrayVertexOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .buffer = buffer, .size = size, .type = type, .stride = stride, .offset = offset };
+    struct glVertexArrayVertexOffsetEXT_params args = { .teb = NtCurrentTeb(), .vaobj = vaobj, .size = size, .type = type, .stride = stride, .offset = offset };
     NTSTATUS status;
     TRACE( "vaobj %d, buffer %d, size %d, type %d, stride %d, offset %Id\n", vaobj, buffer, size, type, stride, offset );
     if (!alloc_context_objects( OBJ_TYPE_BUFFER, 1, &buffer, TRUE )) return;
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexArrayVertexOffsetEXT, &args ))) WARN( "glVertexArrayVertexOffsetEXT returned %#lx\n", status );
 }
 
@@ -22761,9 +23023,10 @@ static void WINAPI glVertexAttrib4usvARB( GLuint index, const GLushort *v )
 
 static void WINAPI glVertexAttribArrayObjectATI( GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, GLuint buffer, GLuint offset )
 {
-    struct glVertexAttribArrayObjectATI_params args = { .teb = NtCurrentTeb(), .index = index, .size = size, .type = type, .normalized = normalized, .stride = stride, .buffer = buffer, .offset = offset };
+    struct glVertexAttribArrayObjectATI_params args = { .teb = NtCurrentTeb(), .index = index, .size = size, .type = type, .normalized = normalized, .stride = stride, .offset = offset };
     NTSTATUS status;
     TRACE( "index %d, size %d, type %d, normalized %d, stride %d, buffer %d, offset %d\n", index, size, type, normalized, stride, buffer, offset );
+    args.buffer = *map_context_objects( OBJ_TYPE_BUFFER, 1, &buffer );
     if ((status = UNIX_CALL( glVertexAttribArrayObjectATI, &args ))) WARN( "glVertexAttribArrayObjectATI returned %#lx\n", status );
 }
 
@@ -24178,10 +24441,14 @@ static void WINAPI glViewportSwizzleNV( GLuint index, GLenum swizzlex, GLenum sw
 
 static void WINAPI glWaitSemaphoreEXT( GLuint semaphore, GLuint numBufferBarriers, const GLuint *buffers, GLuint numTextureBarriers, const GLuint *textures, const GLenum *srcLayouts )
 {
-    struct glWaitSemaphoreEXT_params args = { .teb = NtCurrentTeb(), .semaphore = semaphore, .numBufferBarriers = numBufferBarriers, .buffers = buffers, .numTextureBarriers = numTextureBarriers, .textures = textures, .srcLayouts = srcLayouts };
+    GLuint buffers_buf[64], *buffers_tmp;
+    struct glWaitSemaphoreEXT_params args = { .teb = NtCurrentTeb(), .semaphore = semaphore, .numBufferBarriers = numBufferBarriers, .numTextureBarriers = numTextureBarriers, .textures = textures, .srcLayouts = srcLayouts };
     NTSTATUS status;
     TRACE( "semaphore %d, numBufferBarriers %d, buffers %p, numTextureBarriers %d, textures %p, srcLayouts %p\n", semaphore, numBufferBarriers, buffers, numTextureBarriers, textures, srcLayouts );
+    buffers_tmp = numBufferBarriers > 0 ? memdup_objects( numBufferBarriers, buffers, buffers_buf, ARRAY_SIZE(buffers_buf) ) : NULL;
+    args.buffers = numBufferBarriers > 0 ? map_context_objects( OBJ_TYPE_BUFFER, numBufferBarriers, buffers_tmp ) : NULL;
     if ((status = UNIX_CALL( glWaitSemaphoreEXT, &args ))) WARN( "glWaitSemaphoreEXT returned %#lx\n", status );
+    if (buffers_tmp != buffers_buf) free( buffers_tmp );
 }
 
 static void WINAPI glWaitSemaphoreui64NVX( GLuint waitGpu, GLsizei fenceObjectCount, const GLuint *semaphoreArray, const GLuint64 *fenceValueArray )

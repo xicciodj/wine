@@ -1113,42 +1113,41 @@ static HWND get_last_active_popup( HWND hwnd )
     return retval;
 }
 
-static BOOL get_window_extra( HWND hwnd, WND *win, UINT offset, UINT size, LONG_PTR *ret, BOOL internal )
+static LONG_PTR get_window_long_shm( HWND hwnd, UINT offset, UINT size, BOOL internal )
 {
     struct object_lock lock = OBJECT_LOCK_INIT;
     const window_shm_t *window_shm = NULL;
-    BOOL valid = FALSE;
-    UINT status;
+    BOOL valid = TRUE;
+    LONG_PTR ret = 0;
+    NTSTATUS status;
 
     while ((status = get_shared_window( hwnd, &lock, &window_shm )) == STATUS_PENDING)
     {
-        valid = size <= win->cbWndExtra && offset <= win->cbWndExtra - size &&
-                (internal || offset >= window_shm->private_size);
-        if (valid) memcpy( ret, (char *)win->wExtra + offset, size );
+        switch (offset)
+        {
+        case GWLP_ID:        ret = window_shm->info.id; break;
+        case GWLP_HINSTANCE: ret = window_shm->info.instance; break;
+        case GWLP_USERDATA:  memcpy( &ret, (void *)&window_shm->info.user_data, size ); break;
+        default:
+            valid = size <= window_shm->extra_size && offset <= window_shm->extra_size - size &&
+                    (internal || offset >= window_shm->private_size);
+            if (valid) memcpy( &ret, (char *)window_shm->extra + offset, size );
+            break;
+        }
+    }
+    if (status)
+    {
+        RtlSetLastWin32Error( ERROR_INVALID_WINDOW_HANDLE );
+        return 0;
+    }
+    if (!valid)
+    {
+        WARN( "Invalid window %p offset %d size %u\n", hwnd, offset, size );
+        RtlSetLastWin32Error( ERROR_INVALID_INDEX );
+        return 0;
     }
 
-    if (status) RtlSetLastWin32Error( ERROR_INVALID_WINDOW_HANDLE );
-    else if (!valid) RtlSetLastWin32Error( ERROR_INVALID_INDEX );
-    return valid;
-}
-
-/* helper for set_window_long */
-static inline void set_win_data( void *ptr, LONG_PTR val, UINT size )
-{
-    if (size == sizeof(WORD))
-    {
-        WORD newval = val;
-        memcpy( ptr, &newval, sizeof(newval) );
-    }
-    else if (size == sizeof(DWORD))
-    {
-        DWORD newval = val;
-        memcpy( ptr, &newval, sizeof(newval) );
-    }
-    else
-    {
-        memcpy( ptr, &val, sizeof(val) );
-    }
+    return ret;
 }
 
 BOOL is_iconic( HWND hwnd )
@@ -1177,12 +1176,22 @@ static LONG_PTR get_window_long_size( HWND hwnd, INT offset, UINT size, BOOL ans
     LONG_PTR retval = 0;
     WND *win;
 
-    if (offset == GWLP_HWNDPARENT)
+    switch (offset)
+    {
+    default:
+        if (offset < 0) break;
+        /* fallthrough */
+    case GWLP_ID:
+    case GWLP_HINSTANCE:
+    case GWLP_USERDATA:
+        return get_window_long_shm( hwnd, offset, size, internal );
+    case GWLP_HWNDPARENT:
     {
         HWND parent = NtUserGetAncestor( hwnd, GA_PARENT );
         if (parent == get_desktop_window())
             parent = get_window_relative( hwnd, GW_OWNER );
         return (ULONG_PTR)parent;
+    }
     }
 
     if (!(win = get_win_ptr( hwnd )))
@@ -1201,9 +1210,6 @@ static LONG_PTR get_window_long_size( HWND hwnd, INT offset, UINT size, BOOL ans
                 retval |= WS_VISIBLE;
             return retval;
         case GWL_EXSTYLE:
-        case GWLP_USERDATA:
-        case GWLP_ID:
-        case GWLP_HINSTANCE:
             return 0;
         case GWLP_WNDPROC:
             RtlSetLastWin32Error( ERROR_ACCESS_DENIED );
@@ -1233,20 +1239,10 @@ static LONG_PTR get_window_long_size( HWND hwnd, INT offset, UINT size, BOOL ans
 
     /* now we have a valid win */
 
-    if (offset >= 0)
-    {
-        if (!get_window_extra( hwnd, win, offset, size, &retval, internal )) retval = 0;
-        release_win_ptr( win );
-        return retval;
-    }
-
     switch(offset)
     {
-    case GWLP_USERDATA:  retval = win->userdata; break;
     case GWL_STYLE:      retval = win->dwStyle; break;
     case GWL_EXSTYLE:    retval = win->dwExStyle; break;
-    case GWLP_ID:        retval = win->wIDmenu; break;
-    case GWLP_HINSTANCE: retval = (ULONG_PTR)win->hInstance; break;
     case GWLP_WNDPROC:
         /* This looks like a hack only for the edit control (see tests). This makes these controls
          * more tolerant to A/W mismatches. The lack of W->A->W conversion for such a mismatch suggests
@@ -1278,6 +1274,11 @@ ULONG_PTR get_window_long_ptr( HWND hwnd, INT offset, BOOL ansi )
     return get_window_long_size( hwnd, offset, sizeof(LONG_PTR), ansi, FALSE );
 }
 
+static HMENU get_window_menu( HWND hwnd )
+{
+    return (HMENU)get_window_long_ptr( hwnd, GWLP_ID, FALSE );
+}
+
 /* see GetWindowWord */
 static WORD get_window_word( HWND hwnd, INT offset )
 {
@@ -1289,10 +1290,30 @@ static WORD get_window_word( HWND hwnd, INT offset )
     return get_window_long_size( hwnd, offset, sizeof(WORD), TRUE, FALSE );
 }
 
+/* Set window info with the wine server. */
+static BOOL server_set_window_info( HWND hwnd, INT offset, LONG_PTR newval, UINT size, LONG_PTR *oldval, BOOL internal )
+{
+    BOOL ret;
+
+    SERVER_START_REQ( set_window_info )
+    {
+        req->handle = wine_server_user_handle( hwnd );
+        req->offset = offset;
+        req->size = size;
+        req->new_info = newval;
+        req->internal = internal;
+        ret = !wine_server_call_err( req );
+        *oldval = reply->old_info;
+    }
+    SERVER_END_REQ;
+    return ret;
+}
+
 UINT set_window_style_bits( HWND hwnd, UINT set_bits, UINT clear_bits )
 {
     BOOL ok, made_visible = FALSE;
     STYLESTRUCT style;
+    LONG_PTR oldval;
     WND *win = get_win_ptr( hwnd );
 
     if (!win || win == WND_DESKTOP) return 0;
@@ -1309,18 +1330,11 @@ UINT set_window_style_bits( HWND hwnd, UINT set_bits, UINT clear_bits )
         release_win_ptr( win );
         return style.styleNew;
     }
-    SERVER_START_REQ( set_window_info )
+    if ((ok = server_set_window_info( hwnd, GWL_STYLE, style.styleNew, 0, &oldval, FALSE )))
     {
-        req->handle = wine_server_user_handle( hwnd );
-        req->offset = GWL_STYLE;
-        req->new_info = style.styleNew;
-        if ((ok = !wine_server_call( req )))
-        {
-            style.styleOld = reply->old_info;
-            win->dwStyle = style.styleNew;
-        }
+        style.styleOld = oldval;
+        win->dwStyle = style.styleNew;
     }
-    SERVER_END_REQ;
 
     if (ok && ((style.styleOld ^ style.styleNew) & WS_VISIBLE))
     {
@@ -1390,7 +1404,7 @@ static LONG_PTR set_window_long_internal( HWND hwnd, INT offset, UINT size,
                                           LONG_PTR newval, BOOL ansi, BOOL internal )
 {
     BOOL ok, made_visible = FALSE, layered = FALSE;
-    LONG_PTR retval = 0;
+    LONG_PTR retval = 0, oldval;
     STYLESTRUCT style;
     WND *win;
 
@@ -1481,69 +1495,30 @@ static LONG_PTR set_window_long_internal( HWND hwnd, INT offset, UINT size,
         /* update is_unicode flag on the server side */
         break;
     }
-    case GWLP_ID:
-    case GWLP_HINSTANCE:
-    case GWLP_USERDATA:
-        break;
-    default:
-        if (!get_window_extra( hwnd, win, offset, size, &retval, internal ))
-        {
-            release_win_ptr( win );
-            return 0;
-        }
-        if (retval == newval)
-        {
-            /* already set to the same value */
-            release_win_ptr( win );
-            return newval;
-        }
-        break;
     }
 
     if (offset == GWLP_WNDPROC) newval = !!(win->flags & WIN_ISUNICODE);
-    if (offset == GWLP_USERDATA && size == sizeof(WORD)) newval = MAKELONG( newval, win->userdata >> 16 );
 
-    SERVER_START_REQ( set_window_info )
+    if ((ok = server_set_window_info( hwnd, offset, newval, size, &oldval, internal )))
     {
-        req->handle = wine_server_user_handle( hwnd );
-        req->offset = offset;
-        req->new_info = newval;
-        req->size = size;
-        if ((ok = !wine_server_call_err( req )))
+        switch (offset)
         {
-            switch (offset)
-            {
-            case GWL_STYLE:
-                win->dwStyle = newval;
-                win->dwExStyle = fix_exstyle(win->dwStyle, win->dwExStyle);
-                retval = reply->old_info;
-                break;
-            case GWL_EXSTYLE:
-                win->dwExStyle = newval;
-                retval = reply->old_info;
-                break;
-            case GWLP_ID:
-                win->wIDmenu = newval;
-                retval = reply->old_info;
-                break;
-            case GWLP_HINSTANCE:
-                win->hInstance = (HINSTANCE)newval;
-                retval = reply->old_info;
-                break;
-            case GWLP_WNDPROC:
-                break;
-            case GWLP_USERDATA:
-                win->userdata = newval;
-                retval = reply->old_info;
-                break;
-            default:
-                set_win_data( (char *)win->wExtra + offset, newval, size );
-                retval = reply->old_info;
-                break;
-            }
+        case GWL_STYLE:
+            win->dwStyle = newval;
+            win->dwExStyle = fix_exstyle(win->dwStyle, win->dwExStyle);
+            retval = oldval;
+            break;
+        case GWL_EXSTYLE:
+            win->dwExStyle = newval;
+            retval = oldval;
+            break;
+        case GWLP_WNDPROC:
+            break;
+        default:
+            retval = oldval;
+            break;
         }
     }
-    SERVER_END_REQ;
 
     if (offset == GWL_EXSTYLE && ((style.styleOld ^ style.styleNew) & WS_EX_LAYERED)) layered = TRUE;
     if ((offset == GWL_STYLE && ((style.styleOld ^ style.styleNew) & WS_VISIBLE)) || layered)
@@ -5318,7 +5293,7 @@ LRESULT destroy_window( HWND hwnd )
 
     if (!(win = get_win_ptr( hwnd )) || win == WND_OTHER_PROCESS) return 0;
     if ((win->dwStyle & (WS_CHILD | WS_POPUP)) != WS_CHILD)
-        menu = (HMENU)win->wIDmenu;
+        menu = get_window_menu( hwnd );
     sys_menu = win->hSysMenu;
     free_dce( win->dce, hwnd, &drawables );
     win->dce = NULL;
@@ -5470,7 +5445,7 @@ void destroy_thread_windows(void)
         /* recycle the WND struct as a destroy_entry struct */
         entry = (struct destroy_entry *)win;
         tmp.handle = win->handle;
-        if (!is_child) tmp.menu = (HMENU)win->wIDmenu;
+        if (!is_child) tmp.menu = get_window_menu( handle );
         tmp.sys_menu = win->hSysMenu;
         tmp.current_drawable = win->current_drawable;
         tmp.unused_drawable = win->unused_drawable;
@@ -5525,7 +5500,6 @@ static WND *create_window_handle( HWND parent, HWND owner, UNICODE_STRING *name,
     UINT dpi_context = get_thread_dpi_awareness_context();
     HWND handle = 0, full_parent = 0, full_owner = 0;
     struct tagCLASS *class = NULL;
-    int extra_bytes = 0;
     WND *win;
 
     SERVER_START_REQ( create_window )
@@ -5543,7 +5517,6 @@ static WND *create_window_handle( HWND parent, HWND owner, UNICODE_STRING *name,
             handle      = wine_server_ptr_handle( reply->handle );
             full_parent = wine_server_ptr_handle( reply->parent );
             full_owner  = wine_server_ptr_handle( reply->owner );
-            extra_bytes = reply->extra;
             class       = wine_server_get_ptr( reply->class_ptr );
         }
     }
@@ -5555,7 +5528,7 @@ static WND *create_window_handle( HWND parent, HWND owner, UNICODE_STRING *name,
         return NULL;
     }
 
-    if (!(win = calloc( 1, FIELD_OFFSET(WND, wExtra) + extra_bytes )))
+    if (!(win = calloc( 1, sizeof(*win) )))
     {
         SERVER_START_REQ( destroy_window )
         {
@@ -5592,8 +5565,6 @@ static WND *create_window_handle( HWND parent, HWND owner, UNICODE_STRING *name,
     win->owner      = full_owner;
     win->class      = class;
     win->winproc    = get_class_winproc( class );
-    win->hInstance  = instance;
-    win->cbWndExtra = extra_bytes;
     set_user_handle_ptr( handle, win );
     if (is_winproc_unicode( win->winproc, !ansi )) win->flags |= WIN_ISUNICODE;
     return win;
@@ -5770,10 +5741,8 @@ HWND WINAPI NtUserCreateWindowEx( DWORD ex_style, UNICODE_STRING *class_name,
     win->text        = NULL;
     win->dwStyle     = style;
     win->dwExStyle   = ex_style;
-    win->wIDmenu     = 0;
     win->helpContext = 0;
     win->pScroll     = NULL;
-    win->userdata    = 0;
     win->hIcon       = 0;
     win->hIconSmall  = 0;
     win->hIconSmall2 = 0;

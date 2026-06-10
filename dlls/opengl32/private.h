@@ -44,7 +44,7 @@ extern BOOL get_context_from_handle( HGLRC handle, HGLRC *obj );
 extern BOOL get_sync_from_handle( GLsync handle, GLsync *obj );
 extern void set_gl_error( GLenum error );
 extern struct registry_entry *get_function_entry( const char *name );
-extern BOOL get_integer( GLenum name, GLint *data );
+extern BOOL get_integer( GLenum pname, GLuint index, GLint value, GLint *data );
 
 enum object_type
 {
@@ -63,5 +63,6 @@ static inline GLuint *memdup_objects( UINT n, const GLuint *handles, GLuint *buf
 extern void put_context_objects( enum object_type type, UINT n, GLuint *handles );
 extern BOOL alloc_context_objects( enum object_type type, UINT n, const GLuint *handles, BOOL extension );
 extern GLuint *del_context_objects( enum object_type type, UINT n, GLuint *handles );
+extern GLuint *map_context_objects( enum object_type type, UINT n, GLuint *handles );
 
 #endif /* __WINE_OPENGL32_PRIVATE_H */

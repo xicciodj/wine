@@ -1047,12 +1047,22 @@ typedef volatile struct
     char                 extra[];
 } class_shm_t;
 
+struct window_info
+{
+    lparam_t             id;
+    mod_handle_t         instance;
+    lparam_t             user_data;
+};
+
 typedef volatile struct
 {
     struct obj_locator   class;
     unsigned int         dpi_context;
     unsigned int         fnid;
     data_size_t          private_size;
+    data_size_t          extra_size;
+    struct window_info   info;
+    char                 extra[];
 } window_shm_t;
 
 typedef volatile union
@@ -3502,7 +3512,7 @@ struct create_window_reply
     user_handle_t  handle;
     user_handle_t  parent;
     user_handle_t  owner;
-    int            extra;
+    char __pad_20[4];
     client_ptr_t   class_ptr;
 };
 
@@ -3590,6 +3600,8 @@ struct set_window_info_request
     int            offset;
     data_size_t    size;
     lparam_t       new_info;
+    unsigned int   internal;
+    char __pad_36[4];
 };
 struct set_window_info_reply
 {
@@ -7131,6 +7143,6 @@ union generic_reply
     struct d3dkmt_mutex_release_reply d3dkmt_mutex_release_reply;
 };
 
-#define SERVER_PROTOCOL_VERSION 944
+#define SERVER_PROTOCOL_VERSION 948
 
 #endif /* __WINE_WINE_SERVER_PROTOCOL_H */
