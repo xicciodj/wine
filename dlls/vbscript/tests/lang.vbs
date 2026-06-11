@@ -1696,6 +1696,34 @@ x = false
 Call testsub_one_line
 Call ok(x, "x is false, testsub_one_line not called?")
 
+x = false
+Sub testsub_header_stmt() x = 1
+    x = x + 1
+End Sub
+Call ok(x = false, "testsub_header_stmt body executed at definition? x = " & x)
+Call testsub_header_stmt
+Call ok(x = 2, "testsub_header_stmt: x = " & x)
+
+Sub testsub_header_nospace()x = 3:x = x + 1
+    x = x + 1
+End Sub
+Call testsub_header_nospace
+Call ok(x = 5, "testsub_header_nospace: x = " & x)
+
+Sub testsub_header_set() Set x = Nothing : End Sub
+Call testsub_header_set
+Call ok(x Is Nothing, "testsub_header_set: TypeName(x) = " & TypeName(x))
+
+Sub testsub_header_colon_end() x = 6 : x = x + 1: End Sub
+Call testsub_header_colon_end
+Call ok(x = 7, "testsub_header_colon_end: x = " & x)
+
+Function testfunc_header_stmt() x = 8
+    x = x + 1
+End Function
+Call testfunc_header_stmt
+Call ok(x = 9, "testfunc_header_stmt: x = " & x)
+
 Sub SubSetTrue(v)
     Call ok(not v, "v is not true")
     v = true
@@ -1906,6 +1934,48 @@ Dim npObj
 Set npObj = New NpCls
 CheckNpS "npObj.Check(10)+5",        15
 CheckNpS "npObj.Check(10)*3",        30
+
+' A dot immediately followed by a digit is a numeric literal, not member access.
+CheckNpS "NpS.5",                    0.5
+CheckNpS "NpS.0",                    0
+CheckNpS "NpS.5E1",                  5
+CheckNpS "npObj.Check.5",            0.5
+CheckNpS "npObj.Check.0",            0
+CheckNpS "With npObj : .Check.5 : End With", 0.5
+CheckNpT "NpT.5,.25",                0.5,    0.25
+NpS.5
+Call ok(getVT(npArg) = "VT_R8*", "NpS.5: getVT(npArg) = " & getVT(npArg))
+
+Sub CheckParseErr(src, expected)
+    On Error Resume Next
+    Err.Clear
+    Execute src
+    Dim e : e = Err.Number
+    On Error GoTo 0
+    Call ok(e = expected, "parse error for " & src & ": err = " & e & " expected " & expected)
+End Sub
+
+CheckParseErr "npArg = npObj.Check.5",      1025
+CheckParseErr "NpS.5.5",                    1025
+CheckParseErr "npArg = (1).5",              1025
+CheckParseErr "npArg = 1.5.5",              1025
+CheckParseErr "npArg = 1 2",                1025
+CheckParseErr "NpS 1 2",                    1025
+CheckParseErr "npArg = 1 ""x""",            1025
+CheckParseErr "npObj.Check. 5",             1010
+CheckParseErr "npObj.Check .",              1010
+CheckParseErr "npArg = npObj.",             1010
+CheckParseErr "npArg = .",                  1010
+CheckParseErr "With npObj : . : End With",  1010
+CheckParseErr "Sub 5 : End Sub",            1010
+CheckParseErr "Function 5 : End Function",  1010
+CheckParseErr "Class 5 : End Class",        1010
+CheckParseErr "Const 5 = 1",                1010
+CheckParseErr "For 5 = 1 To 2 : Next",      1010
+CheckParseErr "For Each 5 In npArg : Next", 1010
+CheckParseErr "ReDim 5",                    1010
+CheckParseErr "Dim 5",                      1010
+CheckParseErr "Dim 1.5",                    1010
 
 Function ParenId(a)
     ParenId = a
@@ -2914,6 +2984,50 @@ sub TestExecuteGlobalRedim
     call ok(err.number = 0, "second Dim egScalar() (array) err=" & err.number)
 end sub
 Call TestExecuteGlobalRedim
+
+' A Dim in a later compile unit may shadow a global Const from a prior one:
+' it creates a fresh variable that later compile units resolve to, while the
+' defining compile unit keeps the inlined const value.
+Dim egCrossVal
+Const egConst = 26
+ExecuteGlobal "Dim egConst"
+ExecuteGlobal "egCrossVal = IsEmpty(egConst) & "" "" & TypeName(egConst)"
+Call ok(egCrossVal = "True Empty", "dimmed-over-const fresh read: " & egCrossVal)
+ExecuteGlobal "egConst = 5"
+ExecuteGlobal "egCrossVal = egConst"
+Call ok(egCrossVal = 5, "dimmed-over-const after assign = " & egCrossVal)
+Call ok(egConst = 26, "egConst in defining compile unit = " & egConst)
+Call ok(Eval("egConst") = 5, "Eval from defining compile unit = " & Eval("egConst"))
+Execute "egCrossVal = egConst"
+Call ok(egCrossVal = 5, "Execute read from defining compile unit = " & egCrossVal)
+
+Const egConst2 = 7
+ExecuteGlobal "Dim egConst2 : egConst2 = 8 : egCrossVal = egConst2"
+Call ok(egCrossVal = 8, "dim+assign+read in one compile unit = " & egCrossVal)
+Call ok(egConst2 = 7, "egConst2 in defining compile unit = " & egConst2)
+
+Const egConstArr = 2
+ExecuteGlobal "Dim egConstArr(3)"
+ExecuteGlobal "egConstArr(0) = 11 : egCrossVal = egConstArr(0)"
+Call ok(egCrossVal = 11, "array dimmed over const element = " & egCrossVal)
+Call ok(egConstArr = 2, "egConstArr in defining compile unit = " & egConstArr)
+
+Sub TestDimOverConstErrors
+    on error resume next
+
+    err.clear : ExecuteGlobal "Const egConst = 27"
+    call ok(err.number = 1041, "Const over dimmed-over-const err=" & err.number)
+
+    err.clear : ExecuteGlobal "Const egCrossVal = 1"
+    call ok(err.number = 1041, "Const over prior Dim err=" & err.number)
+
+    err.clear : ExecuteGlobal "Const egSameParse = 1 : Dim egSameParse"
+    call ok(err.number = 1041, "same-unit Const+Dim err=" & err.number)
+
+    err.clear : ExecuteGlobal "Dim egSameParse2 : Const egSameParse2 = 1"
+    call ok(err.number = 1041, "same-unit Dim+Const err=" & err.number)
+end sub
+Call TestDimOverConstErrors
 
 Class FixedClassArr
     Private mArr(2)

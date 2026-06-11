@@ -1483,9 +1483,7 @@ static void test_object_creation( HDC winhdc )
         }
         if (!is_implicit_allowed( i, TRUE ))
         {
-            todo_wine_if( i == OBJ_FRAMEBUFFER || i == OBJ_RENDERBUFFER )
             ok_ret( GL_INVALID_OPERATION, glGetError() );
-            if (!winetest_platform_is_wine || (i != OBJ_FRAMEBUFFER && i != OBJ_RENDERBUFFER))
             ok_ret( TRUE, create_object( i, 0, &obj ) );
         }
         ok_ret( GL_NO_ERROR, glGetError() );
@@ -1514,9 +1512,9 @@ static void test_object_creation( HDC winhdc )
         else
         {
             /* Wine never allows implicit allocation in core contexts */
-            todo_wine_if( i == OBJ_FENCE_APPLE || i == OBJ_FENCE_NV || i == OBJ_FRAMEBUFFER_EXT || i == OBJ_PATH_NV ||
+            todo_wine_if( i == OBJ_FENCE_APPLE || i == OBJ_FENCE_NV || i == OBJ_PATH_NV ||
                           i == OBJ_PROGRAM_ARB || i == OBJ_PROGRAM_NV || i == OBJ_SHADER_EXT || i == OBJ_SHADER_ATI ||
-                          i == OBJ_RENDERBUFFER_EXT || i == OBJ_SEMAPHORE_EXT || i == OBJ_TRANSFORM_FEEDBACK_NV ||
+                          i == OBJ_SEMAPHORE_EXT || i == OBJ_TRANSFORM_FEEDBACK_NV ||
                           i == OBJ_VERTEX_ARRAY_APPLE )
             ok_ret( GL_NO_ERROR, glGetError() );
             ok_u4( obj, ==, 1 );
@@ -2021,7 +2019,7 @@ static void test_sharelists(HDC winhdc)
         ok_ret( GL_NO_ERROR, glGetError() );
 
         /* cannot overwrite non-empty lists with some other */
-        todo_wine_if( i >= 2 ) ok_ret( FALSE, wglShareLists( ctx1, ctx3 ) );
+        todo_wine_if( i >= 9 ) ok_ret( FALSE, wglShareLists( ctx1, ctx3 ) );
         ok_ret( GL_NO_ERROR, glGetError() );
         ok_ret( FALSE, wglShareLists( ctx2, ctx1 ) );
         ok_ret( GL_NO_ERROR, glGetError() );
@@ -2069,7 +2067,7 @@ static void test_sharelists(HDC winhdc)
         ok_ret( GL_NO_ERROR, glGetError() );
         ok_ret( TRUE, wglMakeCurrent( winhdc, ctx2 ) );
         ok_ret( GL_NO_ERROR, glGetError() );
-        todo_wine_if( i >= 2 ) ok_ret( FALSE, test->exists( obj1 ) );
+        todo_wine_if( i >= 9 ) ok_ret( FALSE, test->exists( obj1 ) );
         ok_ret( GL_NO_ERROR, glGetError() );
         ok_ret( FALSE, test->exists( obj2 ) );
         ok_ret( GL_NO_ERROR, glGetError() );
@@ -2080,7 +2078,7 @@ static void test_sharelists(HDC winhdc)
         ok_ret( TRUE, wglDeleteContext( ctx3 ) );
 
         /* objects are still valid after shared context destruction */
-        todo_wine_if( i >= 2 ) ok_ret( FALSE, test->exists( obj1 ) );
+        todo_wine_if( i >= 9 ) ok_ret( FALSE, test->exists( obj1 ) );
         ok_ret( GL_NO_ERROR, glGetError() );
         ok_ret( FALSE, test->exists( obj2 ) );
         ok_ret( GL_NO_ERROR, glGetError() );

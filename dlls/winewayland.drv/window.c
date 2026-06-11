@@ -673,9 +673,14 @@ LRESULT WAYLAND_DesktopWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 void WAYLAND_SetLayeredWindowAttributes(HWND hwnd, COLORREF key, BYTE alpha, DWORD flags)
 {
     struct wayland_win_data *data;
+    struct wayland_surface *surface;
 
     if (!(data = wayland_win_data_get(hwnd))) return;
+
+    if ((surface = data->wayland_surface))
+        wayland_surface_set_opacity(surface, alpha, flags);
     data->layered_attribs_set = TRUE;
+
     wayland_win_data_release(data);
 }
 
@@ -727,6 +732,7 @@ void WAYLAND_SetWindowIcons(HWND hwnd, HICON icon, const ICONINFO *ii, HICON ico
 void WAYLAND_SetWindowStyle(HWND hwnd, INT offset, STYLESTRUCT *style)
 {
     struct wayland_win_data *data;
+    struct wayland_surface *surface;
     DWORD changed = style->styleNew ^ style->styleOld;
 
     if (hwnd == NtUserGetDesktopWindow()) return;
@@ -734,7 +740,11 @@ void WAYLAND_SetWindowStyle(HWND hwnd, INT offset, STYLESTRUCT *style)
 
     /* Changing WS_EX_LAYERED resets attributes */
     if (offset == GWL_EXSTYLE && (changed & WS_EX_LAYERED))
+    {
+        if ((surface = data->wayland_surface))
+            wayland_surface_set_opacity(surface, 0, 0);
         data->layered_attribs_set = FALSE;
+    }
 
     wayland_win_data_release(data);
 }
@@ -806,6 +816,22 @@ LRESULT WAYLAND_SysCommand(HWND hwnd, WPARAM wparam, LPARAM lparam, const POINT 
 
     wl_display_flush(process_wayland.wl_display);
     return ret;
+}
+
+/***********************************************************************
+ *          WAYLAND_UpdateLayeredWindow
+ */
+void WAYLAND_UpdateLayeredWindow(HWND hwnd, BYTE alpha, UINT flags)
+{
+    struct wayland_win_data *data;
+    struct wayland_surface *surface;
+
+    if (!(data = wayland_win_data_get(hwnd))) return;
+
+    if ((surface = data->wayland_surface))
+        wayland_surface_set_opacity(surface, alpha, flags);
+
+    wayland_win_data_release(data);
 }
 
 void set_client_surface(HWND hwnd, struct wayland_client_surface *new_client)

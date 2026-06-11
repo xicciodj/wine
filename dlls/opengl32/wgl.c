@@ -106,6 +106,10 @@ static const char *debugstr_object_type( enum object_type type )
     switch (type)
     {
     case OBJ_TYPE_BUFFER: return "buffer";
+    case OBJ_TYPE_FRAMEBUFFER: return "framebuffer";
+    case OBJ_TYPE_RENDERBUFFER: return "renderbuffer";
+    case OBJ_TYPE_SAMPLER: return "sampler";
+    case OBJ_TYPE_TEXTURE: return "texture";
     case OBJ_TYPE_COUNT: break;
     }
     return wine_dbg_sprintf( "object (type %u)", type );
@@ -386,6 +390,10 @@ static GLuint create_object( enum object_type type )
     switch (type)
     {
     case OBJ_TYPE_BUFFER: { MAKE_OBJECT_CALL( glGenBuffers, .n = 1, .buffers = &object ); return object; }
+    case OBJ_TYPE_FRAMEBUFFER: { MAKE_OBJECT_CALL( glGenFramebuffers, .n = 1, .framebuffers = &object ); return object; }
+    case OBJ_TYPE_RENDERBUFFER: { MAKE_OBJECT_CALL( glGenRenderbuffers, .n = 1, .renderbuffers = &object ); return object; }
+    case OBJ_TYPE_SAMPLER: { MAKE_OBJECT_CALL( glGenSamplers, .count = 1, .samplers = &object ); return object; }
+    case OBJ_TYPE_TEXTURE: { MAKE_OBJECT_CALL( glGenTextures, .n = 1, .textures = &object ); return object; }
     case OBJ_TYPE_COUNT: break;
     }
 
@@ -568,6 +576,9 @@ BOOL alloc_context_objects( enum object_type type, UINT n, const GLuint *handles
 
     /* only allow explicit allocation in some cases, use host allocated ids directly in that case */
     if (ctx->base.profile_mask & WGL_CONTEXT_CORE_PROFILE_BIT_ARB) alloc_client = FALSE;
+    if (type == OBJ_TYPE_FRAMEBUFFER) alloc_client = extension;
+    if (type == OBJ_TYPE_RENDERBUFFER) alloc_client = extension;
+    if (type == OBJ_TYPE_SAMPLER) alloc_client = FALSE;
 
     AcquireSRWLockShared( &table->lock );
     for (UINT i = 0; i < n && !needs_client; i++)
@@ -647,6 +658,35 @@ static GLuint get_pname_object_type( GLenum pname )
     case GL_WEIGHT_ARRAY_BUFFER_BINDING:
     case GL_MATRIX_INDEX_ARRAY_BUFFER_BINDING_OES:
         return OBJ_TYPE_BUFFER;
+    case GL_READ_FRAMEBUFFER_BINDING:
+    case GL_DRAW_FRAMEBUFFER_BINDING:
+        return OBJ_TYPE_FRAMEBUFFER;
+    case GL_RENDERBUFFER_BINDING:
+    case GL_TEXTURE_RENDERBUFFER_DATA_STORE_BINDING_NV:
+        return OBJ_TYPE_RENDERBUFFER;
+    case GL_TEXTURE_BINDING_1D:
+    case GL_TEXTURE_BINDING_1D_ARRAY:
+    case GL_TEXTURE_BINDING_2D:
+    case GL_TEXTURE_BINDING_2D_ARRAY:
+    case GL_TEXTURE_BINDING_2D_MULTISAMPLE:
+    case GL_TEXTURE_BINDING_2D_MULTISAMPLE_ARRAY:
+    case GL_TEXTURE_BINDING_3D:
+    case GL_TEXTURE_BINDING_BUFFER:
+    case GL_TEXTURE_BINDING_CUBE_MAP:
+    case GL_TEXTURE_BINDING_CUBE_MAP_ARRAY:
+    case GL_TEXTURE_BINDING_EXTERNAL_OES:
+    case GL_TEXTURE_BINDING_RECTANGLE:
+    case GL_TEXTURE_BUFFER_BINDING:
+    case GL_TEXTURE_BINDING_RENDERBUFFER_NV:
+    case GL_TEXTURE_1D_STACK_BINDING_MESAX:
+    case GL_TEXTURE_2D_STACK_BINDING_MESAX:
+    case GL_TEXTURE_4D_BINDING_SGIS:
+    case GL_DETAIL_TEXTURE_2D_BINDING_SGIS:
+    case GL_SHADING_RATE_IMAGE_BINDING_NV:
+    case GL_IMAGE_BINDING_NAME:
+        return OBJ_TYPE_TEXTURE;
+    case GL_SAMPLER_BINDING:
+        return OBJ_TYPE_SAMPLER;
     }
 
     return OBJ_TYPE_COUNT;
@@ -668,6 +708,75 @@ static BOOL map_client_objects( enum object_type type, GLuint host_id, GLuint *r
 
     *ret = client_id;
     return TRUE;
+}
+
+static void map_framebuffer_attachment_param( GLenum target, GLenum attachment, GLenum pname, GLint *params )
+{
+    GLint type, value;
+
+    if (pname != GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME) return;
+    glGetFramebufferAttachmentParameteriv( target, attachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &type );
+    if (type == GL_RENDERBUFFER && map_client_objects( OBJ_TYPE_RENDERBUFFER, *params, (GLuint *)&value )) *params = value;
+    if (type == GL_TEXTURE && map_client_objects( OBJ_TYPE_TEXTURE, *params, (GLuint *)&value )) *params = value;
+}
+
+void WINAPI glGetFramebufferAttachmentParameteriv( GLenum target, GLenum attachment, GLenum pname, GLint *params )
+{
+    struct glGetFramebufferAttachmentParameteriv_params args = { .teb = NtCurrentTeb(), .target = target, .attachment = attachment, .pname = pname, .params = params };
+    NTSTATUS status;
+
+    TRACE( "target %d, attachment %d, pname %d, params %p\n", target, attachment, pname, params );
+
+    if ((status = UNIX_CALL( glGetFramebufferAttachmentParameteriv, &args ))) WARN( "glGetFramebufferAttachmentParameteriv returned %#lx\n", status );
+    map_framebuffer_attachment_param( target, attachment, pname, params );
+}
+
+void WINAPI glGetFramebufferAttachmentParameterivEXT( GLenum target, GLenum attachment, GLenum pname, GLint *params )
+{
+    struct glGetFramebufferAttachmentParameterivEXT_params args = { .teb = NtCurrentTeb(), .target = target, .attachment = attachment, .pname = pname, .params = params };
+    NTSTATUS status;
+
+    TRACE( "target %d, attachment %d, pname %d, params %p\n", target, attachment, pname, params );
+
+    if ((status = UNIX_CALL( glGetFramebufferAttachmentParameterivEXT, &args ))) WARN( "glGetFramebufferAttachmentParameterivEXT returned %#lx\n", status );
+    map_framebuffer_attachment_param( target, attachment, pname, params );
+}
+
+static void map_named_framebuffer_attachment_param( GLuint framebuffer, GLenum attachment, GLenum pname, GLint *params )
+{
+    GLint type, value;
+
+    if (pname != GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME) return;
+    glGetNamedFramebufferAttachmentParameteriv( framebuffer, attachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &type );
+    if (type == GL_RENDERBUFFER && map_client_objects( OBJ_TYPE_RENDERBUFFER, *params, (GLuint *)&value )) *params = value;
+    if (type == GL_TEXTURE && map_client_objects( OBJ_TYPE_TEXTURE, *params, (GLuint *)&value )) *params = value;
+}
+
+void WINAPI glGetNamedFramebufferAttachmentParameteriv( GLuint framebuffer, GLenum attachment, GLenum pname, GLint *params )
+{
+    struct glGetNamedFramebufferAttachmentParameteriv_params args = { .teb = NtCurrentTeb(), .attachment = attachment, .pname = pname, .params = params };
+    GLuint host_framebuffer = framebuffer;
+    NTSTATUS status;
+
+    TRACE( "framebuffer %d, attachment %d, pname %d, params %p\n", framebuffer, attachment, pname, params );
+
+    args.framebuffer = *map_context_objects( OBJ_TYPE_FRAMEBUFFER, 1, &host_framebuffer );
+    if ((status = UNIX_CALL( glGetNamedFramebufferAttachmentParameteriv, &args ))) WARN( "glGetNamedFramebufferAttachmentParameteriv returned %#lx\n", status );
+    map_named_framebuffer_attachment_param( framebuffer, attachment, pname, params );
+}
+
+void WINAPI glGetNamedFramebufferAttachmentParameterivEXT( GLuint framebuffer, GLenum attachment, GLenum pname, GLint *params )
+{
+    struct glGetNamedFramebufferAttachmentParameterivEXT_params args = { .teb = NtCurrentTeb(), .attachment = attachment, .pname = pname, .params = params };
+    GLuint host_framebuffer = framebuffer;
+    NTSTATUS status;
+
+    TRACE( "framebuffer %d, attachment %d, pname %d, params %p\n", framebuffer, attachment, pname, params );
+
+    if (!alloc_context_objects( OBJ_TYPE_FRAMEBUFFER, 1, &host_framebuffer, TRUE )) return;
+    args.framebuffer = *map_context_objects( OBJ_TYPE_FRAMEBUFFER, 1, &host_framebuffer );
+    if ((status = UNIX_CALL( glGetNamedFramebufferAttachmentParameterivEXT, &args ))) WARN( "glGetNamedFramebufferAttachmentParameterivEXT returned %#lx\n", status );
+    map_named_framebuffer_attachment_param( framebuffer, attachment, pname, params );
 }
 
 HGLRC WINAPI wglCreateContext( HDC hdc )

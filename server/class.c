@@ -38,16 +38,19 @@
 #include "winuser.h"
 #include "winternl.h"
 
+/* also defined in win32u/ntuser_private.h */
+#define MAKE_WNDPROC(index)     ((UINT_PTR)(UINT)MAKELONG(index, 0xffff))
+
 struct window_class
 {
     struct list         entry;           /* entry in process list */
     struct winstation  *winstation;      /* winstation the class was created on */
     struct process     *process;         /* process owning the class */
     int                 count;           /* reference count */
-    int                 local;           /* local class? */
     atom_t              atom;            /* class atom for versioned class */
     unsigned int        fnid;            /* builtin control FNID, or 0 */
     client_ptr_t        client_ptr;      /* pointer to class in client address space */
+    bool                ansi;            /* class wndproc is ansi */
     class_shm_t        *shared;          /* class in session shared memory */
 };
 
@@ -61,7 +64,7 @@ static struct window_class *create_class( struct process *process, int local, in
 
     class->process = (struct process *)grab_object( process );
     class->count = 0;
-    class->local = local;
+    class->ansi = false;
 
     if (!(class->shared = alloc_shared_object( offsetof(class_shm_t, extra[cls_extra]) ))) goto failed;
 
@@ -110,7 +113,7 @@ static struct window_class *find_class( struct process *process, atom_t atom, mo
         const class_shm_t *shared = class->shared;
         if (class->atom != atom) continue;
         is_win16 = !(shared->info.instance >> 16);
-        if (!instance || !class->local || shared->info.instance == instance ||
+        if (!instance || !shared->local || shared->info.instance == instance ||
             (!is_win16 && ((shared->info.instance & ~0xffff) == (instance & ~0xffff)))) return class;
     }
     return NULL;
@@ -136,7 +139,7 @@ void release_class( struct window_class *class )
 
 int is_desktop_class( struct window_class *class )
 {
-    return (class->shared->info.atom == DESKTOP_ATOM && !class->local);
+    return class->shared->info.atom == DESKTOP_ATOM && !class->shared->local;
 }
 
 int is_message_class( struct window_class *class )
@@ -144,8 +147,7 @@ int is_message_class( struct window_class *class )
     static const WCHAR messageW[] = {'M','e','s','s','a','g','e'};
     static const struct unicode_str name = { messageW, sizeof(messageW) };
     struct atom_table *table = get_user_atom_table();
-
-    return (!class->local && class->shared->info.atom == find_atom( table, &name ));
+    return !class->shared->local && class->shared->info.atom == find_atom( table, &name );
 }
 
 int get_class_style( struct window_class *class )
@@ -171,6 +173,16 @@ unsigned int get_class_fnid( struct window_class *class, data_size_t *extra_size
     }
 
     return class->fnid;
+}
+
+client_ptr_t get_class_wndproc( struct window_class *class, bool *is_ansi )
+{
+    client_ptr_t wndproc = class->shared->info.wndproc;
+    UINT index = LOWORD(wndproc);
+
+    /* builtin wndproc can be both ansi or unicode, otherwise use the class wndproc kind */
+    if (wndproc != MAKE_WNDPROC(index) || index >= NTUSER_NB_PROCS) *is_ansi = !!class->ansi;
+    return wndproc;
 }
 
 client_ptr_t get_class_client_ptr( struct window_class *class )
@@ -199,6 +211,7 @@ DECL_HANDLER(create_class)
     atom_t atom = req->atom;
     struct class_info info;
     WCHAR buffer[16];
+    bool local;
 
     if (name.len < sizeof(info)) return set_error( STATUS_INVALID_PARAMETER );
     memcpy( &info, name.str, sizeof(info) );
@@ -227,8 +240,9 @@ DECL_HANDLER(create_class)
         info.atom = grab_atom( table, atom );
     }
 
+    local = !req->fnid && !(info.style & CS_GLOBALCLASS);
     class = find_class( current->process, atom, info.instance );
-    if (class && !class->local == !req->local)
+    if (class && !class->shared->local == !local)
     {
         set_win32_error( ERROR_CLASS_ALREADY_EXISTS );
         release_atom( table, atom );
@@ -244,7 +258,7 @@ DECL_HANDLER(create_class)
         return;
     }
 
-    if (!(class = create_class( current->process, req->local, info.cls_extra )))
+    if (!(class = create_class( current->process, local, info.cls_extra )))
     {
         release_atom( table, atom );
         release_atom( table, info.atom );
@@ -253,12 +267,14 @@ DECL_HANDLER(create_class)
     class->atom       = atom;
     class->fnid       = req->fnid;
     class->client_ptr = req->client_ptr;
+    class->ansi       = !!req->ansi;
 
     SHARED_WRITE_BEGIN( class->shared, class_shm_t )
     {
         memcpy( (void *)shared->name, name.str, name.len );
         shared->name_offset  = name_offset;
         shared->name_len     = name.len;
+        shared->local        = local;
         memcpy( (void *)&shared->info, &info, sizeof(info) );
         memset( (void *)shared->extra, 0, info.cls_extra );
     }
@@ -330,6 +346,7 @@ DECL_HANDLER(set_class_info)
         case GCLP_WNDPROC:
             reply->old_info = shared->info.wndproc;
             shared->info.wndproc = req->new_info;
+            class->ansi = !!req->ansi;
             break;
         case GCLP_HCURSOR:
             reply->old_info = shared->info.cursor;
