@@ -736,6 +736,7 @@ AC_CHECK_HEADERS(\
 	gettext-po.h \
 	link.h \
 	linux/cdrom.h \
+	linux/errqueue.h \
 	linux/filter.h \
 	linux/fs.h \
 	linux/hdreg.h \
@@ -1226,6 +1227,7 @@ WINE_EXTLIB_FLAGS(CAPSTONE, capstone, capstone, "-I\$(top_srcdir)/libs/capstone/
 WINE_EXTLIB_FLAGS(CXX, c++, "c++ \$(CXXABI_PE_LIBS) msvcp140 vcruntime140")
 WINE_EXTLIB_FLAGS(CXXABI, c++abi, "c++abi \$(UNWIND_PE_LIBS) c++", "-I\$(top_srcdir)/libs/c++abi/include")
 WINE_EXTLIB_FLAGS(FAUDIO, faudio, "faudio mfplat mfreadwrite mfuuid propsys", "-I\$(top_srcdir)/libs/faudio/include")
+WINE_EXTLIB_FLAGS(FFMPEG, ffmpeg, "ffmpeg bcrypt", "-I\$(top_srcdir)/libs/ffmpeg")
 WINE_EXTLIB_FLAGS(FLUIDSYNTH, fluidsynth, "fluidsynth", "-I\$(top_srcdir)/libs/fluidsynth/include")
 WINE_EXTLIB_FLAGS(GSM, gsm, gsm, "-I\$(top_srcdir)/libs/gsm/inc")
 WINE_EXTLIB_FLAGS(ICUCOMMON, icucommon, icucommon, "-I\$(top_srcdir)/libs/icucommon")
@@ -2707,6 +2709,7 @@ WINE_CONFIG_MAKEFILE(dlls/dsdmo/tests)
 WINE_CONFIG_MAKEFILE(dlls/dsound)
 WINE_CONFIG_MAKEFILE(dlls/dsound/tests)
 WINE_CONFIG_MAKEFILE(dlls/dsquery)
+WINE_CONFIG_MAKEFILE(dlls/dsrole)
 WINE_CONFIG_MAKEFILE(dlls/dssenh)
 WINE_CONFIG_MAKEFILE(dlls/dssenh/tests)
 WINE_CONFIG_MAKEFILE(dlls/dsuiext)
@@ -3517,6 +3520,7 @@ WINE_CONFIG_MAKEFILE(libs/dxerr8)
 WINE_CONFIG_MAKEFILE(libs/dxerr9)
 WINE_CONFIG_MAKEFILE(libs/dxguid)
 WINE_CONFIG_MAKEFILE(libs/faudio)
+WINE_CONFIG_MAKEFILE(libs/ffmpeg)
 WINE_CONFIG_MAKEFILE(libs/fluidsynth)
 WINE_CONFIG_MAKEFILE(libs/gsm)
 WINE_CONFIG_MAKEFILE(libs/icucommon)

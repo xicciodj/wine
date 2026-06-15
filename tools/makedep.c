@@ -2508,6 +2508,7 @@ static struct install_command *find_install_command( enum install_rules rules, s
 
     ARRAY_FOR_EACH( cmd, &install_commands[rules], struct install_command )
     {
+        if (cmd->dest) continue;
         if (strcmp( cmd->dir, dir )) continue;
         if (args.count != cmd->args.count) continue;
         for (i = 0; i < args.count; i++) if (strcmp( args.str[i], cmd->args.str[i] )) break;
@@ -3587,6 +3588,7 @@ static void output_source_one_arch( struct makefile *make, struct incl_file *sou
     struct strarray cflags = empty_strarray;
 
     if (make->disabled[arch] && !(source->file->flags & FLAG_C_IMPLIB)) return;
+    if (is_subdir_other_arch( source->name, arch )) return;
 
     if (arch)
     {
@@ -3594,7 +3596,6 @@ static void output_source_one_arch( struct makefile *make, struct incl_file *sou
         if (!is_multiarch( arch )) return;
         if (!is_using_msvcrt( make ) && !make->staticlib && !(source->file->flags & FLAG_C_IMPLIB)) return;
         if ((source->file->flags & FLAG_C_CXX) && !get_expanded_arch_var( make, "CXX", arch )) return;
-        if ((source->file->flags & FLAG_C_ASM) && is_subdir_other_arch( source->name, arch )) return;
     }
     else if (source->file->flags & FLAG_C_UNIX)
     {

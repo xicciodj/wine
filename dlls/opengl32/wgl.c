@@ -113,6 +113,7 @@ static const char *debugstr_object_type( enum object_type type )
     case OBJ_TYPE_PROGRAM: return "program";
     case OBJ_TYPE_RENDERBUFFER: return "renderbuffer";
     case OBJ_TYPE_SEMAPHORE: return "semaphore";
+    case OBJ_TYPE_SHADER: return "shader";
     case OBJ_TYPE_SAMPLER: return "sampler";
     case OBJ_TYPE_SHADER_ATI: return "fragment shader";
     case OBJ_TYPE_SHADER_EXT: return "vertex shader";
@@ -153,6 +154,7 @@ struct handle_entry
 
 struct handle_table
 {
+    SRWLOCK              lock;
     struct handle_entry  handles[1024];
     struct handle_entry *next_free;
     UINT                 count;
@@ -166,6 +168,7 @@ static struct handle_entry *alloc_handle( struct handle_table *table, void *user
     struct handle_entry *ptr = NULL;
     WORD generation;
 
+    AcquireSRWLockExclusive( &table->lock );
     if ((ptr = table->next_free)) table->next_free = ptr->next_free;
     else if (table->count < ARRAY_SIZE(table->handles)) ptr = table->handles + table->count++;
     else ptr = NULL;
@@ -178,14 +181,17 @@ static struct handle_entry *alloc_handle( struct handle_table *table, void *user
     }
 
     if (!ptr) RtlSetLastWin32Error( ERROR_NOT_ENOUGH_MEMORY );
+    ReleaseSRWLockExclusive( &table->lock );
     return ptr;
 }
 
 static void free_handle( struct handle_table *table, struct handle_entry *ptr )
 {
+    AcquireSRWLockExclusive( &table->lock );
     ptr->handle |= 0xffff;
     ptr->next_free = table->next_free;
     table->next_free = ptr;
+    ReleaseSRWLockExclusive( &table->lock );
 }
 
 static struct handle_entry *get_handle_ptr( struct handle_table *table, HANDLE handle )
@@ -193,20 +199,22 @@ static struct handle_entry *get_handle_ptr( struct handle_table *table, HANDLE h
     WORD index = LOWORD( handle ) - 1;
     struct handle_entry *ptr = table->handles + index;
 
-    if (index < table->count && ULongToHandle( ptr->handle ) == handle) return ptr;
-    RtlSetLastWin32Error( ERROR_INVALID_HANDLE );
-    return NULL;
+    AcquireSRWLockShared( &table->lock );
+    if (index >= table->count || ULongToHandle( ptr->handle ) != handle)
+    {
+        RtlSetLastWin32Error( ERROR_INVALID_HANDLE );
+        ptr = NULL;
+    }
+    ReleaseSRWLockShared( &table->lock );
+
+    return ptr;
 }
 
 static struct opengl_client_pbuffer *pbuffer_from_handle( HPBUFFERARB handle )
 {
     struct handle_entry *ptr;
-
-    EnterCriticalSection( &wgl_cs );
-    ptr = get_handle_ptr( &pbuffers, handle );
-    LeaveCriticalSection( &wgl_cs );
-
-    return ptr ? ptr->pbuffer : NULL;
+    if (!(ptr = get_handle_ptr( &pbuffers, handle ))) return NULL;
+    return ptr->pbuffer;
 }
 
 BOOL get_pbuffer_from_handle( HPBUFFERARB handle, HPBUFFERARB *obj )
@@ -222,21 +230,14 @@ static struct handle_entry *alloc_client_pbuffer(void)
     struct handle_entry *ptr;
 
     if (!(pbuffer = calloc( 1, sizeof(*pbuffer) ))) return NULL;
-
-    EnterCriticalSection( &wgl_cs );
-    ptr = alloc_handle( &pbuffers, pbuffer );
-    LeaveCriticalSection( &wgl_cs );
-
-    if (!ptr) free( pbuffer );
+    if (!(ptr = alloc_handle( &pbuffers, pbuffer ))) free( pbuffer );
     return ptr;
 }
 
 static void free_client_pbuffer( struct handle_entry *ptr )
 {
     struct opengl_client_pbuffer *pbuffer = ptr->pbuffer;
-    EnterCriticalSection( &wgl_cs );
     free_handle( &pbuffers, ptr );
-    LeaveCriticalSection( &wgl_cs );
     free( pbuffer );
 }
 
@@ -267,11 +268,7 @@ BOOL WINAPI wglDestroyPbufferARB( HPBUFFERARB handle )
 
     TRACE( "handle %p\n", handle );
 
-    EnterCriticalSection( &wgl_cs );
-    ptr = get_handle_ptr( &pbuffers, handle );
-    LeaveCriticalSection( &wgl_cs );
-
-    if (!ptr) return FALSE;
+    if (!(ptr = get_handle_ptr( &pbuffers, handle ))) return FALSE;
     args.hPbuffer = &ptr->pbuffer->obj;
 
     if ((status = UNIX_CALL( wglDestroyPbufferARB, &args ))) WARN( "wglDestroyPbufferARB returned %#lx\n", status );
@@ -310,9 +307,10 @@ static GLuint *alloc_object_ids( GLuint **ids[L1_COUNT], GLuint client_id )
     return ptr[j];
 }
 
-static void free_object_ids( struct object_table *table, GLuint **ids[L1_COUNT] )
+static void free_object_ids( struct object_table *table, GLuint **ids[L1_COUNT],
+                             void (*callback)(struct object_table *, GLuint, GLuint) )
 {
-    GLuint **l1_block, *l2_block;
+    GLuint id, **l1_block, *l2_block;
 
     for (int i = 0; i < L1_COUNT; i++)
     {
@@ -320,6 +318,11 @@ static void free_object_ids( struct object_table *table, GLuint **ids[L1_COUNT] 
         for (int j = 0; j < L2_COUNT; j++)
         {
             if (!(l2_block = l1_block[j])) continue;
+            for (int k = 0; callback && k < L3_COUNT; k++)
+            {
+                if (!(id = l2_block[k])) continue;
+                callback( table, id, (i * L2_COUNT + j) * L3_COUNT + k );
+            }
             free( l2_block );
         }
         free( l1_block );
@@ -349,7 +352,7 @@ static GLuint set_object( struct object_table *table, GLuint client_id, GLuint h
     if (!(ids = alloc_object_ids( table->host_ids, client_id ))) goto failed;
     ids[client_id % L3_COUNT] = host_id;
 
-    if (table->implicit)
+    if (table->implicit || table->type == OBJ_TYPE_SHADER /* for destruction check */)
     {
         if (!(ids = alloc_object_ids( table->client_ids, host_id ))) goto failed;
         ids[host_id % L3_COUNT] = client_id;
@@ -370,7 +373,7 @@ static GLuint del_object( struct object_table *table, GLuint client_id )
     if (!client_id || !(object = find_object_id( table->host_ids, client_id ))) return -1;
     table->min_free = min( table->min_free, client_id - 1 );
     host_id = *object;
-    *object = 0;
+    if (table->type != OBJ_TYPE_SHADER) *object = 0; /* shader objects may outlive their deletion */
     if (host_id && (object = find_object_id( table->client_ids, host_id ))) *object = 0;
 
     TRACE( "Deleting %s client %#x, host %#x\n", debugstr_object_type( table->type ), client_id, host_id );
@@ -405,6 +408,7 @@ static GLuint create_object( enum object_type type )
     case OBJ_TYPE_RENDERBUFFER: { MAKE_OBJECT_CALL( glGenRenderbuffers, .n = 1, .renderbuffers = &object ); return object; }
     case OBJ_TYPE_SAMPLER: { MAKE_OBJECT_CALL( glGenSamplers, .count = 1, .samplers = &object ); return object; }
     case OBJ_TYPE_SEMAPHORE: { MAKE_OBJECT_CALL( glGenSemaphoresEXT, .n = 1, .semaphores = &object ); return object; }
+    case OBJ_TYPE_SHADER: assert( 0 ); return 0;
     case OBJ_TYPE_SHADER_ATI: { MAKE_OBJECT_CALL( glGenFragmentShadersATI, .range = 1 ); return args.ret; }
     case OBJ_TYPE_SHADER_EXT: { MAKE_OBJECT_CALL( glGenVertexShadersEXT, .range = 1 ); return args.ret; }
     case OBJ_TYPE_TEXTURE: { MAKE_OBJECT_CALL( glGenTextures, .n = 1, .textures = &object ); return object; }
@@ -416,10 +420,23 @@ static GLuint create_object( enum object_type type )
 
 #undef MAKE_OBJECT_CALL
 
+static void destroy_host_object( struct object_table *table, GLuint host_id, GLuint client_id )
+{
+    WARN( "Leaking %s client %#x, host %#x\n", debugstr_object_type( table->type ), client_id, host_id );
+}
+
+static void destroy_host_shader( struct object_table *table, GLuint host_id, GLuint client_id )
+{
+    GLuint *object;
+    if (!(object = find_object_id( table->client_ids, host_id )) || !(client_id = *object)) return;
+    WARN( "Leaking %s client %#x, host %#x\n", debugstr_object_type( table->type ), client_id, host_id );
+}
+
 static void free_object_table( struct object_table *table )
 {
-    free_object_ids( table, table->host_ids );
-    free_object_ids( table, table->client_ids );
+    if (table->type == OBJ_TYPE_SHADER) free_object_ids( table, table->host_ids, destroy_host_shader );
+    else free_object_ids( table, table->host_ids, destroy_host_object );
+    free_object_ids( table, table->client_ids, NULL );
 }
 
 static void init_object_table( struct object_table *table, enum object_type type )
@@ -433,6 +450,7 @@ struct display_lists
     LONG                refcount;
     LONG                modified;
     struct object_table tables[OBJ_TYPE_COUNT];
+    struct handle_table syncs;
 };
 
 static struct display_lists *display_lists_create(void)
@@ -444,6 +462,7 @@ static struct display_lists *display_lists_create(void)
 
     for (UINT i = 0; i < OBJ_TYPE_COUNT; i++)
         init_object_table( lists->tables + i, i );
+    InitializeSRWLock( &lists->syncs.lock );
 
     return lists;
 }
@@ -461,16 +480,21 @@ static void display_lists_release( struct display_lists *lists )
     for (UINT i = 0; i < OBJ_TYPE_COUNT; i++)
         free_object_table( lists->tables + i );
 
+    for (int i = 0; i < lists->syncs.count; i++)
+    {
+        struct handle_entry *entry = lists->syncs.handles + i;
+        if (LOWORD(entry->handle) == 0xffff) continue;
+        WARN( "Leaking sync client %#x, host %p\n", entry->handle, entry->user_data );
+        free( entry->user_data );
+    }
+
     free( lists );
 }
 
 struct context
 {
     struct opengl_client_context base;
-    struct handle_table          syncs;
-    struct display_lists        *lists;
-
-    GLuint list_base;
+    struct display_lists *lists;
 };
 
 static struct context *context_from_opengl_client_context( struct opengl_client_context *base )
@@ -481,12 +505,8 @@ static struct context *context_from_opengl_client_context( struct opengl_client_
 static struct opengl_client_context *opengl_client_context_from_handle( HGLRC handle )
 {
     struct handle_entry *ptr;
-
-    EnterCriticalSection( &wgl_cs );
-    ptr = get_handle_ptr( &contexts, handle );
-    LeaveCriticalSection( &wgl_cs );
-
-    return ptr ? ptr->context : NULL;
+    if (!(ptr = get_handle_ptr( &contexts, handle ))) return NULL;
+    return ptr->context;
 }
 
 static struct context *context_from_handle( HGLRC handle )
@@ -508,11 +528,7 @@ static struct handle_entry *alloc_client_context( struct context *share )
 
     if (!(context = calloc( 1, sizeof(*context) ))) return NULL;
     if (!(context->lists = share ? display_lists_acquire( share->lists ) : display_lists_create())) goto failed;
-
-    EnterCriticalSection( &wgl_cs );
-    ptr = alloc_handle( &contexts, context );
-    LeaveCriticalSection( &wgl_cs );
-    if (ptr) return ptr;
+    if ((ptr = alloc_handle( &contexts, context ))) return ptr;
 
     display_lists_release( context->lists );
 failed:
@@ -524,17 +540,9 @@ static void free_client_context( struct handle_entry *ptr )
 {
     struct context *context = context_from_opengl_client_context( ptr->context );
 
-    for (int i = 0; i < context->syncs.count; i++)
-    {
-        struct handle_entry *entry = context->syncs.handles + i;
-        if (LOWORD(entry->handle) == 0xffff) continue;
-        free( entry->user_data );
-    }
     display_lists_release( context->lists );
 
-    EnterCriticalSection( &wgl_cs );
     free_handle( &contexts, ptr );
-    LeaveCriticalSection( &wgl_cs );
     free( context );
 }
 
@@ -625,6 +633,7 @@ BOOL alloc_context_objects( enum object_type type, UINT n, const GLuint *handles
         break;
     case OBJ_TYPE_SAMPLER:
     case OBJ_TYPE_MEMORY:
+    case OBJ_TYPE_SHADER:
         alloc_client = FALSE;
         break;
     default:
@@ -745,6 +754,15 @@ static GLuint get_pname_object_type( GLenum pname )
     case GL_VERTEX_PROGRAM_BINDING_NV:
     case GL_FRAGMENT_PROGRAM_BINDING_NV:
         return OBJ_TYPE_PROGRAM;
+    case GL_COMPUTE_SHADER:
+    case GL_CURRENT_PROGRAM:
+    case GL_FRAGMENT_SHADER:
+    case GL_GEOMETRY_SHADER:
+    case GL_TESS_CONTROL_SHADER:
+    case GL_TESS_EVALUATION_SHADER:
+    case GL_VERTEX_SHADER:
+    case GL_ACTIVE_PROGRAM:
+        return OBJ_TYPE_SHADER;
     case GL_VERTEX_SHADER_BINDING_EXT:
         return OBJ_TYPE_SHADER_EXT;
     }
@@ -882,11 +900,7 @@ BOOL WINAPI wglDeleteContext( HGLRC handle )
 
     TRACE( "handle %p\n", handle );
 
-    EnterCriticalSection( &wgl_cs );
-    ptr = get_handle_ptr( &contexts, handle );
-    LeaveCriticalSection( &wgl_cs );
-
-    if (!ptr) return FALSE;
+    if (!(ptr = get_handle_ptr( &contexts, handle ))) return FALSE;
     args.oldContext = &ptr->context->obj;
 
     if (handle == teb->glCurrentRC) wglMakeCurrent( NULL, NULL );
@@ -1626,28 +1640,6 @@ BOOL WINAPI wglChoosePixelFormatARB( HDC hdc, const int *attribs_int, const FLOA
 
     wgl_formats = get_pixel_formats( hdc, &num_wgl_formats, &num_wgl_onscreen_formats );
 
-    /* If the driver doesn't yet provide ARB attrib information in
-     * wgl_pixel_format, fall back to an explicit call. */
-    if (num_wgl_formats && !wgl_formats[0].pixel_type)
-    {
-        struct wglChoosePixelFormatARB_params args =
-        {
-            .teb = NtCurrentTeb(),
-            .hdc = hdc,
-            .piAttribIList = attribs_int,
-            .pfAttribFList = attribs_float,
-            .nMaxFormats = max_formats,
-            .piFormats = formats,
-            .nNumFormats = num_formats
-        };
-        NTSTATUS status;
-
-        if ((status = UNIX_CALL( wglChoosePixelFormatARB, &args )))
-            WARN( "wglChoosePixelFormatARB returned %#lx\n", status );
-
-        return args.ret;
-    }
-
     /* Gather, validate and deduplicate all attributes */
     for (i = 0; attribs_int && attribs_int[i]; i += 2)
     {
@@ -1729,28 +1721,6 @@ BOOL WINAPI wglGetPixelFormatAttribivARB( HDC hdc, int index, int plane, UINT co
            hdc, index, plane, count, attributes, values );
 
     formats = get_pixel_formats( hdc, &num_formats, &num_onscreen_formats );
-
-    /* If the driver doesn't yet provide ARB attrib information in
-     * wgl_pixel_format, fall back to an explicit call. */
-    if (num_formats && !formats[0].pixel_type)
-    {
-        struct wglGetPixelFormatAttribivARB_params args =
-        {
-            .teb = NtCurrentTeb(),
-            .hdc = hdc,
-            .iPixelFormat = index,
-            .iLayerPlane = plane,
-            .nAttributes = count,
-            .piAttributes = attributes,
-            .piValues = values
-        };
-        NTSTATUS status;
-
-        if ((status = UNIX_CALL( wglGetPixelFormatAttribivARB, &args )))
-            WARN( "wglGetPixelFormatAttribivARB returned %#lx\n", status );
-
-        return args.ret;
-    }
 
     if (!count) return TRUE;
     if (count == 1 && attributes[0] == WGL_NUMBER_PIXEL_FORMATS_ARB)
@@ -2447,6 +2417,79 @@ BOOL WINAPI wglUseFontOutlinesW(HDC hdc,
     return wglUseFontOutlines_common(hdc, first, count, listBase, deviation, extrusion, format, lpgmf, TRUE);
 }
 
+GLhandleARB WINAPI glGetHandleARB( GLenum pname )
+{
+    struct glGetHandleARB_params args = { .teb = NtCurrentTeb(), .pname = pname };
+    GLuint *object, client_id = 0;
+    struct object_table *table;
+    struct context *ctx;
+    NTSTATUS status;
+
+    TRACE( "pname %d\n", pname );
+
+    if ((status = UNIX_CALL( glGetHandleARB, &args ))) WARN( "glGetHandleARB returned %#lx\n", status );
+    if (!args.ret) return args.ret;
+
+    if (!(ctx = context_from_handle( args.teb->glCurrentRC ))) return 0;
+    if (!(table = get_object_table( ctx, OBJ_TYPE_SHADER, FALSE ))) return 0;
+
+    AcquireSRWLockShared( &table->lock );
+    if ((object = find_object_id( table->client_ids, args.ret ))) client_id = *object;
+    ReleaseSRWLockShared( &table->lock );
+
+    return client_id;
+}
+
+void WINAPI glGetAttachedObjectsARB( GLhandleARB container, GLsizei max_count, GLsizei *count, GLhandleARB *obj )
+{
+    struct glGetAttachedObjectsARB_params args = { .teb = NtCurrentTeb(), .maxCount = max_count, .count = count };
+    struct object_table *table;
+    struct context *ctx;
+    NTSTATUS status;
+    GLuint *object;
+
+    TRACE( "container %d, max_count %d, count %p, obj %p\n", container, max_count, count, obj );
+
+    args.containerObj = *map_context_objects( OBJ_TYPE_SHADER, 1, &container );
+    if ((status = UNIX_CALL( glGetAttachedObjectsARB, &args ))) WARN( "glGetAttachedObjectsARB returned %#lx\n", status );
+
+    if (!(ctx = context_from_handle( args.teb->glCurrentRC ))) return;
+    if (!(table = get_object_table( ctx, OBJ_TYPE_SHADER, FALSE ))) return;
+
+    AcquireSRWLockShared( &table->lock );
+    for (UINT i = 0; i < max_count; ++i)
+    {
+        if (!obj[i] || !(object = find_object_id( table->client_ids, obj[i] ))) continue;
+        obj[i] = *object;
+    }
+    ReleaseSRWLockShared( &table->lock );
+}
+
+void WINAPI glGetAttachedShaders( GLuint program, GLsizei max_count, GLsizei *count, GLuint *shaders )
+{
+    struct glGetAttachedShaders_params args = { .teb = NtCurrentTeb(), .maxCount = max_count, .count = count };
+    struct object_table *table;
+    struct context *ctx;
+    NTSTATUS status;
+    GLuint *object;
+
+    TRACE( "program %d, max_count %d, count %p, shaders %p\n", program, max_count, count, shaders );
+
+    args.program = *map_context_objects( OBJ_TYPE_SHADER, 1, &program );
+    if ((status = UNIX_CALL( glGetAttachedShaders, &args ))) WARN( "glGetAttachedShaders returned %#lx\n", status );
+
+    if (!(ctx = context_from_handle( args.teb->glCurrentRC ))) return;
+    if (!(table = get_object_table( ctx, OBJ_TYPE_SHADER, FALSE ))) return;
+
+    AcquireSRWLockShared( &table->lock );
+    for (UINT i = 0; i < max_count; ++i)
+    {
+        if (!shaders[i] || !(object = find_object_id( table->client_ids, shaders[i] ))) continue;
+        shaders[i] = *object;
+    }
+    ReleaseSRWLockShared( &table->lock );
+}
+
 /***********************************************************************
  *              glDebugEntry (OPENGL32.@)
  */
@@ -2461,7 +2504,7 @@ static GLsync sync_from_handle( GLsync handle )
     struct context *ctx;
 
     if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return NULL;
-    if (!(ptr = get_handle_ptr( &ctx->syncs, handle ))) return NULL;
+    if (!(ptr = get_handle_ptr( &ctx->lists->syncs, handle ))) return NULL;
     return ptr->user_data;
 }
 
@@ -2477,19 +2520,16 @@ static struct handle_entry *alloc_client_sync( struct context *ctx )
     GLsync sync;
 
     if (!(sync = calloc( 1, sizeof(*sync) ))) return NULL;
-    if (!(ptr = alloc_handle( &ctx->syncs, sync )))
-    {
-        free( sync );
-        return NULL;
-    }
-
+    if (!(ptr = alloc_handle( &ctx->lists->syncs, sync ))) free( sync );
+    else InterlockedExchange( &ctx->lists->modified, 1 );
     return ptr;
 }
 
 static void free_client_sync( struct context *ctx, struct handle_entry *ptr )
 {
     GLsync sync = ptr->user_data;
-    free_handle( &ctx->syncs, ptr );
+    InterlockedExchange( &ctx->lists->modified, 1 );
+    free_handle( &ctx->lists->syncs, ptr );
     free( sync );
 }
 
@@ -2526,7 +2566,7 @@ void WINAPI glDeleteSync( GLsync sync )
     TRACE( "sync %p\n", sync );
 
     if (!(ctx = context_from_handle( teb->glCurrentRC ))) return;
-    if (!(ptr = get_handle_ptr( &ctx->syncs, sync ))) return set_gl_error( GL_INVALID_VALUE );
+    if (!(ptr = get_handle_ptr( &ctx->lists->syncs, sync ))) return set_gl_error( GL_INVALID_VALUE );
     args.sync = ptr->user_data;
 
     if ((status = UNIX_CALL( glDeleteSync, &args ))) WARN( "glDeleteSync returned %#lx\n", status );

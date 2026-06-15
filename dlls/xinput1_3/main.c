@@ -60,6 +60,7 @@ struct xinput_controller
     XINPUT_VIBRATION vibration;
     HANDLE device;
     WCHAR device_path[MAX_PATH];
+    HANDLE read_event;
     BOOL enabled;
 
     struct
@@ -73,7 +74,6 @@ struct xinput_controller
         HIDP_VALUE_CAPS ry_caps;
         HIDP_VALUE_CAPS rt_caps;
 
-        HANDLE read_event;
         OVERLAPPED read_ovl;
 
         char *input_report_buf;
@@ -122,19 +122,6 @@ static struct xinput_controller controllers[XUSER_MAX_COUNT] =
 static HMODULE xinput_instance;
 static HANDLE start_event;
 static HANDLE update_event;
-
-static BOOL find_opened_device(const WCHAR *device_path, int *free_slot)
-{
-    int i;
-
-    *free_slot = XUSER_MAX_COUNT;
-    for (i = XUSER_MAX_COUNT; i > 0; i--)
-    {
-        if (!controllers[i - 1].device) *free_slot = i - 1;
-        else if (!wcsicmp(device_path, controllers[i - 1].device_path)) return TRUE;
-    }
-    return FALSE;
-}
 
 static void check_value_caps(struct xinput_controller *controller, USHORT usage, HIDP_VALUE_CAPS *caps)
 {
@@ -332,7 +319,6 @@ static DWORD HID_set_state(struct xinput_controller *controller, XINPUT_VIBRATIO
 
     ret = HidD_SetOutputReport(controller->device, report_buf, report_len);
     if (!ret) WARN("HidD_SetOutputReport failed with error %lu\n", GetLastError());
-    return 0;
 
     return ERROR_SUCCESS;
 }
@@ -351,7 +337,7 @@ static void controller_enable(struct xinput_controller *controller)
     controller->enabled = TRUE;
 
     memset(&controller->hid.read_ovl, 0, sizeof(controller->hid.read_ovl));
-    controller->hid.read_ovl.hEvent = controller->hid.read_event;
+    controller->hid.read_ovl.hEvent = controller->read_event;
     ret = ReadFile(controller->device, report_buf, report_len, NULL, &controller->hid.read_ovl);
     if (!ret && GetLastError() != ERROR_IO_PENDING) controller_destroy(controller, TRUE);
     else SetEvent(update_event);
@@ -373,17 +359,13 @@ static void controller_disable(struct xinput_controller *controller)
 static BOOL controller_init(struct xinput_controller *controller, PHIDP_PREPARSED_DATA preparsed,
                             HIDP_CAPS *caps, HANDLE device, const WCHAR *device_path)
 {
-    HANDLE event = NULL;
-
     controller->hid.caps = *caps;
     if (!(controller->hid.feature_report_buf = calloc(1, controller->hid.caps.FeatureReportByteLength))) goto failed;
     if (!controller_check_caps(controller, device, preparsed)) goto failed;
-    if (!(event = CreateEventW(NULL, TRUE, FALSE, NULL))) goto failed;
 
     TRACE("Found gamepad %s\n", debugstr_w(device_path));
 
     controller->hid.preparsed = preparsed;
-    controller->hid.read_event = event;
     if (!(controller->hid.input_report_buf = calloc(1, controller->hid.caps.InputReportByteLength))) goto failed;
     if (!(controller->hid.output_report_buf = calloc(1, controller->hid.caps.OutputReportByteLength))) goto failed;
 
@@ -403,7 +385,6 @@ failed:
     free(controller->hid.output_report_buf);
     free(controller->hid.feature_report_buf);
     memset(&controller->hid, 0, sizeof(controller->hid));
-    CloseHandle(event);
     return FALSE;
 }
 
@@ -453,17 +434,12 @@ static BOOL device_is_overridden(HANDLE device)
     return disable;
 }
 
-static BOOL try_add_device(const WCHAR *device_path)
+static BOOL open_device_at_index(const WCHAR *device_path, int index)
 {
-    SP_DEVICE_INTERFACE_DATA iface = {sizeof(iface)};
     PHIDP_PREPARSED_DATA preparsed;
     HIDP_CAPS caps;
     NTSTATUS status;
     HANDLE device;
-    int i;
-
-    if (find_opened_device(device_path, &i)) return TRUE; /* already opened */
-    if (i == XUSER_MAX_COUNT) return FALSE; /* no more slots */
 
     device = CreateFileW(device_path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
                          NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED | FILE_FLAG_NO_BUFFERING, NULL);
@@ -481,14 +457,43 @@ static BOOL try_add_device(const WCHAR *device_path)
         WARN("ignoring HID device, unsupported usage %04x:%04x\n", caps.UsagePage, caps.Usage);
     else if (device_is_overridden(device))
         WARN("ignoring HID device, overridden for dinput\n");
-    else if (!controller_init(&controllers[i], preparsed, &caps, device, device_path))
+    else if (!controller_init(&controllers[index], preparsed, &caps, device, device_path))
         WARN("ignoring HID device, failed to initialize\n");
     else
+    {
+        TRACE("opened device %s at index %u\n", debugstr_w(device_path), index);
         return TRUE;
+    }
 
     CloseHandle(device);
     HidD_FreePreparsedData(preparsed);
     return TRUE;
+}
+
+static BOOL find_opened_device(const WCHAR *device_path, int *slot)
+{
+    int i;
+
+    *slot = XUSER_MAX_COUNT;
+    for (i = XUSER_MAX_COUNT; i > 0; i--)
+    {
+        if (!controllers[i - 1].device) *slot = i - 1;
+        else if (!wcsicmp(device_path, controllers[i - 1].device_path))
+        {
+            *slot = i - 1;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static BOOL try_add_device(const WCHAR *device_path)
+{
+    int i;
+
+    if (find_opened_device(device_path, &i)) return TRUE; /* already opened */
+    if (i == XUSER_MAX_COUNT) return FALSE; /* no more slots */
+    return open_device_at_index(device_path, i);
 }
 
 static void try_remove_device(const WCHAR *device_path)
@@ -657,7 +662,7 @@ static void read_controller_state(struct xinput_controller *controller)
         state.dwPacketNumber = controller->state.dwPacketNumber + 1;
         controller->state = state;
         memset(&controller->hid.read_ovl, 0, sizeof(controller->hid.read_ovl));
-        controller->hid.read_ovl.hEvent = controller->hid.read_event;
+        controller->hid.read_ovl.hEvent = controller->read_event;
         ret = ReadFile(controller->device, report_buf, report_len, NULL, &controller->hid.read_ovl);
         if (!ret && GetLastError() != ERROR_IO_PENDING) controller_destroy(controller, TRUE);
     }
@@ -722,7 +727,7 @@ static DWORD WINAPI hid_update_thread_proc(void *param)
             if (controllers[i].enabled)
             {
                 devices[count] = controllers + i;
-                events[count] = controllers[i].hid.read_event;
+                events[count] = controllers[i].read_event;
                 count++;
             }
             LeaveCriticalSection(&controllers[i].crit);
@@ -745,6 +750,7 @@ static BOOL WINAPI start_update_thread_once( INIT_ONCE *once, void *param, void 
 {
     HANDLE thread;
     HMODULE module;
+    int i;
 
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, (void*)hid_update_thread_proc, &module))
         WARN("Failed to increase module's reference count, error: %lu\n", GetLastError());
@@ -754,6 +760,12 @@ static BOOL WINAPI start_update_thread_once( INIT_ONCE *once, void *param, void 
 
     update_event = CreateEventA(NULL, FALSE, FALSE, NULL);
     if (!update_event) ERR("failed to create update event, error %lu\n", GetLastError());
+
+    for (i = 0; i < XUSER_MAX_COUNT; i++)
+    {
+        controllers[i].read_event = CreateEventA(NULL, TRUE, FALSE, NULL);
+        if (!controllers[i].read_event) ERR("failed to create read event for controller %d, error %lu\n", i, GetLastError());
+    }
 
     thread = CreateThread(NULL, 0, hid_update_thread_proc, NULL, 0, NULL);
     if (!thread) ERR("failed to create update thread, error %lu\n", GetLastError());
