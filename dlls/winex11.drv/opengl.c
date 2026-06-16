@@ -519,18 +519,12 @@ static BOOL x11drv_egl_describe_pixel_format( int format, struct wgl_pixel_forma
     return TRUE;
 }
 
-static BOOL x11drv_egl_surface_create( HWND hwnd, int format, struct opengl_drawable **drawable )
+static BOOL x11drv_egl_surface_create( struct client_surface *client, int format, struct opengl_drawable **drawable )
 {
-    struct opengl_drawable *previous;
-    struct client_surface *client;
+    struct x11drv_client_surface *surface = impl_from_client_surface( client );
     struct gl_drawable *gl;
-    Window window;
 
-    if ((previous = *drawable) && previous->format == format) return TRUE;
-    if (!(window = x11drv_client_surface_create( hwnd, format, &client ))) return FALSE;
-    gl = opengl_drawable_create( sizeof(*gl), &x11drv_egl_surface_funcs, format, client );
-    client_surface_release( client );
-    if (!gl) return FALSE;
+    if (!(gl = opengl_drawable_create( sizeof(*gl), &x11drv_egl_surface_funcs, format, client ))) return FALSE;
 
     opengl_drawable_map_buffer( &gl->base, GL_FRONT_LEFT, GL_BACK_LEFT );
     opengl_drawable_map_buffer( &gl->base, GL_FRONT, GL_BACK );
@@ -538,16 +532,15 @@ static BOOL x11drv_egl_surface_create( HWND hwnd, int format, struct opengl_draw
     if (gl->base.stereo) opengl_drawable_map_buffer( &gl->base, GL_FRONT_RIGHT, GL_BACK_RIGHT );
 
     if (!(gl->base.surface = funcs->p_eglCreateWindowSurface( egl->display, egl_config_for_format( format ),
-                                                              (void *)window, NULL )))
+                                                              (void *)surface->window, NULL )))
     {
         opengl_drawable_release( &gl->base );
         return FALSE;
     }
 
-    TRACE( "Created drawable %s with client window %lx\n", debugstr_opengl_drawable( &gl->base ), window );
+    TRACE( "Created drawable %s with client window %lx\n", debugstr_opengl_drawable( &gl->base ), surface->window );
     XFlush( gdi_display );
 
-    if (previous) opengl_drawable_release( previous );
     *drawable = &gl->base;
     return TRUE;
 }
@@ -956,30 +949,22 @@ static GLXContext create_glxcontext( int format, GLXContext share, const int *at
     return ctx;
 }
 
-static BOOL x11drv_surface_create( HWND hwnd, int format, struct opengl_drawable **drawable )
+static BOOL x11drv_surface_create( struct client_surface *client, int format, struct opengl_drawable **drawable )
 {
+    struct x11drv_client_surface *surface = impl_from_client_surface( client );
     struct glx_pixel_format *fmt = glx_pixel_format_from_format( format );
-    struct opengl_drawable *previous;
-    struct client_surface *client;
     struct gl_drawable *gl;
-    Window window;
 
-    if ((previous = *drawable) && previous->format == format) return TRUE;
-    if (!(window = x11drv_client_surface_create( hwnd, format, &client ))) return FALSE;
-    gl = opengl_drawable_create( sizeof(*gl), &x11drv_surface_funcs, format, client );
-    client_surface_release( client );
-    if (!gl) return FALSE;
-
-    if (!(gl->drawable = pglXCreateWindow( gdi_display, fmt->fbconfig, window, NULL )))
+    if (!(gl = opengl_drawable_create( sizeof(*gl), &x11drv_surface_funcs, format, client ))) return FALSE;
+    if (!(gl->drawable = pglXCreateWindow( gdi_display, fmt->fbconfig, surface->window, NULL )))
     {
         opengl_drawable_release( &gl->base );
         return FALSE;
     }
 
-    TRACE( "Created drawable %s with client window %lx\n", debugstr_opengl_drawable( &gl->base ), window );
+    TRACE( "Created drawable %s with client window %lx\n", debugstr_opengl_drawable( &gl->base ), surface->window );
     XFlush( gdi_display );
 
-    if (previous) opengl_drawable_release( previous );
     *drawable = &gl->base;
     return TRUE;
 }
