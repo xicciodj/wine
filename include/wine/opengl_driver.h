@@ -146,9 +146,8 @@ struct opengl_funcs
     void (*p_get_pixel_formats)( struct wgl_pixel_format *formats, UINT max_formats, UINT *num_formats, UINT *num_onscreen_formats );
     BOOL (*p_query_renderer)( UINT attribute, void *value );
     BOOL (*p_context_flush)( struct opengl_context *context, void (*flush)(void), UINT flags );
-    BOOL (*p_context_create)( struct opengl_context *context, HDC hdc, struct opengl_context *share, const int *attribs );
+    BOOL (*p_context_create)( struct opengl_context *context, HDC hdc, const int *attribs );
     BOOL (*p_context_destroy)( struct opengl_context *context );
-    BOOL (*p_context_reset)( struct opengl_context *context, struct opengl_context *share, const int *attribs );
     BOOL (*p_pbuffer_create)( HDC hdc, int format, int width, int height, const int *attribs, HPBUFFERARB client_pbuffer );
     void *egl_handle;
 };
@@ -190,8 +189,6 @@ struct opengl_drawable_funcs
     void (*flush)( struct opengl_drawable *iface, UINT flags );
     /* swap and present the drawable buffers, called from render thread */
     BOOL (*swap)( struct opengl_drawable *iface );
-    /* drawable is being unset or made current, called from render thread */
-    void (*set_context)( struct opengl_drawable *iface, void *private );
 };
 
 /* flags for opengl_drawable flush */
@@ -252,6 +249,7 @@ struct opengl_driver_funcs
                               GLint max_level, GLsizei *width, GLsizei *height, struct opengl_drawable **drawable );
     BOOL (*p_pbuffer_updated)( HDC hdc, struct opengl_drawable *drawable, GLenum cube_face, GLint mipmap_level );
     UINT (*p_pbuffer_bind)( HDC hdc, struct opengl_drawable *drawable, GLenum buffer );
+    BOOL (*p_null_surface_create)( int format, struct opengl_drawable **drawable );
 };
 
 #endif /* WINE_UNIX_LIB */

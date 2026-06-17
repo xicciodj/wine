@@ -418,18 +418,41 @@ static GLuint create_object( enum object_type type )
     return 0;
 }
 
+static void destroy_object( enum object_type type, GLuint object )
+{
+    switch (type)
+    {
+    case OBJ_TYPE_BUFFER: { MAKE_OBJECT_CALL( glDeleteBuffers, .n = 1, .buffers = &object ); return; }
+    case OBJ_TYPE_DISPLAY_LIST: { MAKE_OBJECT_CALL( glDeleteLists, .range = 1, .list = object ); return; }
+    case OBJ_TYPE_FRAMEBUFFER: { MAKE_OBJECT_CALL( glDeleteFramebuffers, .n = 1, .framebuffers = &object ); return; }
+    case OBJ_TYPE_MEMORY: { MAKE_OBJECT_CALL( glDeleteMemoryObjectsEXT, .n = 1, .memoryObjects = &object ); return; }
+    case OBJ_TYPE_PATH: { MAKE_OBJECT_CALL( glDeletePathsNV, .range = 1, .path = object ); return; }
+    case OBJ_TYPE_PROGRAM: { MAKE_OBJECT_CALL( glDeleteProgramsARB, .n = 1, .programs = &object ); return; }
+    case OBJ_TYPE_RENDERBUFFER: { MAKE_OBJECT_CALL( glDeleteRenderbuffers, .n = 1, .renderbuffers = &object ); return; }
+    case OBJ_TYPE_SAMPLER: { MAKE_OBJECT_CALL( glDeleteSamplers, .count = 1, .samplers = &object ); return; }
+    case OBJ_TYPE_SEMAPHORE: { MAKE_OBJECT_CALL( glDeleteSemaphoresEXT, .n = 1, .semaphores = &object ); return; }
+    case OBJ_TYPE_SHADER: { MAKE_OBJECT_CALL( glDeleteObjectARB, .obj = object ); return; }
+    case OBJ_TYPE_SHADER_ATI: { MAKE_OBJECT_CALL( glDeleteFragmentShaderATI, .id = object ); return; }
+    case OBJ_TYPE_SHADER_EXT: { MAKE_OBJECT_CALL( glDeleteVertexShaderEXT, .id = object ); return; }
+    case OBJ_TYPE_TEXTURE: { MAKE_OBJECT_CALL( glDeleteTextures, .n = 1, .textures = &object ); return; }
+    case OBJ_TYPE_COUNT: return;
+    }
+}
+
 #undef MAKE_OBJECT_CALL
 
 static void destroy_host_object( struct object_table *table, GLuint host_id, GLuint client_id )
 {
-    WARN( "Leaking %s client %#x, host %#x\n", debugstr_object_type( table->type ), client_id, host_id );
+    WARN( "Destroying %s client %#x, host %#x\n", debugstr_object_type( table->type ), client_id, host_id );
+    destroy_object( table->type, host_id );
 }
 
 static void destroy_host_shader( struct object_table *table, GLuint host_id, GLuint client_id )
 {
     GLuint *object;
     if (!(object = find_object_id( table->client_ids, host_id )) || !(client_id = *object)) return;
-    WARN( "Leaking %s client %#x, host %#x\n", debugstr_object_type( table->type ), client_id, host_id );
+    WARN( "Destroying %s client %#x, host %#x\n", debugstr_object_type( table->type ), client_id, host_id );
+    destroy_object( table->type, host_id );
 }
 
 static void free_object_table( struct object_table *table )
@@ -475,6 +498,8 @@ static struct display_lists *display_lists_acquire( struct display_lists *lists 
 
 static void display_lists_release( struct display_lists *lists )
 {
+    struct glDeleteSync_params delete_sync = { .teb = NtCurrentTeb() };
+
     if (InterlockedDecrement( &lists->refcount )) return;
 
     for (UINT i = 0; i < OBJ_TYPE_COUNT; i++)
@@ -485,6 +510,8 @@ static void display_lists_release( struct display_lists *lists )
         struct handle_entry *entry = lists->syncs.handles + i;
         if (LOWORD(entry->handle) == 0xffff) continue;
         WARN( "Leaking sync client %#x, host %p\n", entry->handle, entry->user_data );
+        delete_sync.sync = entry->user_data;
+        UNIX_CALL( glDeleteSync, &delete_sync );
         free( entry->user_data );
     }
 
@@ -546,6 +573,12 @@ static void free_client_context( struct handle_entry *ptr )
     free( context );
 }
 
+static struct context *get_current_context(void)
+{
+    HGLRC current = NtCurrentTeb()->glCurrentRC;
+    return current ? context_from_handle( current ) : NULL;
+}
+
 void set_gl_error( GLenum error )
 {
     struct opengl_client_context *context;
@@ -564,7 +597,7 @@ void put_context_objects( enum object_type type, UINT n, GLuint *handles )
     struct object_table *table;
     struct context *ctx;
 
-    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return;
+    if (!(ctx = get_current_context())) return;
     if (!(table = get_object_table( ctx, type, TRUE ))) return;
 
     AcquireSRWLockExclusive( &table->lock );
@@ -578,7 +611,7 @@ GLuint put_context_object_range( enum object_type type, UINT range, GLuint base 
     struct context *ctx;
     GLuint first;
 
-    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return base;
+    if (!(ctx = get_current_context())) return base;
     if (!(table = get_object_table( ctx, type, TRUE ))) return base;
 
     AcquireSRWLockExclusive( &table->lock );
@@ -612,7 +645,7 @@ BOOL alloc_context_objects( enum object_type type, UINT n, const GLuint *handles
     struct object_table *table;
     struct context *ctx;
 
-    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return TRUE;
+    if (!(ctx = get_current_context())) return TRUE;
     if (!(table = get_object_table( ctx, type, FALSE ))) return TRUE;
 
     /* only allow explicit allocation in some cases, use host allocated ids directly in that case */
@@ -658,7 +691,7 @@ GLuint *del_context_objects( enum object_type type, UINT n, GLuint *handles )
     struct object_table *table;
     struct context *ctx;
 
-    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return handles;
+    if (!(ctx = get_current_context())) return handles;
     if (!(table = get_object_table( ctx, type, FALSE ))) return handles;
 
     AcquireSRWLockExclusive( &table->lock );
@@ -673,7 +706,7 @@ GLuint *map_context_objects( enum object_type type, UINT n, GLuint *handles )
     struct object_table *table;
     struct context *ctx;
 
-    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return handles;
+    if (!(ctx = get_current_context())) return handles;
     if (!(table = get_object_table( ctx, type, FALSE ))) return handles;
 
     AcquireSRWLockShared( &table->lock );
@@ -777,7 +810,7 @@ static BOOL map_client_objects( enum object_type type, GLuint host_id, GLuint *r
     struct context *ctx;
 
     if (!host_id || type == OBJ_TYPE_COUNT) return FALSE;
-    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return FALSE;
+    if (!(ctx = get_current_context())) return FALSE;
     if (!(table = get_object_table( ctx, type, FALSE ))) return FALSE;
 
     AcquireSRWLockShared( &table->lock );
@@ -913,6 +946,8 @@ BOOL WINAPI wglDeleteContext( HGLRC handle )
     if ((status = UNIX_CALL( wglDeleteContext, &args ))) WARN( "wglDeleteContext returned %#lx\n", status );
     if (status || !args.ret) return FALSE;
 
+    /* make sure there's a (dummy) context before releasing and destroying display list objects */
+    if (!teb->glCurrentRC) wglMakeCurrent( NULL, NULL );
     free_client_context( ptr );
     return TRUE;
 }
@@ -961,21 +996,14 @@ BOOL WINAPI wglMakeContextCurrentARB( HDC draw_hdc, HDC read_hdc, HGLRC handle )
  */
 BOOL WINAPI wglShareLists( HGLRC src_handle, HGLRC dst_handle )
 {
-    struct wglShareLists_params args = { .teb = NtCurrentTeb() };
     struct context *src_context, *dst_context;
     struct display_lists *lists;
-    NTSTATUS status;
 
     TRACE( "src_handle %p, dst_handle %p\n", src_handle, dst_handle );
 
     if (!(src_context = context_from_handle( src_handle ))) return FALSE;
     if (!(dst_context = context_from_handle( dst_handle ))) return FALSE;
     if (ReadNoFence( &dst_context->lists->modified )) return FALSE;
-
-    args.hrcSrvShare = &src_context->base.obj;
-    args.hrcSrvSource = &dst_context->base.obj;
-    if ((status = UNIX_CALL( wglShareLists, &args ))) WARN( "wglShareLists returned %#lx\n", status );
-    if (!args.ret) return FALSE;
 
     lists = display_lists_acquire( src_context->lists );
     lists = InterlockedExchangePointer( (void *)&dst_context->lists, lists );
@@ -1875,7 +1903,7 @@ PROC WINAPI wglGetProcAddress( LPCSTR name )
     const enum opengl_extension *ext;
     struct context *ctx;
 
-    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return NULL;
+    if (!(ctx = get_current_context())) return NULL;
 
     if (!(func = get_function_entry( name )))
     {
@@ -2503,7 +2531,7 @@ static GLsync sync_from_handle( GLsync handle )
     struct handle_entry *ptr;
     struct context *ctx;
 
-    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return NULL;
+    if (!(ctx = get_current_context())) return NULL;
     if (!(ptr = get_handle_ptr( &ctx->lists->syncs, handle ))) return NULL;
     return ptr->user_data;
 }
@@ -2621,7 +2649,7 @@ BOOL get_integer( GLenum name, GLuint index, GLint value, GLint *data )
 {
     struct context *ctx;
 
-    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return FALSE;
+    if (!(ctx = get_current_context())) return FALSE;
 
     switch (name)
     {
@@ -2658,7 +2686,7 @@ const GLubyte * WINAPI glGetStringi( GLenum name, GLuint index )
 
     TRACE( "name %d, index %d\n", name, index );
 
-    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return NULL;
+    if (!(ctx = get_current_context())) return NULL;
 
     switch (name)
     {
@@ -2785,6 +2813,7 @@ BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
     {
         .call_gl_debug_message_callback = (UINT_PTR)call_gl_debug_message_callback,
     };
+    struct context *context;
     NTSTATUS status;
 
     switch(reason)
@@ -2814,6 +2843,7 @@ BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
 #endif
         /* fallthrough */
     case DLL_THREAD_DETACH:
+        if ((context = get_current_context())) context->base.current_tid = 0;
         free( NtCurrentTeb()->glReserved1[WINE_GL_RESERVED_FORMATS_PTR] );
         return TRUE;
     }
