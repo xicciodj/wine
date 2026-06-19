@@ -11,7 +11,6 @@ VER_OLESELFREGISTER     = 1
 
 SOURCES = \
 	aac_decoder.c \
-	color_convert.c \
 	main.c \
 	media_sink.c \
 	media_source.c \
@@ -22,7 +21,6 @@ SOURCES = \
 	unixlib.c \
 	video_decoder.c \
 	video_encoder.c \
-	video_processor.c \
 	wg_allocator.c \
 	wg_format.c \
 	wg_media_type.c \

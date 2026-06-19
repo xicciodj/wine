@@ -374,13 +374,15 @@ static BOOL controller_init(struct xinput_controller *controller, PHIDP_PREPARSE
     if (!(controller->hid.input_report_buf = calloc(1, controller->hid.caps.InputReportByteLength))) goto failed;
     if (!(controller->hid.output_report_buf = calloc(1, controller->hid.caps.OutputReportByteLength))) goto failed;
 
-    set_current_state(controller - controllers, &state);
     memset(&controller->vibration, 0, sizeof(controller->vibration));
     lstrcpynW(controller->device_path, device_path, MAX_PATH);
     controller->enabled = FALSE;
 
     controller->device = device;
-    if (controller_enable(controller)) return TRUE;
+    if (!controller_enable(controller)) goto failed;
+
+    set_current_state(controller - controllers, &state);
+    return TRUE;
 
 failed:
     free(controller->hid.input_report_buf);
@@ -600,6 +602,8 @@ static void read_controller_state(struct xinput_controller *controller)
     button_length = ARRAY_SIZE(buttons);
     status = HidP_GetUsages(HidP_Input, HID_USAGE_PAGE_BUTTON, 0, buttons, &button_length, controller->hid.preparsed, report_buf, report_len);
     if (status != HIDP_STATUS_SUCCESS) WARN("HidP_GetUsages HID_USAGE_PAGE_BUTTON returned %#lx\n", status);
+
+    get_current_state(controller - controllers, &state);
 
     state.Gamepad.wButtons = 0;
     for (i = 0; i < button_length; i++)
