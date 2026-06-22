@@ -681,7 +681,10 @@ DBUS_CFLAGS
 INOTIFY_LIBS
 INOTIFY_CFLAGS
 PCSCLITE_LIBS
+PCSCLITE_CFLAGS
 PCAP_LIBS
+PCAP_CFLAGS
+OPENCL_CFLAGS
 WAYLAND_EGL_LIBS
 WAYLAND_EGL_CFLAGS
 XKBCOMMON_LIBS
@@ -1476,6 +1479,7 @@ enable_tdh
 enable_tdi_sys
 enable_threadpoolwinrt
 enable_thumbcache
+enable_tiptsf
 enable_traffic
 enable_twain_32
 enable_twaindsm
@@ -1908,6 +1912,12 @@ XKBCOMMON_CFLAGS
 XKBCOMMON_LIBS
 WAYLAND_EGL_CFLAGS
 WAYLAND_EGL_LIBS
+OPENCL_CFLAGS
+OPENCL_LIBS
+PCAP_CFLAGS
+PCAP_LIBS
+PCSCLITE_CFLAGS
+PCSCLITE_LIBS
 INOTIFY_CFLAGS
 INOTIFY_LIBS
 DBUS_CFLAGS
@@ -2786,6 +2796,15 @@ Some influential environment variables:
               C compiler flags for wayland-egl, overriding pkg-config
   WAYLAND_EGL_LIBS
               Linker flags for wayland-egl, overriding pkg-config
+  OPENCL_CFLAGS
+              C compiler flags for OpenCL, overriding pkg-config
+  OPENCL_LIBS Linker flags for OpenCL, overriding pkg-config
+  PCAP_CFLAGS C compiler flags for libpcap, overriding pkg-config
+  PCAP_LIBS   Linker flags for libpcap, overriding pkg-config
+  PCSCLITE_CFLAGS
+              C compiler flags for libpcsclite, overriding pkg-config
+  PCSCLITE_LIBS
+              Linker flags for libpcsclite, overriding pkg-config
   INOTIFY_CFLAGS
               C compiler flags for libinotify, overriding pkg-config
   INOTIFY_LIBS
@@ -4433,7 +4452,7 @@ fi
 # Check whether --with-opencl was given.
 if test ${with_opencl+y}
 then :
-  withval=$with_opencl; if test "x$withval" = "xno"; then ac_cv_header_CL_cl_h=no; ac_cv_header_OpenCL_opencl_h=no; fi
+  withval=$with_opencl; if test "x$withval" = "xno"; then ac_cv_header_OpenCL_opencl_h=no; fi
 fi
 
 
@@ -4454,7 +4473,7 @@ fi
 # Check whether --with-pcap was given.
 if test ${with_pcap+y}
 then :
-  withval=$with_pcap; if test "x$withval" = "xno"; then ac_cv_header_pcap_pcap_h=no; fi
+  withval=$with_pcap;
 fi
 
 
@@ -10751,12 +10770,6 @@ then :
 printf '%s\n' "#define STDC_HEADERS 1" >>confdefs.h
 
 fi
-ac_fn_c_check_header_compile "$LINENO" "CL/cl.h" "ac_cv_header_CL_cl_h" "$ac_includes_default"
-if test "x$ac_cv_header_CL_cl_h" = xyes
-then :
-  printf '%s\n' "#define HAVE_CL_CL_H 1" >>confdefs.h
-
-fi
 ac_fn_c_check_header_compile "$LINENO" "OpenCL/opencl.h" "ac_cv_header_OpenCL_opencl_h" "$ac_includes_default"
 if test "x$ac_cv_header_OpenCL_opencl_h" = xyes
 then :
@@ -10983,12 +10996,6 @@ ac_fn_c_check_header_compile "$LINENO" "netinet/tcp_fsm.h" "ac_cv_header_netinet
 if test "x$ac_cv_header_netinet_tcp_fsm_h" = xyes
 then :
   printf '%s\n' "#define HAVE_NETINET_TCP_FSM_H 1" >>confdefs.h
-
-fi
-ac_fn_c_check_header_compile "$LINENO" "pcap/pcap.h" "ac_cv_header_pcap_pcap_h" "$ac_includes_default"
-if test "x$ac_cv_header_pcap_pcap_h" = xyes
-then :
-  printf '%s\n' "#define HAVE_PCAP_PCAP_H 1" >>confdefs.h
 
 fi
 ac_fn_c_check_header_compile "$LINENO" "port.h" "ac_cv_header_port_h" "$ac_includes_default"
@@ -12448,7 +12455,7 @@ fi
     then
         OPENCL_LIBS="-framework OpenCL"
 
-        ac_cv_lib_OpenCL_clGetPlatformInfo=yes
+        ac_cv_func_clGetPlatformInfo=yes
     fi
 
         ac_ext=m
@@ -13303,8 +13310,10 @@ fi
 FAUDIO_PE_LIBS=${FAUDIO_PE_LIBS:-"-lFAudio"}
 if test -n "$FAUDIO_PE_CFLAGS$FAUDIO_PE_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $FAUDIO_PE_CFLAGS"
+LIBS="$FAUDIO_PE_LIBS $LIBS"
 { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for MinGW FAudio.h" >&5
 printf %s "checking for MinGW FAudio.h... " >&6; }
 if test ${ac_cv_mingw_header_FAudio_h+y}
@@ -13343,18 +13352,16 @@ fi
 printf '%s\n' "$ac_cv_mingw_header_FAudio_h" >&6; }
 if test "x$ac_cv_mingw_header_FAudio_h" = xyes
 then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for FAudio_CommitOperationSet in MinGW -lFAudio" >&5
-printf %s "checking for FAudio_CommitOperationSet in MinGW -lFAudio... " >&6; }
-if test ${ac_cv_mingw_lib_FAudio+y}
+  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for FAudio_CommitOperationSet in PE library" >&5
+printf %s "checking for FAudio_CommitOperationSet in PE library... " >&6; }
+if test ${ac_cv_mingw_func_FAudio_CommitOperationSet+y}
 then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_wine_check_headers_saved_cc=$CC
 ac_wine_check_headers_saved_exeext=$ac_exeext
-ac_wine_check_headers_saved_libs=$LIBS
 eval CC=\$${wine_arch}_CC
 ac_exeext=".exe"
-LIBS="-lFAudio $FAUDIO_PE_LIBS $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -13378,21 +13385,20 @@ return FAudio_CommitOperationSet ();
 _ACEOF
 if ac_fn_c_try_link "$LINENO"
 then :
-  ac_cv_mingw_lib_FAudio=yes
+  ac_cv_mingw_func_FAudio_CommitOperationSet=yes
 else case e in #(
-  e) ac_cv_mingw_lib_FAudio=no ;;
+  e) ac_cv_mingw_func_FAudio_CommitOperationSet=no ;;
 esac
 fi
 rm -f core conftest.err conftest.$ac_objext conftest.beam \
     conftest$ac_exeext conftest.$ac_ext
 CC=$ac_wine_check_headers_saved_cc
-ac_exeext=$ac_wine_check_headers_saved_exeext
-LIBS=$ac_wine_check_headers_saved_libs ;;
+ac_exeext=$ac_wine_check_headers_saved_exeext ;;
 esac
 fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_lib_FAudio" >&5
-printf '%s\n' "$ac_cv_mingw_lib_FAudio" >&6; }
-if test "x$ac_cv_mingw_lib_FAudio" = xyes
+{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_func_FAudio_CommitOperationSet" >&5
+printf '%s\n' "$ac_cv_mingw_func_FAudio_CommitOperationSet" >&6; }
+if test "x$ac_cv_mingw_func_FAudio_CommitOperationSet" = xyes
 then :
   :
 else case e in #(
@@ -13403,7 +13409,8 @@ else case e in #(
   e) FAUDIO_PE_CFLAGS=""; FAUDIO_PE_LIBS="" ;;
 esac
 fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
     if test "x$FAUDIO_PE_LIBS" = "x"
@@ -13428,8 +13435,10 @@ fi
 FLUIDSYNTH_PE_LIBS=${FLUIDSYNTH_PE_LIBS:-"-lfluidsynth"}
 if test -n "$FLUIDSYNTH_PE_CFLAGS$FLUIDSYNTH_PE_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $FLUIDSYNTH_PE_CFLAGS"
+LIBS="$FLUIDSYNTH_PE_LIBS $LIBS"
 { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for MinGW fluidsynth.h" >&5
 printf %s "checking for MinGW fluidsynth.h... " >&6; }
 if test ${ac_cv_mingw_header_fluidsynth_h+y}
@@ -13468,18 +13477,16 @@ fi
 printf '%s\n' "$ac_cv_mingw_header_fluidsynth_h" >&6; }
 if test "x$ac_cv_mingw_header_fluidsynth_h" = xyes
 then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for new_fluid_synth in MinGW -lfluidsynth" >&5
-printf %s "checking for new_fluid_synth in MinGW -lfluidsynth... " >&6; }
-if test ${ac_cv_mingw_lib_fluidsynth+y}
+  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for new_fluid_synth in PE library" >&5
+printf %s "checking for new_fluid_synth in PE library... " >&6; }
+if test ${ac_cv_mingw_func_new_fluid_synth+y}
 then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_wine_check_headers_saved_cc=$CC
 ac_wine_check_headers_saved_exeext=$ac_exeext
-ac_wine_check_headers_saved_libs=$LIBS
 eval CC=\$${wine_arch}_CC
 ac_exeext=".exe"
-LIBS="-lfluidsynth $FLUIDSYNTH_PE_LIBS $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -13503,21 +13510,20 @@ return new_fluid_synth ();
 _ACEOF
 if ac_fn_c_try_link "$LINENO"
 then :
-  ac_cv_mingw_lib_fluidsynth=yes
+  ac_cv_mingw_func_new_fluid_synth=yes
 else case e in #(
-  e) ac_cv_mingw_lib_fluidsynth=no ;;
+  e) ac_cv_mingw_func_new_fluid_synth=no ;;
 esac
 fi
 rm -f core conftest.err conftest.$ac_objext conftest.beam \
     conftest$ac_exeext conftest.$ac_ext
 CC=$ac_wine_check_headers_saved_cc
-ac_exeext=$ac_wine_check_headers_saved_exeext
-LIBS=$ac_wine_check_headers_saved_libs ;;
+ac_exeext=$ac_wine_check_headers_saved_exeext ;;
 esac
 fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_lib_fluidsynth" >&5
-printf '%s\n' "$ac_cv_mingw_lib_fluidsynth" >&6; }
-if test "x$ac_cv_mingw_lib_fluidsynth" = xyes
+{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_func_new_fluid_synth" >&5
+printf '%s\n' "$ac_cv_mingw_func_new_fluid_synth" >&6; }
+if test "x$ac_cv_mingw_func_new_fluid_synth" = xyes
 then :
   :
 else case e in #(
@@ -13528,7 +13534,8 @@ else case e in #(
   e) FLUIDSYNTH_PE_CFLAGS=""; FLUIDSYNTH_PE_LIBS="" ;;
 esac
 fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
     if test "x$FLUIDSYNTH_PE_LIBS" = "x"
@@ -13553,8 +13560,10 @@ fi
 
 if test -n "$JPEG_PE_CFLAGS$JPEG_PE_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $JPEG_PE_CFLAGS"
+LIBS="$JPEG_PE_LIBS $LIBS"
 { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for MinGW jpeglib.h" >&5
 printf %s "checking for MinGW jpeglib.h... " >&6; }
 if test ${ac_cv_mingw_header_jpeglib_h+y}
@@ -13594,18 +13603,16 @@ fi
 printf '%s\n' "$ac_cv_mingw_header_jpeglib_h" >&6; }
 if test "x$ac_cv_mingw_header_jpeglib_h" = xyes
 then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for jpeg_start_decompress in MinGW -ljpeg" >&5
-printf %s "checking for jpeg_start_decompress in MinGW -ljpeg... " >&6; }
-if test ${ac_cv_mingw_lib_jpeg+y}
+  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for jpeg_start_decompress in PE library" >&5
+printf %s "checking for jpeg_start_decompress in PE library... " >&6; }
+if test ${ac_cv_mingw_func_jpeg_start_decompress+y}
 then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_wine_check_headers_saved_cc=$CC
 ac_wine_check_headers_saved_exeext=$ac_exeext
-ac_wine_check_headers_saved_libs=$LIBS
 eval CC=\$${wine_arch}_CC
 ac_exeext=".exe"
-LIBS="-ljpeg $JPEG_PE_LIBS $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -13629,21 +13636,20 @@ return jpeg_start_decompress ();
 _ACEOF
 if ac_fn_c_try_link "$LINENO"
 then :
-  ac_cv_mingw_lib_jpeg=yes
+  ac_cv_mingw_func_jpeg_start_decompress=yes
 else case e in #(
-  e) ac_cv_mingw_lib_jpeg=no ;;
+  e) ac_cv_mingw_func_jpeg_start_decompress=no ;;
 esac
 fi
 rm -f core conftest.err conftest.$ac_objext conftest.beam \
     conftest$ac_exeext conftest.$ac_ext
 CC=$ac_wine_check_headers_saved_cc
-ac_exeext=$ac_wine_check_headers_saved_exeext
-LIBS=$ac_wine_check_headers_saved_libs ;;
+ac_exeext=$ac_wine_check_headers_saved_exeext ;;
 esac
 fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_lib_jpeg" >&5
-printf '%s\n' "$ac_cv_mingw_lib_jpeg" >&6; }
-if test "x$ac_cv_mingw_lib_jpeg" = xyes
+{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_func_jpeg_start_decompress" >&5
+printf '%s\n' "$ac_cv_mingw_func_jpeg_start_decompress" >&6; }
+if test "x$ac_cv_mingw_func_jpeg_start_decompress" = xyes
 then :
   :
 else case e in #(
@@ -13654,7 +13660,8 @@ else case e in #(
   e) JPEG_PE_CFLAGS=""; JPEG_PE_LIBS="" ;;
 esac
 fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
     if test "x$JPEG_PE_LIBS" = "x"
@@ -13679,8 +13686,10 @@ fi
 LCMS2_PE_LIBS=${LCMS2_PE_LIBS:-"-llcms2"}
 if test -n "$LCMS2_PE_CFLAGS$LCMS2_PE_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $LCMS2_PE_CFLAGS"
+LIBS="$LCMS2_PE_LIBS $LIBS"
 { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for MinGW lcms2.h" >&5
 printf %s "checking for MinGW lcms2.h... " >&6; }
 if test ${ac_cv_mingw_header_lcms2_h+y}
@@ -13719,18 +13728,16 @@ fi
 printf '%s\n' "$ac_cv_mingw_header_lcms2_h" >&6; }
 if test "x$ac_cv_mingw_header_lcms2_h" = xyes
 then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for cmsOpenProfileFromFile in MinGW -llcms2" >&5
-printf %s "checking for cmsOpenProfileFromFile in MinGW -llcms2... " >&6; }
-if test ${ac_cv_mingw_lib_lcms2+y}
+  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for cmsOpenProfileFromFile in PE library" >&5
+printf %s "checking for cmsOpenProfileFromFile in PE library... " >&6; }
+if test ${ac_cv_mingw_func_cmsOpenProfileFromFile+y}
 then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_wine_check_headers_saved_cc=$CC
 ac_wine_check_headers_saved_exeext=$ac_exeext
-ac_wine_check_headers_saved_libs=$LIBS
 eval CC=\$${wine_arch}_CC
 ac_exeext=".exe"
-LIBS="-llcms2 $LCMS2_PE_LIBS $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -13754,21 +13761,20 @@ return cmsOpenProfileFromFile ();
 _ACEOF
 if ac_fn_c_try_link "$LINENO"
 then :
-  ac_cv_mingw_lib_lcms2=yes
+  ac_cv_mingw_func_cmsOpenProfileFromFile=yes
 else case e in #(
-  e) ac_cv_mingw_lib_lcms2=no ;;
+  e) ac_cv_mingw_func_cmsOpenProfileFromFile=no ;;
 esac
 fi
 rm -f core conftest.err conftest.$ac_objext conftest.beam \
     conftest$ac_exeext conftest.$ac_ext
 CC=$ac_wine_check_headers_saved_cc
-ac_exeext=$ac_wine_check_headers_saved_exeext
-LIBS=$ac_wine_check_headers_saved_libs ;;
+ac_exeext=$ac_wine_check_headers_saved_exeext ;;
 esac
 fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_lib_lcms2" >&5
-printf '%s\n' "$ac_cv_mingw_lib_lcms2" >&6; }
-if test "x$ac_cv_mingw_lib_lcms2" = xyes
+{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_func_cmsOpenProfileFromFile" >&5
+printf '%s\n' "$ac_cv_mingw_func_cmsOpenProfileFromFile" >&6; }
+if test "x$ac_cv_mingw_func_cmsOpenProfileFromFile" = xyes
 then :
   :
 else case e in #(
@@ -13779,7 +13785,8 @@ else case e in #(
   e) LCMS2_PE_CFLAGS=""; LCMS2_PE_LIBS="" ;;
 esac
 fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
     if test "x$LCMS2_PE_LIBS" = "x"
@@ -13804,8 +13811,10 @@ fi
 MPG123_PE_LIBS=${MPG123_PE_LIBS:-"-lmpg123"}
 if test -n "$MPG123_PE_CFLAGS$MPG123_PE_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $MPG123_PE_CFLAGS"
+LIBS="$MPG123_PE_LIBS $LIBS"
 { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for MinGW mpg123.h" >&5
 printf %s "checking for MinGW mpg123.h... " >&6; }
 if test ${ac_cv_mingw_header_mpg123_h+y}
@@ -13844,18 +13853,16 @@ fi
 printf '%s\n' "$ac_cv_mingw_header_mpg123_h" >&6; }
 if test "x$ac_cv_mingw_header_mpg123_h" = xyes
 then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for mpg123_feed in MinGW -lmpg123" >&5
-printf %s "checking for mpg123_feed in MinGW -lmpg123... " >&6; }
-if test ${ac_cv_mingw_lib_mpg123+y}
+  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for mpg123_feed in PE library" >&5
+printf %s "checking for mpg123_feed in PE library... " >&6; }
+if test ${ac_cv_mingw_func_mpg123_feed+y}
 then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_wine_check_headers_saved_cc=$CC
 ac_wine_check_headers_saved_exeext=$ac_exeext
-ac_wine_check_headers_saved_libs=$LIBS
 eval CC=\$${wine_arch}_CC
 ac_exeext=".exe"
-LIBS="-lmpg123 $MPG123_PE_LIBS $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -13879,21 +13886,20 @@ return mpg123_feed ();
 _ACEOF
 if ac_fn_c_try_link "$LINENO"
 then :
-  ac_cv_mingw_lib_mpg123=yes
+  ac_cv_mingw_func_mpg123_feed=yes
 else case e in #(
-  e) ac_cv_mingw_lib_mpg123=no ;;
+  e) ac_cv_mingw_func_mpg123_feed=no ;;
 esac
 fi
 rm -f core conftest.err conftest.$ac_objext conftest.beam \
     conftest$ac_exeext conftest.$ac_ext
 CC=$ac_wine_check_headers_saved_cc
-ac_exeext=$ac_wine_check_headers_saved_exeext
-LIBS=$ac_wine_check_headers_saved_libs ;;
+ac_exeext=$ac_wine_check_headers_saved_exeext ;;
 esac
 fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_lib_mpg123" >&5
-printf '%s\n' "$ac_cv_mingw_lib_mpg123" >&6; }
-if test "x$ac_cv_mingw_lib_mpg123" = xyes
+{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_func_mpg123_feed" >&5
+printf '%s\n' "$ac_cv_mingw_func_mpg123_feed" >&6; }
+if test "x$ac_cv_mingw_func_mpg123_feed" = xyes
 then :
   :
 else case e in #(
@@ -13904,7 +13910,8 @@ else case e in #(
   e) MPG123_PE_CFLAGS=""; MPG123_PE_LIBS="" ;;
 esac
 fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
     if test "x$MPG123_PE_LIBS" = "x"
@@ -13929,8 +13936,10 @@ fi
 
 if test -n "$PNG_PE_CFLAGS$PNG_PE_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $PNG_PE_CFLAGS"
+LIBS="$PNG_PE_LIBS $LIBS"
 { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for MinGW png.h" >&5
 printf %s "checking for MinGW png.h... " >&6; }
 if test ${ac_cv_mingw_header_png_h+y}
@@ -13969,18 +13978,16 @@ fi
 printf '%s\n' "$ac_cv_mingw_header_png_h" >&6; }
 if test "x$ac_cv_mingw_header_png_h" = xyes
 then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for png_create_read_struct in MinGW -lpng" >&5
-printf %s "checking for png_create_read_struct in MinGW -lpng... " >&6; }
-if test ${ac_cv_mingw_lib_png+y}
+  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for png_create_read_struct in PE library" >&5
+printf %s "checking for png_create_read_struct in PE library... " >&6; }
+if test ${ac_cv_mingw_func_png_create_read_struct+y}
 then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_wine_check_headers_saved_cc=$CC
 ac_wine_check_headers_saved_exeext=$ac_exeext
-ac_wine_check_headers_saved_libs=$LIBS
 eval CC=\$${wine_arch}_CC
 ac_exeext=".exe"
-LIBS="-lpng $PNG_PE_LIBS $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -14004,21 +14011,20 @@ return png_create_read_struct ();
 _ACEOF
 if ac_fn_c_try_link "$LINENO"
 then :
-  ac_cv_mingw_lib_png=yes
+  ac_cv_mingw_func_png_create_read_struct=yes
 else case e in #(
-  e) ac_cv_mingw_lib_png=no ;;
+  e) ac_cv_mingw_func_png_create_read_struct=no ;;
 esac
 fi
 rm -f core conftest.err conftest.$ac_objext conftest.beam \
     conftest$ac_exeext conftest.$ac_ext
 CC=$ac_wine_check_headers_saved_cc
-ac_exeext=$ac_wine_check_headers_saved_exeext
-LIBS=$ac_wine_check_headers_saved_libs ;;
+ac_exeext=$ac_wine_check_headers_saved_exeext ;;
 esac
 fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_lib_png" >&5
-printf '%s\n' "$ac_cv_mingw_lib_png" >&6; }
-if test "x$ac_cv_mingw_lib_png" = xyes
+{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_func_png_create_read_struct" >&5
+printf '%s\n' "$ac_cv_mingw_func_png_create_read_struct" >&6; }
+if test "x$ac_cv_mingw_func_png_create_read_struct" = xyes
 then :
   :
 else case e in #(
@@ -14029,7 +14035,8 @@ else case e in #(
   e) PNG_PE_CFLAGS=""; PNG_PE_LIBS="" ;;
 esac
 fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
     if test "x$PNG_PE_LIBS" = "x"
@@ -14054,8 +14061,10 @@ fi
 
 if test -n "$TIFF_PE_CFLAGS$TIFF_PE_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $TIFF_PE_CFLAGS"
+LIBS="$TIFF_PE_LIBS $LIBS"
 { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for MinGW tiffio.h" >&5
 printf %s "checking for MinGW tiffio.h... " >&6; }
 if test ${ac_cv_mingw_header_tiffio_h+y}
@@ -14094,18 +14103,16 @@ fi
 printf '%s\n' "$ac_cv_mingw_header_tiffio_h" >&6; }
 if test "x$ac_cv_mingw_header_tiffio_h" = xyes
 then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for TIFFClientOpen in MinGW -ltiff" >&5
-printf %s "checking for TIFFClientOpen in MinGW -ltiff... " >&6; }
-if test ${ac_cv_mingw_lib_tiff+y}
+  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for TIFFClientOpen in PE library" >&5
+printf %s "checking for TIFFClientOpen in PE library... " >&6; }
+if test ${ac_cv_mingw_func_TIFFClientOpen+y}
 then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_wine_check_headers_saved_cc=$CC
 ac_wine_check_headers_saved_exeext=$ac_exeext
-ac_wine_check_headers_saved_libs=$LIBS
 eval CC=\$${wine_arch}_CC
 ac_exeext=".exe"
-LIBS="-ltiff $TIFF_PE_LIBS $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -14129,21 +14136,20 @@ return TIFFClientOpen ();
 _ACEOF
 if ac_fn_c_try_link "$LINENO"
 then :
-  ac_cv_mingw_lib_tiff=yes
+  ac_cv_mingw_func_TIFFClientOpen=yes
 else case e in #(
-  e) ac_cv_mingw_lib_tiff=no ;;
+  e) ac_cv_mingw_func_TIFFClientOpen=no ;;
 esac
 fi
 rm -f core conftest.err conftest.$ac_objext conftest.beam \
     conftest$ac_exeext conftest.$ac_ext
 CC=$ac_wine_check_headers_saved_cc
-ac_exeext=$ac_wine_check_headers_saved_exeext
-LIBS=$ac_wine_check_headers_saved_libs ;;
+ac_exeext=$ac_wine_check_headers_saved_exeext ;;
 esac
 fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_lib_tiff" >&5
-printf '%s\n' "$ac_cv_mingw_lib_tiff" >&6; }
-if test "x$ac_cv_mingw_lib_tiff" = xyes
+{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_func_TIFFClientOpen" >&5
+printf '%s\n' "$ac_cv_mingw_func_TIFFClientOpen" >&6; }
+if test "x$ac_cv_mingw_func_TIFFClientOpen" = xyes
 then :
   :
 else case e in #(
@@ -14154,7 +14160,8 @@ else case e in #(
   e) TIFF_PE_CFLAGS=""; TIFF_PE_LIBS="" ;;
 esac
 fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
     if test "x$TIFF_PE_LIBS" = "x"
@@ -14179,8 +14186,10 @@ fi
 VKD3D_PE_LIBS=${VKD3D_PE_LIBS:-"-lvkd3d-utils -lvkd3d -lvkd3d-shader"}
 if test -n "$VKD3D_PE_CFLAGS$VKD3D_PE_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $VKD3D_PE_CFLAGS"
+LIBS="$VKD3D_PE_LIBS $LIBS"
 { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for MinGW vkd3d_utils.h" >&5
 printf %s "checking for MinGW vkd3d_utils.h... " >&6; }
 if test ${ac_cv_mingw_header_vkd3d_utils_h+y}
@@ -14263,18 +14272,16 @@ then :
 fi
         if test "$ac_cv_mingw_header_vkd3d_utils_h" = "yes" -a "$ac_cv_mingw_header_vkd3d_shader_h" = "yes"
         then
-            { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for vkd3d_utils_set_log_callback in MinGW -lvkd3d-utils" >&5
-printf %s "checking for vkd3d_utils_set_log_callback in MinGW -lvkd3d-utils... " >&6; }
-if test ${ac_cv_mingw_lib_vkd3d_utils+y}
+            { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for vkd3d_utils_set_log_callback in PE library" >&5
+printf %s "checking for vkd3d_utils_set_log_callback in PE library... " >&6; }
+if test ${ac_cv_mingw_func_vkd3d_utils_set_log_callback+y}
 then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_wine_check_headers_saved_cc=$CC
 ac_wine_check_headers_saved_exeext=$ac_exeext
-ac_wine_check_headers_saved_libs=$LIBS
 eval CC=\$${wine_arch}_CC
 ac_exeext=".exe"
-LIBS="-lvkd3d-utils $VKD3D_PE_LIBS $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -14298,39 +14305,36 @@ return vkd3d_utils_set_log_callback ();
 _ACEOF
 if ac_fn_c_try_link "$LINENO"
 then :
-  ac_cv_mingw_lib_vkd3d_utils=yes
+  ac_cv_mingw_func_vkd3d_utils_set_log_callback=yes
 else case e in #(
-  e) ac_cv_mingw_lib_vkd3d_utils=no ;;
+  e) ac_cv_mingw_func_vkd3d_utils_set_log_callback=no ;;
 esac
 fi
 rm -f core conftest.err conftest.$ac_objext conftest.beam \
     conftest$ac_exeext conftest.$ac_ext
 CC=$ac_wine_check_headers_saved_cc
-ac_exeext=$ac_wine_check_headers_saved_exeext
-LIBS=$ac_wine_check_headers_saved_libs ;;
+ac_exeext=$ac_wine_check_headers_saved_exeext ;;
 esac
 fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_lib_vkd3d_utils" >&5
-printf '%s\n' "$ac_cv_mingw_lib_vkd3d_utils" >&6; }
-if test "x$ac_cv_mingw_lib_vkd3d_utils" = xyes
+{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_func_vkd3d_utils_set_log_callback" >&5
+printf '%s\n' "$ac_cv_mingw_func_vkd3d_utils_set_log_callback" >&6; }
+if test "x$ac_cv_mingw_func_vkd3d_utils_set_log_callback" = xyes
 then :
   :
 else case e in #(
   e) : ;;
 esac
 fi
-            { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for vkd3d_shader_build_varying_map in MinGW -lvkd3d-shader" >&5
-printf %s "checking for vkd3d_shader_build_varying_map in MinGW -lvkd3d-shader... " >&6; }
-if test ${ac_cv_mingw_lib_vkd3d_shader+y}
+            { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for vkd3d_shader_build_varying_map in PE library" >&5
+printf %s "checking for vkd3d_shader_build_varying_map in PE library... " >&6; }
+if test ${ac_cv_mingw_func_vkd3d_shader_build_varying_map+y}
 then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_wine_check_headers_saved_cc=$CC
 ac_wine_check_headers_saved_exeext=$ac_exeext
-ac_wine_check_headers_saved_libs=$LIBS
 eval CC=\$${wine_arch}_CC
 ac_exeext=".exe"
-LIBS="-lvkd3d-shader $VKD3D_PE_LIBS $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -14354,28 +14358,27 @@ return vkd3d_shader_build_varying_map ();
 _ACEOF
 if ac_fn_c_try_link "$LINENO"
 then :
-  ac_cv_mingw_lib_vkd3d_shader=yes
+  ac_cv_mingw_func_vkd3d_shader_build_varying_map=yes
 else case e in #(
-  e) ac_cv_mingw_lib_vkd3d_shader=no ;;
+  e) ac_cv_mingw_func_vkd3d_shader_build_varying_map=no ;;
 esac
 fi
 rm -f core conftest.err conftest.$ac_objext conftest.beam \
     conftest$ac_exeext conftest.$ac_ext
 CC=$ac_wine_check_headers_saved_cc
-ac_exeext=$ac_wine_check_headers_saved_exeext
-LIBS=$ac_wine_check_headers_saved_libs ;;
+ac_exeext=$ac_wine_check_headers_saved_exeext ;;
 esac
 fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_lib_vkd3d_shader" >&5
-printf '%s\n' "$ac_cv_mingw_lib_vkd3d_shader" >&6; }
-if test "x$ac_cv_mingw_lib_vkd3d_shader" = xyes
+{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_mingw_func_vkd3d_shader_build_varying_map" >&5
+printf '%s\n' "$ac_cv_mingw_func_vkd3d_shader_build_varying_map" >&6; }
+if test "x$ac_cv_mingw_func_vkd3d_shader_build_varying_map" = xyes
 then :
   :
 else case e in #(
   e) : ;;
 esac
 fi
-            if test "$ac_cv_mingw_lib_vkd3d_utils" = "no" -o "$ac_cv_mingw_lib_vkd3d_shader" = "no"
+            if test "$ac_cv_mingw_func_vkd3d_utils_set_log_callback" = "no" -o "$ac_cv_mingw_func_vkd3d_shader_build_varying_map" = "no"
             then
                 VKD3D_PE_CFLAGS=""
                 VKD3D_PE_LIBS=""
@@ -14384,7 +14387,8 @@ fi
             VKD3D_PE_CFLAGS=""
             VKD3D_PE_LIBS=""
         fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
     if test "x$VKD3D_PE_LIBS" = "x"
@@ -14962,8 +14966,10 @@ fi
 rm -f conftest.err
 if test -n "$EGL_CFLAGS$EGL_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $EGL_CFLAGS"
+LIBS="$EGL_LIBS $LIBS"
 { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for -lEGL" >&5
 printf %s "checking for -lEGL... " >&6; }
 if test ${ac_cv_lib_soname_EGL+y}
@@ -14971,7 +14977,7 @@ then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_check_soname_save_LIBS=$LIBS
-LIBS="-lEGL $EGL_LIBS $LIBS"
+LIBS="-lEGL  $LIBS"
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -15027,7 +15033,8 @@ printf '%s\n' "#define SONAME_LIBEGL \"$ac_cv_lib_soname_EGL\"" >>confdefs.h
         ;;
 esac
 fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -16760,8 +16767,10 @@ fi
 rm -f conftest.err
 if test -n "$XKBREGISTRY_CFLAGS$XKBREGISTRY_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $XKBREGISTRY_CFLAGS"
+LIBS="$XKBREGISTRY_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "xkbcommon/xkbregistry.h" "ac_cv_header_xkbcommon_xkbregistry_h" "$ac_includes_default"
 if test "x$ac_cv_header_xkbcommon_xkbregistry_h" = xyes
 then :
@@ -16772,7 +16781,7 @@ then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_check_soname_save_LIBS=$LIBS
-LIBS="-lxkbregistry $XKBREGISTRY_LIBS $LIBS"
+LIBS="-lxkbregistry  $LIBS"
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -16830,7 +16839,8 @@ esac
 fi
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -16864,55 +16874,15 @@ fi
 rm -f conftest.err
 if test -n "$WAYLAND_CLIENT_CFLAGS$WAYLAND_CLIENT_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $WAYLAND_CLIENT_CFLAGS"
+LIBS="$WAYLAND_CLIENT_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "wayland-client.h" "ac_cv_header_wayland_client_h" "$ac_includes_default"
 if test "x$ac_cv_header_wayland_client_h" = xyes
 then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for wl_display_connect in -lwayland-client" >&5
-printf %s "checking for wl_display_connect in -lwayland-client... " >&6; }
-if test ${ac_cv_lib_wayland_client_wl_display_connect+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lwayland-client $WAYLAND_CLIENT_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char wl_display_connect (void);
-int
-main (void)
-{
-return wl_display_connect ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_wayland_client_wl_display_connect=yes
-else case e in #(
-  e) ac_cv_lib_wayland_client_wl_display_connect=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_wayland_client_wl_display_connect" >&5
-printf '%s\n' "$ac_cv_lib_wayland_client_wl_display_connect" >&6; }
-if test "x$ac_cv_lib_wayland_client_wl_display_connect" = xyes
+  ac_fn_c_check_func "$LINENO" "wl_display_connect" "ac_cv_func_wl_display_connect"
+if test "x$ac_cv_func_wl_display_connect" = xyes
 then :
   # Extract the first word of "wayland-scanner", so it can be a program name with args.
 set dummy wayland-scanner; ac_word=$2
@@ -16968,7 +16938,8 @@ fi
 
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
     rm -f conftest.err
@@ -16998,52 +16969,12 @@ fi
 rm -f conftest.err
 if test -n "$XKBCOMMON_CFLAGS$XKBCOMMON_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $XKBCOMMON_CFLAGS"
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for xkb_context_new in -lxkbcommon" >&5
-printf %s "checking for xkb_context_new in -lxkbcommon... " >&6; }
-if test ${ac_cv_lib_xkbcommon_xkb_context_new+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lxkbcommon $XKBCOMMON_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char xkb_context_new (void);
-int
-main (void)
-{
-return xkb_context_new ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_xkbcommon_xkb_context_new=yes
-else case e in #(
-  e) ac_cv_lib_xkbcommon_xkb_context_new=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_xkbcommon_xkb_context_new" >&5
-printf '%s\n' "$ac_cv_lib_xkbcommon_xkb_context_new" >&6; }
-if test "x$ac_cv_lib_xkbcommon_xkb_context_new" = xyes
+LIBS="$XKBCOMMON_LIBS $LIBS"
+ac_fn_c_check_func "$LINENO" "xkb_context_new" "ac_cv_func_xkb_context_new"
+if test "x$ac_cv_func_xkb_context_new" = xyes
 then :
   :
 else case e in #(
@@ -17051,7 +16982,8 @@ else case e in #(
 esac
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
     if test "x$with_opengl" != "xno"
@@ -17083,55 +17015,15 @@ fi
 rm -f conftest.err
 if test -n "$WAYLAND_EGL_CFLAGS$WAYLAND_EGL_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $WAYLAND_EGL_CFLAGS"
+LIBS="$WAYLAND_EGL_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "wayland-egl.h" "ac_cv_header_wayland_egl_h" "$ac_includes_default"
 if test "x$ac_cv_header_wayland_egl_h" = xyes
 then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for wl_egl_window_create in -lwayland-egl" >&5
-printf %s "checking for wl_egl_window_create in -lwayland-egl... " >&6; }
-if test ${ac_cv_lib_wayland_egl_wl_egl_window_create+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lwayland-egl $WAYLAND_EGL_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char wl_egl_window_create (void);
-int
-main (void)
-{
-return wl_egl_window_create ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_wayland_egl_wl_egl_window_create=yes
-else case e in #(
-  e) ac_cv_lib_wayland_egl_wl_egl_window_create=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_wayland_egl_wl_egl_window_create" >&5
-printf '%s\n' "$ac_cv_lib_wayland_egl_wl_egl_window_create" >&6; }
-if test "x$ac_cv_lib_wayland_egl_wl_egl_window_create" = xyes
+  ac_fn_c_check_func "$LINENO" "wl_egl_window_create" "ac_cv_func_wl_egl_window_create"
+if test "x$ac_cv_func_wl_egl_window_create" = xyes
 then :
 
 printf '%s\n' "#define HAVE_LIBWAYLAND_EGL 1" >>confdefs.h
@@ -17143,12 +17035,13 @@ fi
 
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
         if test "x$with_wayland" != "x"
         then
-            if test -z "$ac_cv_lib_soname_EGL" -o "$ac_cv_lib_wayland_egl_wl_egl_window_create" != yes
+            if test -z "$ac_cv_lib_soname_EGL" -o "$ac_cv_func_wl_egl_window_create" != yes
 then :
   case "x$with_opengl" in
   x)   as_fn_append wine_notices "|EGL ${notice_platform}development files not found, the Wayland driver won't support OpenGL" ;;
@@ -17198,59 +17091,58 @@ enable_winex11_drv=${enable_winex11_drv:-no}
 fi
 fi
 
-if test "$ac_cv_header_CL_cl_h" = "yes"
+if test "x$with_opencl" != "xno"
 then
-    { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for clGetPlatformInfo in -lOpenCL" >&5
-printf %s "checking for clGetPlatformInfo in -lOpenCL... " >&6; }
-if test ${ac_cv_lib_OpenCL_clGetPlatformInfo+y}
+    rm -f conftest.err
+if ${OPENCL_CFLAGS:+false} :
 then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lOpenCL  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
+  if test ${PKG_CONFIG+y}
+then :
+  OPENCL_CFLAGS=`$PKG_CONFIG --cflags OpenCL 2>conftest.err`
+fi
+fi
 
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char clGetPlatformInfo (void);
-int
-main (void)
-{
-return clGetPlatformInfo ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
+if ${OPENCL_LIBS:+false} :
 then :
-  ac_cv_lib_OpenCL_clGetPlatformInfo=yes
-else case e in #(
-  e) ac_cv_lib_OpenCL_clGetPlatformInfo=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_OpenCL_clGetPlatformInfo" >&5
-printf '%s\n' "$ac_cv_lib_OpenCL_clGetPlatformInfo" >&6; }
-if test "x$ac_cv_lib_OpenCL_clGetPlatformInfo" = xyes
+  if test ${PKG_CONFIG+y}
 then :
-  OPENCL_LIBS="-lOpenCL"
+  OPENCL_LIBS=`$PKG_CONFIG --libs OpenCL 2>/dev/null`
+fi
+fi
+
+OPENCL_LIBS=${OPENCL_LIBS:-"-lOpenCL"}
+printf '%s\n' "$as_me:${as_lineno-$LINENO}: OpenCL cflags: $OPENCL_CFLAGS" >&5
+printf '%s\n' "$as_me:${as_lineno-$LINENO}: OpenCL libs: $OPENCL_LIBS" >&5
+if test -s conftest.err; then
+     printf %s "$as_me:${as_lineno-$LINENO}: OpenCL errors: " >&5
+     cat conftest.err >&5
+fi
+rm -f conftest.err
+if test -n "$OPENCL_CFLAGS$OPENCL_LIBS"
+then :
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
+CPPFLAGS="$CPPFLAGS $OPENCL_CFLAGS"
+LIBS="$OPENCL_LIBS $LIBS"
+ac_fn_c_check_header_compile "$LINENO" "CL/cl.h" "ac_cv_header_CL_cl_h" "$ac_includes_default"
+if test "x$ac_cv_header_CL_cl_h" = xyes
+then :
+  printf '%s\n' "#define HAVE_CL_CL_H 1" >>confdefs.h
 
 fi
 
+         ac_fn_c_check_func "$LINENO" "clGetPlatformInfo" "ac_cv_func_clGetPlatformInfo"
+if test "x$ac_cv_func_clGetPlatformInfo" = xyes
+then :
+  :
 fi
-if test "x$ac_cv_lib_OpenCL_clGetPlatformInfo" != xyes
+
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
+fi
+
+fi
+if test "x$ac_cv_func_clGetPlatformInfo" != xyes
 then :
   case "x$with_opencl" in
   x)   as_fn_append wine_notices "|OpenCL ${notice_platform}development files not found, OpenCL won't be supported." ;;
@@ -17261,59 +17153,61 @@ esac
 enable_opencl=${enable_opencl:-no}
 fi
 
-if test "$ac_cv_header_pcap_pcap_h" = "yes"
+if test "x$with_pcap" != "xno"
 then
-    { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for pcap_init in -lpcap" >&5
-printf %s "checking for pcap_init in -lpcap... " >&6; }
-if test ${ac_cv_lib_pcap_pcap_init+y}
+    rm -f conftest.err
+if ${PCAP_CFLAGS:+false} :
 then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lpcap  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
+  if test ${PKG_CONFIG+y}
+then :
+  PCAP_CFLAGS=`$PKG_CONFIG --cflags libpcap 2>conftest.err`
+fi
+fi
 
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char pcap_init (void);
-int
-main (void)
-{
-return pcap_init ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
+if ${PCAP_LIBS:+false} :
 then :
-  ac_cv_lib_pcap_pcap_init=yes
+  if test ${PKG_CONFIG+y}
+then :
+  PCAP_LIBS=`$PKG_CONFIG --libs libpcap 2>/dev/null`
+fi
+fi
+
+PCAP_LIBS=${PCAP_LIBS:-"-lpcap"}
+printf '%s\n' "$as_me:${as_lineno-$LINENO}: libpcap cflags: $PCAP_CFLAGS" >&5
+printf '%s\n' "$as_me:${as_lineno-$LINENO}: libpcap libs: $PCAP_LIBS" >&5
+if test -s conftest.err; then
+     printf %s "$as_me:${as_lineno-$LINENO}: libpcap errors: " >&5
+     cat conftest.err >&5
+fi
+rm -f conftest.err
+if test -n "$PCAP_CFLAGS$PCAP_LIBS"
+then :
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
+CPPFLAGS="$CPPFLAGS $PCAP_CFLAGS"
+LIBS="$PCAP_LIBS $LIBS"
+ac_fn_c_check_header_compile "$LINENO" "pcap/pcap.h" "ac_cv_header_pcap_pcap_h" "$ac_includes_default"
+if test "x$ac_cv_header_pcap_pcap_h" = xyes
+then :
+  printf '%s\n' "#define HAVE_PCAP_PCAP_H 1" >>confdefs.h
+
+fi
+
+         ac_fn_c_check_func "$LINENO" "pcap_init" "ac_cv_func_pcap_init"
+if test "x$ac_cv_func_pcap_init" = xyes
+then :
+  :
 else case e in #(
-  e) ac_cv_lib_pcap_pcap_init=no ;;
+  e) PCAP_LIBS="" ;;
 esac
 fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_pcap_pcap_init" >&5
-printf '%s\n' "$ac_cv_lib_pcap_pcap_init" >&6; }
-if test "x$ac_cv_lib_pcap_pcap_init" = xyes
-then :
-  PCAP_LIBS="-lpcap"
 
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
-if test "x$ac_cv_lib_pcap_pcap_init" != xyes
+if test "x$ac_cv_func_pcap_init" != xyes
 then :
   case "x$with_pcap" in
   x)   as_fn_append wine_notices "|pcap ${notice_platform}development files not found, wpcap won't be supported." ;;
@@ -17326,59 +17220,48 @@ fi
 
 if test "x$with_pcsclite" != "xno"
 then
-    { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for SCardEstablishContext in -lpcsclite" >&5
-printf %s "checking for SCardEstablishContext in -lpcsclite... " >&6; }
-if test ${ac_cv_lib_pcsclite_SCardEstablishContext+y}
+    rm -f conftest.err
+if ${PCSCLITE_CFLAGS:+false} :
 then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lpcsclite  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
+  if test ${PKG_CONFIG+y}
+then :
+  PCSCLITE_CFLAGS=`$PKG_CONFIG --cflags libpcsclite 2>conftest.err`
+fi
+fi
 
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char SCardEstablishContext (void);
-int
-main (void)
-{
-return SCardEstablishContext ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
+if ${PCSCLITE_LIBS:+false} :
 then :
-  ac_cv_lib_pcsclite_SCardEstablishContext=yes
+  if test ${PKG_CONFIG+y}
+then :
+  PCSCLITE_LIBS=`$PKG_CONFIG --libs libpcsclite 2>/dev/null`
+fi
+fi
+
+PCSCLITE_LIBS=${PCSCLITE_LIBS:-"-lpcsclite"}
+printf '%s\n' "$as_me:${as_lineno-$LINENO}: libpcsclite cflags: $PCSCLITE_CFLAGS" >&5
+printf '%s\n' "$as_me:${as_lineno-$LINENO}: libpcsclite libs: $PCSCLITE_LIBS" >&5
+if test -s conftest.err; then
+     printf %s "$as_me:${as_lineno-$LINENO}: libpcsclite errors: " >&5
+     cat conftest.err >&5
+fi
+rm -f conftest.err
+if test -n "$PCSCLITE_CFLAGS$PCSCLITE_LIBS"
+then :
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
+CPPFLAGS="$CPPFLAGS $PCSCLITE_CFLAGS"
+LIBS="$PCSCLITE_LIBS $LIBS"
+ac_fn_c_check_func "$LINENO" "SCardEstablishContext" "ac_cv_func_SCardEstablishContext"
+if test "x$ac_cv_func_SCardEstablishContext" = xyes
+then :
+  :
 else case e in #(
-  e) ac_cv_lib_pcsclite_SCardEstablishContext=no ;;
+  e) PCSCLITE_LIBS="" ;;
 esac
 fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_pcsclite_SCardEstablishContext" >&5
-printf '%s\n' "$ac_cv_lib_pcsclite_SCardEstablishContext" >&6; }
-if test "x$ac_cv_lib_pcsclite_SCardEstablishContext" = xyes
-then :
-  PCSCLITE_LIBS="-lpcsclite"
 
-else case e in #(
-  e) case $host_os in
-                    darwin*) PCSCLITE_LIBS="-framework PCSC"
- ;;
-                  esac ;;
-esac
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -17422,8 +17305,10 @@ fi
 rm -f conftest.err
 if test -n "$INOTIFY_CFLAGS$INOTIFY_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $INOTIFY_CFLAGS"
+LIBS="$INOTIFY_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "sys/inotify.h" "ac_cv_header_sys_inotify_h" "$ac_includes_default"
 if test "x$ac_cv_header_sys_inotify_h" = xyes
 then :
@@ -17431,50 +17316,8 @@ then :
 
 fi
 
-         { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for inotify_add_watch in -linotify" >&5
-printf %s "checking for inotify_add_watch in -linotify... " >&6; }
-if test ${ac_cv_lib_inotify_inotify_add_watch+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-linotify $INOTIFY_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char inotify_add_watch (void);
-int
-main (void)
-{
-return inotify_add_watch ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_inotify_inotify_add_watch=yes
-else case e in #(
-  e) ac_cv_lib_inotify_inotify_add_watch=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_inotify_inotify_add_watch" >&5
-printf '%s\n' "$ac_cv_lib_inotify_inotify_add_watch" >&6; }
-if test "x$ac_cv_lib_inotify_inotify_add_watch" = xyes
+         ac_fn_c_check_func "$LINENO" "inotify_add_watch" "ac_cv_func_inotify_add_watch"
+if test "x$ac_cv_func_inotify_add_watch" = xyes
 then :
   :
 else case e in #(
@@ -17482,7 +17325,8 @@ else case e in #(
 esac
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -17526,8 +17370,10 @@ fi
 rm -f conftest.err
 if test -n "$DBUS_CFLAGS$DBUS_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $DBUS_CFLAGS"
+LIBS="$DBUS_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "dbus/dbus.h" "ac_cv_header_dbus_dbus_h" "$ac_includes_default"
 if test "x$ac_cv_header_dbus_dbus_h" = xyes
 then :
@@ -17538,7 +17384,7 @@ then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_check_soname_save_LIBS=$LIBS
-LIBS="-ldbus-1 $DBUS_LIBS $LIBS"
+LIBS="-ldbus-1  $LIBS"
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -17599,7 +17445,8 @@ else case e in #(
 esac
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -17646,8 +17493,10 @@ fi
 rm -f conftest.err
 if test -n "$GNUTLS_CFLAGS$GNUTLS_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $GNUTLS_CFLAGS"
+LIBS="$GNUTLS_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "gnutls/gnutls.h" "ac_cv_header_gnutls_gnutls_h" "$ac_includes_default"
 if test "x$ac_cv_header_gnutls_gnutls_h" = xyes
 then :
@@ -17672,7 +17521,7 @@ then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_check_soname_save_LIBS=$LIBS
-LIBS="-lgnutls $GNUTLS_LIBS $LIBS"
+LIBS="-lgnutls  $LIBS"
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -17728,23 +17577,15 @@ printf '%s\n' "#define SONAME_LIBGNUTLS \"$ac_cv_lib_soname_gnutls\"" >>confdefs
         ;;
 esac
 fi
-                 ac_wine_check_funcs_save_LIBS="$LIBS"
-LIBS="$LIBS $GNUTLS_LIBS"
-
-  for ac_func in gnutls_cipher_init
-do :
-  ac_fn_c_check_func "$LINENO" "gnutls_cipher_init" "ac_cv_func_gnutls_cipher_init"
+                 ac_fn_c_check_func "$LINENO" "gnutls_cipher_init" "ac_cv_func_gnutls_cipher_init"
 if test "x$ac_cv_func_gnutls_cipher_init" = xyes
 then :
-  printf '%s\n' "#define HAVE_GNUTLS_CIPHER_INIT 1" >>confdefs.h
 
 else case e in #(
   e) as_fn_append wine_notices "|libgnutls ${notice_platform}development files too old, bcrypt encryption won't be supported." ;;
 esac
 fi
 
-done
-LIBS="$ac_wine_check_funcs_save_LIBS"
 fi
 rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
 else case e in #(
@@ -17752,7 +17593,8 @@ else case e in #(
 esac
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -17798,55 +17640,15 @@ fi
 rm -f conftest.err
 if test -n "$HWLOC_CFLAGS$HWLOC_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $HWLOC_CFLAGS"
+LIBS="$HWLOC_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "hwloc.h" "ac_cv_header_hwloc_h" "$ac_includes_default"
 if test "x$ac_cv_header_hwloc_h" = xyes
 then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for hwloc_topology_init in -lhwloc" >&5
-printf %s "checking for hwloc_topology_init in -lhwloc... " >&6; }
-if test ${ac_cv_lib_hwloc_hwloc_topology_init+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lhwloc $HWLOC_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char hwloc_topology_init (void);
-int
-main (void)
-{
-return hwloc_topology_init ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_hwloc_hwloc_topology_init=yes
-else case e in #(
-  e) ac_cv_lib_hwloc_hwloc_topology_init=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_hwloc_hwloc_topology_init" >&5
-printf '%s\n' "$ac_cv_lib_hwloc_hwloc_topology_init" >&6; }
-if test "x$ac_cv_lib_hwloc_hwloc_topology_init" = xyes
+  ac_fn_c_check_func "$LINENO" "hwloc_topology_init" "ac_cv_func_hwloc_topology_init"
+if test "x$ac_cv_func_hwloc_topology_init" = xyes
 then :
 
 printf '%s\n' "#define HAVE_LIBHWLOC 1" >>confdefs.h
@@ -17861,10 +17663,11 @@ else case e in #(
 esac
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
-        if test "$ac_cv_lib_hwloc_hwloc_topology_init" != "yes"
+        if test "$ac_cv_func_hwloc_topology_init" != "yes"
 then :
   case "x$with_hwloc" in
   x)   as_fn_append wine_notices "|hwloc ${notice_platform}development files not found, detailed CPU info on FreeBSD won't be supported." ;;
@@ -17907,66 +17710,27 @@ fi
 rm -f conftest.err
 if test -n "$SANE_CFLAGS$SANE_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $SANE_CFLAGS"
+LIBS="$SANE_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "sane/sane.h" "ac_cv_header_sane_sane_h" "$ac_includes_default"
 if test "x$ac_cv_header_sane_sane_h" = xyes
 then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for sane_init in -lsane" >&5
-printf %s "checking for sane_init in -lsane... " >&6; }
-if test ${ac_cv_lib_sane_sane_init+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lsane $SANE_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char sane_init (void);
-int
-main (void)
-{
-return sane_init ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_sane_sane_init=yes
-else case e in #(
-  e) ac_cv_lib_sane_sane_init=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_sane_sane_init" >&5
-printf '%s\n' "$ac_cv_lib_sane_sane_init" >&6; }
-if test "x$ac_cv_lib_sane_sane_init" = xyes
+  ac_fn_c_check_func "$LINENO" "sane_init" "ac_cv_func_sane_init"
+if test "x$ac_cv_func_sane_init" = xyes
 then :
   :
 fi
 
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
-if test "$ac_cv_lib_sane_sane_init" != "yes"
+if test "$ac_cv_func_sane_init" != "yes"
 then :
   case "x$with_sane" in
   x)   as_fn_append wine_notices "|libsane ${notice_platform}development files not found, scanners won't be supported." ;;
@@ -18006,55 +17770,15 @@ fi
 rm -f conftest.err
 if test -n "$USB_CFLAGS$USB_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $USB_CFLAGS"
+LIBS="$USB_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "libusb.h" "ac_cv_header_libusb_h" "$ac_includes_default"
 if test "x$ac_cv_header_libusb_h" = xyes
 then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for libusb_interrupt_event_handler in -lusb-1.0" >&5
-printf %s "checking for libusb_interrupt_event_handler in -lusb-1.0... " >&6; }
-if test ${ac_cv_lib_usb_1_0_libusb_interrupt_event_handler+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lusb-1.0 $USB_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char libusb_interrupt_event_handler (void);
-int
-main (void)
-{
-return libusb_interrupt_event_handler ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_usb_1_0_libusb_interrupt_event_handler=yes
-else case e in #(
-  e) ac_cv_lib_usb_1_0_libusb_interrupt_event_handler=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_usb_1_0_libusb_interrupt_event_handler" >&5
-printf '%s\n' "$ac_cv_lib_usb_1_0_libusb_interrupt_event_handler" >&6; }
-if test "x$ac_cv_lib_usb_1_0_libusb_interrupt_event_handler" = xyes
+  ac_fn_c_check_func "$LINENO" "libusb_interrupt_event_handler" "ac_cv_func_libusb_interrupt_event_handler"
+if test "x$ac_cv_func_libusb_interrupt_event_handler" = xyes
 then :
   :
 else case e in #(
@@ -18067,11 +17791,12 @@ else case e in #(
 esac
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
-if test "$ac_cv_lib_usb_1_0_libusb_interrupt_event_handler" != "yes"
+if test "$ac_cv_func_libusb_interrupt_event_handler" != "yes"
 then :
   case "x$with_usb" in
   x)   as_fn_append wine_notices "|libusb-1.0 ${notice_platform}development files not found (or too old), USB devices won't be supported." ;;
@@ -18188,62 +17913,23 @@ fi
 rm -f conftest.err
 if test -n "$GPHOTO2_CFLAGS$GPHOTO2_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $GPHOTO2_CFLAGS"
+LIBS="$GPHOTO2_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "gphoto2-camera.h" "ac_cv_header_gphoto2_camera_h" "$ac_includes_default"
 if test "x$ac_cv_header_gphoto2_camera_h" = xyes
 then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for gp_camera_new in -lgphoto2" >&5
-printf %s "checking for gp_camera_new in -lgphoto2... " >&6; }
-if test ${ac_cv_lib_gphoto2_gp_camera_new+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lgphoto2 $GPHOTO2_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char gp_camera_new (void);
-int
-main (void)
-{
-return gp_camera_new ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_gphoto2_gp_camera_new=yes
-else case e in #(
-  e) ac_cv_lib_gphoto2_gp_camera_new=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_gphoto2_gp_camera_new" >&5
-printf '%s\n' "$ac_cv_lib_gphoto2_gp_camera_new" >&6; }
-if test "x$ac_cv_lib_gphoto2_gp_camera_new" = xyes
+  ac_fn_c_check_func "$LINENO" "gp_camera_new" "ac_cv_func_gp_camera_new"
+if test "x$ac_cv_func_gp_camera_new" = xyes
 then :
   :
 fi
 
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
     rm -f conftest.err
@@ -18273,55 +17959,15 @@ fi
 rm -f conftest.err
 if test -n "$GPHOTO2_PORT_CFLAGS$GPHOTO2_PORT_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $GPHOTO2_PORT_CFLAGS"
+LIBS="$GPHOTO2_PORT_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "gphoto2-port.h" "ac_cv_header_gphoto2_port_h" "$ac_includes_default"
 if test "x$ac_cv_header_gphoto2_port_h" = xyes
 then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for gp_port_info_list_new in -lgphoto2_port" >&5
-printf %s "checking for gp_port_info_list_new in -lgphoto2_port... " >&6; }
-if test ${ac_cv_lib_gphoto2_port_gp_port_info_list_new+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lgphoto2_port $GPHOTO2_PORT_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char gp_port_info_list_new (void);
-int
-main (void)
-{
-return gp_port_info_list_new ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_gphoto2_port_gp_port_info_list_new=yes
-else case e in #(
-  e) ac_cv_lib_gphoto2_port_gp_port_info_list_new=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_gphoto2_port_gp_port_info_list_new" >&5
-printf '%s\n' "$ac_cv_lib_gphoto2_port_gp_port_info_list_new" >&6; }
-if test "x$ac_cv_lib_gphoto2_port_gp_port_info_list_new" = xyes
+  ac_fn_c_check_func "$LINENO" "gp_port_info_list_new" "ac_cv_func_gp_port_info_list_new"
+if test "x$ac_cv_func_gp_port_info_list_new" = xyes
 then :
 
 printf '%s\n' "#define HAVE_GPHOTO2_PORT 1" >>confdefs.h
@@ -18336,11 +17982,12 @@ else case e in #(
 esac
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
-if test "$ac_cv_lib_gphoto2_gp_camera_new" != "yes"
+if test "$ac_cv_func_gp_camera_new" != "yes"
 then :
   case "x$with_gphoto" in
   x)   as_fn_append wine_notices "|libgphoto2 ${notice_platform}development files not found, digital cameras won't be supported." ;;
@@ -18350,7 +17997,7 @@ This is an error since --with-gphoto was requested." "$LINENO" 5 ;;
 esac
 enable_gphoto2_ds=${enable_gphoto2_ds:-no}
 fi
-if test "$ac_cv_lib_gphoto2_port_gp_port_info_list_new" != "yes"
+if test "$ac_cv_func_gp_port_info_list_new" != "yes"
 then :
   case "x$with_gphoto" in
   x)   as_fn_append wine_notices "|libgphoto2_port ${notice_platform}development files not found, digital cameras won't be auto-detected." ;;
@@ -18491,8 +18138,10 @@ fi
 rm -f conftest.err
 if test -n "$FREETYPE_CFLAGS$FREETYPE_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $FREETYPE_CFLAGS"
+LIBS="$FREETYPE_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "ft2build.h" "ac_cv_header_ft2build_h" "$ac_includes_default"
 if test "x$ac_cv_header_ft2build_h" = xyes
 then :
@@ -18509,7 +18158,7 @@ then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_check_soname_save_LIBS=$LIBS
-LIBS="-lfreetype $FREETYPE_LIBS $LIBS"
+LIBS="-lfreetype  $LIBS"
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -18569,7 +18218,8 @@ fi
             FREETYPE_CFLAGS=""
             FREETYPE_LIBS=""
         fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -18702,55 +18352,15 @@ fi
 rm -f conftest.err
 if test -n "$PULSE_CFLAGS$PULSE_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $PULSE_CFLAGS"
+LIBS="$PULSE_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "pulse/pulseaudio.h" "ac_cv_header_pulse_pulseaudio_h" "$ac_includes_default"
 if test "x$ac_cv_header_pulse_pulseaudio_h" = xyes
 then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for pa_stream_is_corked in -lpulse" >&5
-printf %s "checking for pa_stream_is_corked in -lpulse... " >&6; }
-if test ${ac_cv_lib_pulse_pa_stream_is_corked+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lpulse $PULSE_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char pa_stream_is_corked (void);
-int
-main (void)
-{
-return pa_stream_is_corked ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_pulse_pa_stream_is_corked=yes
-else case e in #(
-  e) ac_cv_lib_pulse_pa_stream_is_corked=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_pulse_pa_stream_is_corked" >&5
-printf '%s\n' "$ac_cv_lib_pulse_pa_stream_is_corked" >&6; }
-if test "x$ac_cv_lib_pulse_pa_stream_is_corked" = xyes
+  ac_fn_c_check_func "$LINENO" "pa_stream_is_corked" "ac_cv_func_pa_stream_is_corked"
+if test "x$ac_cv_func_pa_stream_is_corked" = xyes
 then :
   :
 else case e in #(
@@ -18763,7 +18373,8 @@ else case e in #(
 esac
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -18807,8 +18418,10 @@ fi
 rm -f conftest.err
 if test -n "$FFMPEG_CFLAGS$FFMPEG_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $FFMPEG_CFLAGS"
+LIBS="$FFMPEG_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "libavutil/avutil.h" "ac_cv_header_libavutil_avutil_h" "$ac_includes_default"
 if test "x$ac_cv_header_libavutil_avutil_h" = xyes
 then :
@@ -18836,140 +18449,14 @@ fi
 
          if test "$ac_cv_header_libavutil_avutil_h" = "yes" -a "$ac_cv_header_libavformat_avformat_h" = "yes" -a "$ac_cv_header_libavcodec_avcodec_h" = "yes"
          then
-            { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for av_log_set_callback in -lavutil" >&5
-printf %s "checking for av_log_set_callback in -lavutil... " >&6; }
-if test ${ac_cv_lib_avutil_av_log_set_callback+y}
+            ac_fn_c_check_func "$LINENO" "av_log_set_callback" "ac_cv_func_av_log_set_callback"
+if test "x$ac_cv_func_av_log_set_callback" = xyes
 then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lavutil $FFMPEG_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char av_log_set_callback (void);
-int
-main (void)
-{
-return av_log_set_callback ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
+  ac_fn_c_check_func "$LINENO" "av_find_input_format" "ac_cv_func_av_find_input_format"
+if test "x$ac_cv_func_av_find_input_format" = xyes
 then :
-  ac_cv_lib_avutil_av_log_set_callback=yes
-else case e in #(
-  e) ac_cv_lib_avutil_av_log_set_callback=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_avutil_av_log_set_callback" >&5
-printf '%s\n' "$ac_cv_lib_avutil_av_log_set_callback" >&6; }
-if test "x$ac_cv_lib_avutil_av_log_set_callback" = xyes
-then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for av_find_input_format in -lavformat" >&5
-printf %s "checking for av_find_input_format in -lavformat... " >&6; }
-if test ${ac_cv_lib_avformat_av_find_input_format+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lavformat $FFMPEG_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char av_find_input_format (void);
-int
-main (void)
-{
-return av_find_input_format ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_avformat_av_find_input_format=yes
-else case e in #(
-  e) ac_cv_lib_avformat_av_find_input_format=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_avformat_av_find_input_format" >&5
-printf '%s\n' "$ac_cv_lib_avformat_av_find_input_format" >&6; }
-if test "x$ac_cv_lib_avformat_av_find_input_format" = xyes
-then :
-  { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for avcodec_get_name in -lavcodec" >&5
-printf %s "checking for avcodec_get_name in -lavcodec... " >&6; }
-if test ${ac_cv_lib_avcodec_avcodec_get_name+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lavcodec $FFMPEG_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char avcodec_get_name (void);
-int
-main (void)
-{
-return avcodec_get_name ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_avcodec_avcodec_get_name=yes
-else case e in #(
-  e) ac_cv_lib_avcodec_avcodec_get_name=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_avcodec_avcodec_get_name" >&5
-printf '%s\n' "$ac_cv_lib_avcodec_avcodec_get_name" >&6; }
-if test "x$ac_cv_lib_avcodec_avcodec_get_name" = xyes
+  ac_fn_c_check_func "$LINENO" "avcodec_get_name" "ac_cv_func_avcodec_get_name"
+if test "x$ac_cv_func_avcodec_get_name" = xyes
 then :
 
 printf '%s\n' "#define HAVE_FFMPEG 1" >>confdefs.h
@@ -18992,7 +18479,8 @@ fi
          else
             FFMPEG_LIBS=""
          fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -19036,8 +18524,10 @@ fi
 rm -f conftest.err
 if test -n "$GSTREAMER_CFLAGS$GSTREAMER_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $GSTREAMER_CFLAGS"
+LIBS="$GSTREAMER_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "gst/gst.h" "ac_cv_header_gst_gst_h" "$ac_includes_default"
 if test "x$ac_cv_header_gst_gst_h" = xyes
 then :
@@ -19058,50 +18548,8 @@ if ac_fn_c_try_compile "$LINENO"
 then :
   { printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: yes" >&5
 printf '%s\n' "yes" >&6; }
-                 { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for gst_pad_new in -lgstreamer-1.0" >&5
-printf %s "checking for gst_pad_new in -lgstreamer-1.0... " >&6; }
-if test ${ac_cv_lib_gstreamer_1_0_gst_pad_new+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lgstreamer-1.0 $GSTREAMER_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char gst_pad_new (void);
-int
-main (void)
-{
-return gst_pad_new ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_gstreamer_1_0_gst_pad_new=yes
-else case e in #(
-  e) ac_cv_lib_gstreamer_1_0_gst_pad_new=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_gstreamer_1_0_gst_pad_new" >&5
-printf '%s\n' "$ac_cv_lib_gstreamer_1_0_gst_pad_new" >&6; }
-if test "x$ac_cv_lib_gstreamer_1_0_gst_pad_new" = xyes
+                 ac_fn_c_check_func "$LINENO" "gst_pad_new" "ac_cv_func_gst_pad_new"
+if test "x$ac_cv_func_gst_pad_new" = xyes
 then :
   :
 fi
@@ -19117,11 +18565,12 @@ fi
 rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
-if test "x$ac_glib2_broken" != xyes -a "x$ac_cv_lib_gstreamer_1_0_gst_pad_new" != xyes
+if test "x$ac_glib2_broken" != xyes -a "x$ac_cv_func_gst_pad_new" != xyes
 then :
   case "x$with_gstreamer" in
   x)   as_fn_append wine_notices "|gstreamer-1.0 base plugins ${notice_platform}development files not found, GStreamer won't be supported." ;;
@@ -19163,52 +18612,12 @@ fi
 rm -f conftest.err
 if test -n "$ALSA_CFLAGS$ALSA_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $ALSA_CFLAGS"
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for snd_pcm_hw_params_get_access_mask in -lasound" >&5
-printf %s "checking for snd_pcm_hw_params_get_access_mask in -lasound... " >&6; }
-if test ${ac_cv_lib_asound_snd_pcm_hw_params_get_access_mask+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lasound $ALSA_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char snd_pcm_hw_params_get_access_mask (void);
-int
-main (void)
-{
-return snd_pcm_hw_params_get_access_mask ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_asound_snd_pcm_hw_params_get_access_mask=yes
-else case e in #(
-  e) ac_cv_lib_asound_snd_pcm_hw_params_get_access_mask=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_asound_snd_pcm_hw_params_get_access_mask" >&5
-printf '%s\n' "$ac_cv_lib_asound_snd_pcm_hw_params_get_access_mask" >&6; }
-if test "x$ac_cv_lib_asound_snd_pcm_hw_params_get_access_mask" = xyes
+LIBS="$ALSA_LIBS $LIBS"
+ac_fn_c_check_func "$LINENO" "snd_pcm_hw_params_get_access_mask" "ac_cv_func_snd_pcm_hw_params_get_access_mask"
+if test "x$ac_cv_func_snd_pcm_hw_params_get_access_mask" = xyes
 then :
   :
 else case e in #(
@@ -19216,7 +18625,8 @@ else case e in #(
 esac
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -19347,58 +18757,18 @@ fi
 rm -f conftest.err
 if test -n "$UDEV_CFLAGS$UDEV_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $UDEV_CFLAGS"
+LIBS="$UDEV_LIBS $LIBS"
        for ac_header in libudev.h
 do :
   ac_fn_c_check_header_compile "$LINENO" "libudev.h" "ac_cv_header_libudev_h" "$ac_includes_default"
 if test "x$ac_cv_header_libudev_h" = xyes
 then :
   printf '%s\n' "#define HAVE_LIBUDEV_H 1" >>confdefs.h
- { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for udev_new in -ludev" >&5
-printf %s "checking for udev_new in -ludev... " >&6; }
-if test ${ac_cv_lib_udev_udev_new+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-ludev $UDEV_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char udev_new (void);
-int
-main (void)
-{
-return udev_new ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_udev_udev_new=yes
-else case e in #(
-  e) ac_cv_lib_udev_udev_new=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_udev_udev_new" >&5
-printf '%s\n' "$ac_cv_lib_udev_udev_new" >&6; }
-if test "x$ac_cv_lib_udev_udev_new" = xyes
+ ac_fn_c_check_func "$LINENO" "udev_new" "ac_cv_func_udev_new"
+if test "x$ac_cv_func_udev_new" = xyes
 then :
 
 printf '%s\n' "#define HAVE_UDEV 1" >>confdefs.h
@@ -19414,7 +18784,8 @@ esac
 fi
 
 done
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -19458,8 +18829,10 @@ fi
 rm -f conftest.err
 if test -n "$SDL2_CFLAGS$SDL2_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $SDL2_CFLAGS"
+LIBS="$SDL2_LIBS $LIBS"
        for ac_header in SDL.h
 do :
   ac_fn_c_check_header_compile "$LINENO" "SDL.h" "ac_cv_header_SDL_h" "$ac_includes_default"
@@ -19473,7 +18846,7 @@ then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_check_soname_save_LIBS=$LIBS
-LIBS="-lSDL2 $SDL2_LIBS $LIBS"
+LIBS="-lSDL2  $LIBS"
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -19532,7 +18905,8 @@ fi
 fi
 
 done
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -19576,8 +18950,10 @@ fi
 rm -f conftest.err
 if test -n "$CAPI20_CFLAGS$CAPI20_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $CAPI20_CFLAGS"
+LIBS="$CAPI20_LIBS $LIBS"
     ac_fn_c_check_header_compile "$LINENO" "capi20.h" "ac_cv_header_capi20_h" "#define __user
 "
 if test "x$ac_cv_header_capi20_h" = xyes
@@ -19595,50 +18971,8 @@ fi
 
     if test "$ac_cv_header_capi20_h" = "yes" -a "$ac_cv_header_linux_capi_h" = "yes"
     then
-        { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for capi20_register in -lcapi20" >&5
-printf %s "checking for capi20_register in -lcapi20... " >&6; }
-if test ${ac_cv_lib_capi20_capi20_register+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-lcapi20 $CAPI20_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char capi20_register (void);
-int
-main (void)
-{
-return capi20_register ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_capi20_capi20_register=yes
-else case e in #(
-  e) ac_cv_lib_capi20_capi20_register=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_capi20_capi20_register" >&5
-printf '%s\n' "$ac_cv_lib_capi20_capi20_register" >&6; }
-if test "x$ac_cv_lib_capi20_capi20_register" = xyes
+        ac_fn_c_check_func "$LINENO" "capi20_register" "ac_cv_func_capi20_register"
+if test "x$ac_cv_func_capi20_register" = xyes
 then :
   :
 else case e in #(
@@ -19647,11 +18981,12 @@ esac
 fi
 
     fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
-if test "x$ac_cv_lib_capi20_capi20_register" != xyes
+if test "x$ac_cv_func_capi20_register" != xyes
 then :
   case "x$with_capi" in
   x)   as_fn_append wine_notices "|libcapi20 ${notice_platform}development files not found, ISDN won't be supported." ;;
@@ -19691,8 +19026,10 @@ fi
 rm -f conftest.err
 if test -n "$CUPS_CFLAGS$CUPS_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $CUPS_CFLAGS"
+LIBS="$CUPS_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "cups/cups.h" "ac_cv_header_cups_cups_h" "$ac_includes_default"
 if test "x$ac_cv_header_cups_cups_h" = xyes
 then :
@@ -19715,7 +19052,7 @@ then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_check_soname_save_LIBS=$LIBS
-LIBS="-lcups $CUPS_LIBS $LIBS"
+LIBS="-lcups  $LIBS"
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -19775,7 +19112,8 @@ fi
                             CUPS_CFLAGS=""
                             CUPS_LIBS=""
                         fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -19819,8 +19157,10 @@ fi
 rm -f conftest.err
 if test -n "$FONTCONFIG_CFLAGS$FONTCONFIG_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $FONTCONFIG_CFLAGS"
+LIBS="$FONTCONFIG_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "fontconfig/fontconfig.h" "ac_cv_header_fontconfig_fontconfig_h" "$ac_includes_default"
 if test "x$ac_cv_header_fontconfig_fontconfig_h" = xyes
 then :
@@ -19831,7 +19171,7 @@ then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_check_soname_save_LIBS=$LIBS
-LIBS="-lfontconfig $FONTCONFIG_LIBS $LIBS"
+LIBS="-lfontconfig  $LIBS"
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -19892,7 +19232,8 @@ else case e in #(
 esac
 fi
 
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -19936,8 +19277,10 @@ fi
 rm -f conftest.err
 if test -n "$KRB5_CFLAGS$KRB5_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $KRB5_CFLAGS"
+LIBS="$KRB5_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "krb5/krb5.h" "ac_cv_header_krb5_krb5_h" "$ac_includes_default"
 if test "x$ac_cv_header_krb5_krb5_h" = xyes
 then :
@@ -19954,7 +19297,7 @@ then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_check_soname_save_LIBS=$LIBS
-LIBS="-lkrb5 $KRB5_LIBS $LIBS"
+LIBS="-lkrb5  $LIBS"
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -20013,7 +19356,8 @@ fi
          else
              KRB5_CFLAGS=""
          fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -20058,8 +19402,10 @@ fi
 rm -f conftest.err
 if test -n "$GSSAPI_CFLAGS$GSSAPI_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $GSSAPI_CFLAGS"
+LIBS="$GSSAPI_LIBS $LIBS"
 ac_fn_c_check_header_compile "$LINENO" "gssapi/gssapi.h" "ac_cv_header_gssapi_gssapi_h" "$ac_includes_default"
 if test "x$ac_cv_header_gssapi_gssapi_h" = xyes
 then :
@@ -20082,7 +19428,7 @@ then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_check_soname_save_LIBS=$LIBS
-LIBS="-lgssapi_krb5 $GSSAPI_LIBS $LIBS"
+LIBS="-lgssapi_krb5  $LIBS"
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -20141,7 +19487,8 @@ fi
         else
             GSSAPI_CFLAGS=""
         fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -20306,8 +19653,10 @@ fi
 rm -f conftest.err
 if test -n "$NETAPI_CFLAGS$NETAPI_LIBS"
 then :
-  ac_save_CPPFLAGS=$CPPFLAGS
+  ac_save_pkg_CPPFLAGS=$CPPFLAGS
+ac_save_pkg_LIBS=$LIBS
 CPPFLAGS="$CPPFLAGS $NETAPI_CFLAGS"
+LIBS="$NETAPI_LIBS $LIBS"
 { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for -lnetapi" >&5
 printf %s "checking for -lnetapi... " >&6; }
 if test ${ac_cv_lib_soname_netapi+y}
@@ -20315,7 +19664,7 @@ then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_check_soname_save_LIBS=$LIBS
-LIBS="-lnetapi $NETAPI_LIBS $LIBS"
+LIBS="-lnetapi  $LIBS"
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -20372,7 +19721,8 @@ printf '%s\n' "#define SONAME_LIBNETAPI \"$ac_cv_lib_soname_netapi\"" >>confdefs
         ;;
 esac
 fi
-CPPFLAGS=$ac_save_CPPFLAGS
+CPPFLAGS=$ac_save_pkg_CPPFLAGS
+LIBS=$ac_save_pkg_LIBS
 fi
 
 fi
@@ -23567,6 +22917,7 @@ wine_fn_config_makefile dlls/threadpoolwinrt enable_threadpoolwinrt
 wine_fn_config_makefile dlls/threadpoolwinrt/tests enable_tests
 wine_fn_config_makefile dlls/thumbcache enable_thumbcache
 wine_fn_config_makefile dlls/thumbcache/tests enable_tests
+wine_fn_config_makefile dlls/tiptsf enable_tiptsf
 wine_fn_config_makefile dlls/toolhelp.dll16 enable_win16
 wine_fn_config_makefile dlls/traffic enable_traffic
 wine_fn_config_makefile dlls/twain.dll16 enable_win16
@@ -25026,7 +24377,10 @@ XKBCOMMON_CFLAGS = $XKBCOMMON_CFLAGS
 XKBCOMMON_LIBS = $XKBCOMMON_LIBS
 WAYLAND_EGL_CFLAGS = $WAYLAND_EGL_CFLAGS
 WAYLAND_EGL_LIBS = $WAYLAND_EGL_LIBS
+OPENCL_CFLAGS = $OPENCL_CFLAGS
+PCAP_CFLAGS = $PCAP_CFLAGS
 PCAP_LIBS = $PCAP_LIBS
+PCSCLITE_CFLAGS = $PCSCLITE_CFLAGS
 PCSCLITE_LIBS = $PCSCLITE_LIBS
 INOTIFY_CFLAGS = $INOTIFY_CFLAGS
 INOTIFY_LIBS = $INOTIFY_LIBS

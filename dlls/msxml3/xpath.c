@@ -4398,7 +4398,7 @@ static bool xpath_compare_values(struct xpath_parser_context *ctxt, bool inf, bo
         else
         {
             if (arg1->type == _XPATH_NODESET)
-                ret = xpath_compare_nodeset_value(ctxt, !inf, strict, arg1, arg2);
+                ret = xpath_compare_nodeset_value(ctxt, inf, strict, arg1, arg2);
             else
                 ret = xpath_compare_nodeset_value(ctxt, !inf, strict, arg2, arg1);
         }
@@ -4773,7 +4773,6 @@ start:
             break;
         default:
             xpath_comp_op_eval(ctxt, op);
-            if (ctxt->error != XPATH_EXPRESSION_OK)
             if (ctxt->error != XPATH_EXPRESSION_OK)
                 return -1;
 
