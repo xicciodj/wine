@@ -226,7 +226,7 @@ struct wayland_output
 
 struct wayland_surface_config
 {
-    int32_t width, height;
+    RECT rect;
     enum wayland_surface_config_state state;
     uint32_t serial;
     BOOL processed;
@@ -291,7 +291,7 @@ struct wayland_surface
         struct
         {
             struct wl_subsurface *wl_subsurface;
-            HWND toplevel_hwnd;
+            HWND owner_hwnd;
         };
     };
     struct wp_alpha_modifier_surface_v1 *wp_alpha_modifier_surface_v1;
@@ -331,15 +331,12 @@ void wayland_surface_attach_shm(struct wayland_surface *surface,
                                 struct wayland_shm_buffer *shm_buffer,
                                 HRGN surface_damage_region);
 BOOL wayland_surface_reconfigure(struct wayland_surface *surface);
-BOOL wayland_surface_config_is_compatible(struct wayland_surface_config *conf,
-                                          int width, int height,
+BOOL wayland_surface_config_is_compatible(struct wayland_surface_config *conf, RECT rect,
                                           enum wayland_surface_config_state state);
-void wayland_surface_coords_from_window(struct wayland_surface *surface,
-                                        int window_x, int window_y,
-                                        int *surface_x, int *surface_y);
-void wayland_surface_coords_to_window(struct wayland_surface *surface,
-                                      double surface_x, double surface_y,
-                                      int *window_x, int *window_y);
+RECT map_rect_to_surface(struct wayland_surface *surface, RECT rect);
+POINT map_point_to_surface(struct wayland_surface *surface, POINT point);
+RECT map_rect_from_surface(struct wayland_surface *surface, RECT rect);
+POINT map_point_from_surface(struct wayland_surface *surface, POINT point);
 void wayland_client_surface_attach(struct wayland_client_surface *client, HWND toplevel);
 void wayland_surface_ensure_contents(struct wayland_surface *surface);
 void wayland_surface_set_title(struct wayland_surface *surface, LPCWSTR title);

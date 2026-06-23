@@ -843,9 +843,6 @@ static void test_math_errors(void)
     __setusermatherr(matherr_callback);
     module = GetModuleHandleW(L"ucrtbase.dll");
 
-    /* necessary so that exp(1e100)==INFINITY on glibc, we can remove this if we change our implementation */
-    fesetround(FE_TONEAREST);
-
     for(i = 0; i < ARRAY_SIZE(testsd); i++) {
         p_funcd = (void*)GetProcAddress(module, testsd[i].func);
         errno = -1;
@@ -2110,6 +2107,26 @@ static void test_cargf(void)
     __setusermatherr(NULL);
 }
 
+static void test_rint(void)
+{
+    int rounding_mode = fegetround();
+    double ret;
+
+    ok(!fesetround(FE_DOWNWARD), "fesetround failed\n");
+    ret = rint(-3.3);
+    ok(ret == -4.0, "ret = %lf\n", ret);
+    ret = rint(3.3);
+    ok(ret == 3.0, "ret = %lf\n", ret);
+
+    ok(!fesetround(FE_UPWARD), "fesetround failed\n");
+    ret = rint(-3.3);
+    ok(ret == -3.0, "ret = %lf\n", ret);
+    ret = rint(3.3);
+    ok(ret == 4.0, "ret = %lf\n", ret);
+
+    fesetround(rounding_mode);
+}
+
 START_TEST(misc)
 {
     int arg_c;
@@ -2162,4 +2179,5 @@ START_TEST(misc)
     test_cexp();
     test_carg();
     test_cargf();
+    test_rint();
 }
