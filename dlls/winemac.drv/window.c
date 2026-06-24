@@ -825,7 +825,7 @@ static BOOL set_capture_window_for_move(HWND hwnd)
 
     if (ret)
     {
-        macdrv_SetCapture(hwnd, GUI_INMOVESIZE);
+        macdrv_SetCapture(NtUserGetAncestor(hwnd, GA_ROOT), GUI_INMOVESIZE, NtUserGetAncestor(previous, GA_ROOT));
 
         if (previous && previous != hwnd)
             send_message(previous, WM_CAPTURECHANGED, 0, (LPARAM)hwnd);
@@ -1279,7 +1279,6 @@ void macdrv_DestroyWindow(HWND hwnd)
 
     if (!(data = get_win_data(hwnd))) return;
 
-    if (hwnd == get_capture()) macdrv_SetCapture(0, 0);
     if (data->drag_event) NtSetEvent(data->drag_event, NULL);
 
     destroy_cocoa_window(data);

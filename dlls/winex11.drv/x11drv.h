@@ -233,7 +233,7 @@ extern void X11DRV_GetDC( HDC hdc, HWND hwnd, HWND top, const RECT *win_rect,
                           const RECT *top_rect, DWORD flags );
 extern void X11DRV_ReleaseDC( HWND hwnd, HDC hdc );
 extern BOOL X11DRV_ScrollDC( HDC hdc, INT dx, INT dy, HRGN update );
-extern void X11DRV_SetCapture( HWND hwnd, UINT flags );
+extern void X11DRV_SetCapture( HWND hwnd, UINT flags, HWND previous );
 extern void X11DRV_SetDesktopWindow( HWND hwnd );
 extern void X11DRV_SetLayeredWindowAttributes( HWND hwnd, COLORREF key, BYTE alpha,
                                                DWORD flags );
@@ -415,7 +415,6 @@ struct x11drv_thread_data
 {
     Display *display;
     XEvent  *current_event;        /* event currently being processed */
-    HWND     grab_hwnd;            /* window that currently grabs the mouse */
     HWND     last_focus;           /* last window that had focus */
     HWND     keymapnotify_hwnd;    /* window that should receive modifier release events */
     XIM      xim;                  /* input method */
@@ -988,6 +987,13 @@ static inline HWND get_active_window(void)
     GUITHREADINFO info;
     info.cbSize = sizeof(info);
     return NtUserGetGUIThreadInfo( GetCurrentThreadId(), &info ) ? info.hwndActive : 0;
+}
+
+static inline HWND get_capture_window(void)
+{
+    GUITHREADINFO info;
+    info.cbSize = sizeof(info);
+    return NtUserGetGUIThreadInfo( GetCurrentThreadId(), &info ) ? info.hwndCapture : 0;
 }
 
 static inline BOOL intersect_rect( RECT *dst, const RECT *src1, const RECT *src2 )

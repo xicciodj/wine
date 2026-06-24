@@ -3108,32 +3108,31 @@ BOOL X11DRV_ScrollDC( HDC hdc, INT dx, INT dy, HRGN update )
 /***********************************************************************
  *		SetCapture  (X11DRV.@)
  */
-void X11DRV_SetCapture( HWND hwnd, UINT flags )
+void X11DRV_SetCapture( HWND hwnd, UINT flags, HWND previous )
 {
-    struct x11drv_thread_data *thread_data = x11drv_thread_data();
     struct x11drv_win_data *data;
+
+    TRACE( "hwnd %p, flags %#x, previous %p\n", hwnd, flags, previous );
 
     if (!(flags & (GUI_INMOVESIZE | GUI_INMENUMODE))) return;
 
     if (hwnd)
     {
-        if (!(data = get_win_data( NtUserGetAncestor( hwnd, GA_ROOT )))) return;
+        if (!(data = get_win_data( hwnd ))) return;
         if (data->whole_window)
         {
             XGrabPointer( data->display, data->whole_window, False,
                           PointerMotionMask | ButtonPressMask | ButtonReleaseMask,
                           GrabModeAsync, GrabModeAsync, None, None, CurrentTime );
             XFlush( data->display );
-            thread_data->grab_hwnd = data->hwnd;
         }
         release_win_data( data );
     }
-    else  /* release capture */
+    else if (previous)  /* release capture */
     {
-        if (!(data = get_win_data( thread_data->grab_hwnd ))) return;
+        if (!(data = get_win_data( previous ))) return;
         XUngrabPointer( data->display, CurrentTime );
         XFlush( data->display );
-        thread_data->grab_hwnd = NULL;
         release_win_data( data );
     }
 }
