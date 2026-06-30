@@ -142,7 +142,6 @@ void wp_fractional_scale_handle_scale(void* user_data,
                                       uint32_t scale_fixed)
 {
     struct wayland_win_data *data;
-    struct wayland_client_surface *client;
     struct wayland_surface *surface;
     double scale = scale_fixed / 120.0;
     HWND hwnd = user_data;
@@ -158,9 +157,8 @@ void wp_fractional_scale_handle_scale(void* user_data,
 
     surface->window.scale = scale;
 
-    /* reattach the client surface as its rect has changed */
-    if ((client = data->client_surface))
-        wayland_client_surface_attach(client, client->toplevel);
+    /* reattach client surfaces as their rects have changed */
+    update_client_surfaces(hwnd);
 
     /* the subsurface rect has changed */
     if (surface->role == WAYLAND_SURFACE_ROLE_SUBSURFACE)
@@ -766,9 +764,10 @@ static void wayland_surface_reconfigure_subsurface(struct wayland_surface *surfa
     struct wayland_win_data *owner_data;
     struct wayland_surface *owner_surface;
 
-    if (surface->processing.serial && surface->processing.processed &&
-        (owner_data = wayland_win_data_get_nolock(surface->owner_hwnd)) &&
-        (owner_surface = owner_data->wayland_surface))
+    if (!surface->processing.serial || !surface->processing.processed) return;
+    if (!(owner_data = wayland_win_data_get(surface->owner_hwnd))) return;
+
+    if ((owner_surface = owner_data->wayland_surface))
     {
         RECT rect = surface->window.rect;
 
@@ -786,6 +785,8 @@ static void wayland_surface_reconfigure_subsurface(struct wayland_surface *surfa
 
         memset(&surface->processing, 0, sizeof(surface->processing));
     }
+
+    wayland_win_data_release(owner_data);
 }
 
 /**********************************************************************
@@ -1197,7 +1198,27 @@ static void wayland_client_surface_present(struct client_surface *client, HDC hd
 {
     struct wayland_client_surface *surface = impl_from_client_surface(client);
     HWND hwnd = client->hwnd, toplevel = NtUserGetAncestor(hwnd, GA_ROOT);
-    ensure_window_surface_contents(toplevel);
+    struct wayland_surface *wayland_surface;
+    struct wayland_win_data *data;
+
+    if (!(data = wayland_win_data_get(toplevel))) return;
+
+    if ((wayland_surface = data->wayland_surface))
+    {
+        wayland_surface_ensure_contents(wayland_surface);
+
+        /* Handle any processed configure request, to ensure the related
+         * surface state is applied by the compositor. */
+        if (wayland_surface->processing.serial &&
+            wayland_surface->processing.processed &&
+            wayland_surface_reconfigure(wayland_surface))
+        {
+            wl_surface_commit(wayland_surface->wl_surface);
+        }
+    }
+
+    wayland_win_data_release(data);
+
     set_client_surface(hwnd, surface);
 }
 
@@ -1276,10 +1297,10 @@ void wayland_client_surface_attach(struct wayland_client_surface *client, HWND t
         return;
     }
 
-    if (!(toplevel_data = wayland_win_data_get_nolock(toplevel)) || !(surface = toplevel_data->wayland_surface))
+    if (!(toplevel_data = wayland_win_data_get(toplevel)) || !(surface = toplevel_data->wayland_surface))
     {
-        wayland_client_surface_attach(client, NULL);
-        return;
+        if (toplevel_data) wayland_win_data_release(toplevel_data);
+        return wayland_client_surface_attach(client, NULL);
     }
 
     if (client->toplevel != toplevel)
@@ -1290,11 +1311,8 @@ void wayland_client_surface_attach(struct wayland_client_surface *client, HWND t
             wl_subcompositor_get_subsurface(process_wayland.wl_subcompositor,
                                             client->wl_surface,
                                             surface->wl_surface);
-        if (!client->wl_subsurface)
-        {
-            ERR("Failed to create client wl_subsurface\n");
-            return;
-        }
+        if (!client->wl_subsurface) goto done;
+
         /* Present contents independently of the parent surface. */
         wl_subsurface_set_desync(client->wl_subsurface);
 
@@ -1307,6 +1325,9 @@ void wayland_client_surface_attach(struct wayland_client_surface *client, HWND t
     wayland_surface_reconfigure_client(surface, client, &client_rect);
     /* Commit to apply subsurface positioning. */
     wl_surface_commit(surface->wl_surface);
+
+done:
+    wayland_win_data_release(toplevel_data);
 }
 
 static void dummy_buffer_release(void *data, struct wl_buffer *buffer)
