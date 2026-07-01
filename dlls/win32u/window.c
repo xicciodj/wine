@@ -308,6 +308,7 @@ void detach_client_surfaces( HWND hwnd )
         client_surface_add_ref( surface );
 
         surface->funcs->detach( surface );
+        surface->toplevel = NULL;
         surface->hwnd = NULL;
     }
 
@@ -320,6 +321,38 @@ void detach_client_surfaces( HWND hwnd )
     }
 }
 
+static RECT get_client_surface_rects( HWND toplevel, HWND hwnd, RECT *monitor_rect )
+{
+    UINT dpi = get_dpi_for_window( hwnd ), raw_dpi;
+    struct window_rects rects, monitor_rects;
+    RECT rect = {0};
+
+    if (!toplevel) toplevel = NtUserGetAncestor( hwnd, GA_ROOT );
+    get_window_rects( toplevel, COORDS_PARENT, &rects, dpi );
+    monitor_rects = map_window_rects_virt_to_raw( rects, dpi );
+
+    if (get_present_rect( hwnd, &rect, dpi )) OffsetRect( &rect, -rects.client.left, -rects.client.top );
+    else if (get_client_rect( hwnd, &rect, dpi )) map_window_points( hwnd, toplevel, (POINT *)&rect, 2, dpi );
+
+    get_win_monitor_dpi( hwnd, &raw_dpi );
+    *monitor_rect = map_dpi_rect( rect, dpi, raw_dpi );
+    OffsetRect( monitor_rect, monitor_rects.client.left - monitor_rects.visible.left,
+                monitor_rects.client.top - monitor_rects.visible.top );
+
+    return rect;
+}
+
+static void client_surface_update_locked( struct client_surface *surface )
+{
+    surface->toplevel = NtUserGetAncestor( surface->hwnd, GA_ROOT );
+    surface->virtual_rect = get_client_surface_rects( surface->toplevel, surface->hwnd, &surface->monitor_rect );
+
+    TRACE( "updating %s, toplevel %p, virtual_rect %s, monitor_rect %s\n", debugstr_client_surface( surface ), surface->toplevel,
+           wine_dbgstr_rect( &surface->virtual_rect ), wine_dbgstr_rect( &surface->monitor_rect ) );
+    surface->funcs->update( surface );
+    InterlockedExchange( &surface->updated, 1 );
+}
+
 void update_client_surfaces( HWND hwnd )
 {
     struct client_surface *surface, *next;
@@ -329,8 +362,7 @@ void update_client_surfaces( HWND hwnd )
     LIST_FOR_EACH_ENTRY_SAFE( surface, next, &client_surfaces, struct client_surface, entry )
     {
         if (NtUserGetAncestor( surface->hwnd, GA_ROOT ) != hwnd) continue;
-        surface->funcs->update( surface );
-        InterlockedExchange( &surface->updated, 1 );
+        client_surface_update_locked( surface );
     }
 
     pthread_mutex_unlock( &surfaces_lock );
@@ -338,15 +370,19 @@ void update_client_surfaces( HWND hwnd )
 
 void *client_surface_create( UINT size, const struct client_surface_funcs *funcs, HWND hwnd )
 {
+    HWND toplevel = NtUserGetAncestor( hwnd, GA_ROOT );
     struct client_surface *surface;
 
     if (!(surface = calloc( 1, size ))) return NULL;
     surface->funcs = funcs;
     surface->ref = 1;
     surface->hwnd = hwnd;
+    surface->toplevel = toplevel;
+    surface->virtual_rect = get_client_surface_rects( toplevel, hwnd, &surface->monitor_rect );
     list_init( &surface->entry );
 
-    TRACE( "created %s\n", debugstr_client_surface( surface ) );
+    TRACE( "created %s, toplevel %p, virtual_rect %s, monitor_rect %s\n", debugstr_client_surface( surface ), toplevel,
+           wine_dbgstr_rect( &surface->virtual_rect ), wine_dbgstr_rect( &surface->monitor_rect ) );
     return surface;
 }
 
@@ -384,6 +420,7 @@ void client_surface_present( struct client_surface *surface )
     pthread_mutex_lock( &surfaces_lock );
     if ((hwnd = surface->hwnd))
     {
+        client_surface_update_locked( surface );
         if (surface->offscreen) hdc = NtUserGetDCEx( hwnd, 0, DCX_CACHE | DCX_USESTYLE );
         surface->funcs->present( surface, hdc );
         if (hdc) NtUserReleaseDC( hwnd, hdc );
@@ -394,7 +431,7 @@ void client_surface_present( struct client_surface *surface )
 void client_surface_update( struct client_surface *surface )
 {
     pthread_mutex_lock( &surfaces_lock );
-    if (surface->hwnd) surface->funcs->update( surface );
+    if (surface->hwnd) client_surface_update_locked( surface );
     pthread_mutex_unlock( &surfaces_lock );
 }
 
@@ -404,7 +441,7 @@ void add_window_client_surface( HWND hwnd, struct client_surface *surface )
 
     surface->hwnd = hwnd;
     list_add_tail( &client_surfaces, &surface->entry );
-    surface->funcs->update( surface );
+    client_surface_update_locked( surface );
 
     pthread_mutex_unlock( &surfaces_lock );
 }
@@ -2353,7 +2390,7 @@ static BOOL apply_window_pos( HWND hwnd, HWND insert_after, UINT swp_flags, stru
     return ret;
 }
 
-static BOOL expose_window_surface( HWND hwnd, UINT flags, const RECT *rect, UINT dpi )
+static BOOL expose_window_surface( HWND hwnd, UINT flags, const RECT *rect )
 {
     struct window_surface *surface;
     struct window_rects rects;
@@ -2365,7 +2402,12 @@ static BOOL expose_window_surface( HWND hwnd, UINT flags, const RECT *rect, UINT
     rects = win->rects;
     release_win_ptr( win );
 
-    if (rect) exposed_rect = map_dpi_rect( *rect, dpi, get_dpi_for_window( hwnd ) );
+    if (rect)
+    {
+        UINT raw_dpi;
+        get_win_monitor_dpi( hwnd, &raw_dpi );
+        exposed_rect = map_dpi_rect( *rect, raw_dpi, get_dpi_for_window( hwnd ) );
+    }
 
     if (!surface || surface == &dummy_surface)
     {
@@ -6191,7 +6233,7 @@ ULONG_PTR WINAPI NtUserCallHwndParam( HWND hwnd, DWORD_PTR param, DWORD code )
     case NtUserCallHwndParam_ExposeWindowSurface:
     {
         struct expose_window_surface_params *params = (void *)param;
-        return expose_window_surface( hwnd, params->flags, params->whole ? NULL : &params->rect, params->dpi );
+        return expose_window_surface( hwnd, params->flags, params->whole ? NULL : &params->rect );
     }
 
     case NtUserCallHwndParam_GetWinMonitorDpi:

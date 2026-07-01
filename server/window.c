@@ -3031,12 +3031,17 @@ DECL_HANDLER(get_update_region)
 
 
 /* update the z order of a window so that a given rectangle is fully visible */
-DECL_HANDLER(update_window_zorder)
+void set_window_rect_visible( user_handle_t window, struct rectangle rect )
 {
-    struct rectangle tmp, rect = req->rect;
-    struct window *ptr, *win = get_window( req->window );
+    struct window *ptr, *win;
+    struct rectangle tmp;
 
-    if (!win || !win->parent || !is_visible( win )) return;  /* nothing to do */
+    if (!(win = get_window( window )) || !win->parent || !is_visible( win )) return;  /* nothing to do */
+
+    map_point_raw_to_virt( win->desktop, &rect.left, &rect.top );
+    map_point_raw_to_virt( win->desktop, &rect.right, &rect.bottom );
+    rect.right = max( rect.left + 1, rect.right );
+    rect.bottom = max( rect.top + 1, rect.bottom );
 
     LIST_FOR_EACH_ENTRY( ptr, &win->parent->children, struct window, entry )
     {
@@ -3063,6 +3068,10 @@ DECL_HANDLER(update_window_zorder)
     }
 }
 
+DECL_HANDLER(update_window_zorder)
+{
+    set_window_rect_visible( req->window, req->rect );
+}
 
 /* mark parts of a window as needing a redraw */
 DECL_HANDLER(redraw_window)
