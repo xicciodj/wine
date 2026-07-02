@@ -10789,6 +10789,12 @@ then :
   printf '%s\n' "#define HAVE_ARPA_NAMESER_H 1" >>confdefs.h
 
 fi
+ac_fn_c_check_header_compile "$LINENO" "asm/hwcap.h" "ac_cv_header_asm_hwcap_h" "$ac_includes_default"
+if test "x$ac_cv_header_asm_hwcap_h" = xyes
+then :
+  printf '%s\n' "#define HAVE_ASM_HWCAP_H 1" >>confdefs.h
+
+fi
 ac_fn_c_check_header_compile "$LINENO" "asm/termbits.h" "ac_cv_header_asm_termbits_h" "$ac_includes_default"
 if test "x$ac_cv_header_asm_termbits_h" = xyes
 then :
@@ -10811,6 +10817,12 @@ ac_fn_c_check_header_compile "$LINENO" "bluetooth/bluetooth.h" "ac_cv_header_blu
 if test "x$ac_cv_header_bluetooth_bluetooth_h" = xyes
 then :
   printf '%s\n' "#define HAVE_BLUETOOTH_BLUETOOTH_H 1" >>confdefs.h
+
+fi
+ac_fn_c_check_header_compile "$LINENO" "dev/evdev/input.h" "ac_cv_header_dev_evdev_input_h" "$ac_includes_default"
+if test "x$ac_cv_header_dev_evdev_input_h" = xyes
+then :
+  printf '%s\n' "#define HAVE_DEV_EVDEV_INPUT_H 1" >>confdefs.h
 
 fi
 ac_fn_c_check_header_compile "$LINENO" "elf.h" "ac_cv_header_elf_h" "$ac_includes_default"
@@ -17264,7 +17276,10 @@ if test "x$ac_cv_func_SCardEstablishContext" = xyes
 then :
   :
 else case e in #(
-  e) PCSCLITE_LIBS="" ;;
+  e) case $host_os in
+                        darwin*) PCSCLITE_LIBS="-framework PCSC" ;;
+                        *) PCSCLITE_LIBS="";;
+                     esac ;;
 esac
 fi
 
