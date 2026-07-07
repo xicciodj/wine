@@ -42,6 +42,8 @@ WINE_DECLARE_DEBUG_CHANNEL(keyboard);
 
 #define HIMETRIC_PER_INCH 2540
 
+static const struct ratio no_dpi;
+
 static const WCHAR keyboard_layouts_keyW[] =
 {
     '\\','R','e','g','i','s','t','r','y',
@@ -630,9 +632,9 @@ static void update_mouse_coords( INPUT *input )
         RECT rc;
 
         if (input->mi.dwFlags & MOUSEEVENTF_VIRTUALDESK)
-            rc = get_virtual_screen_rect( 0, MDT_DEFAULT );
+            rc = get_virtual_screen_rect( no_dpi, MDT_DEFAULT );
         else
-            rc = get_primary_monitor_rect( 0 );
+            rc = get_primary_monitor_rect( no_dpi );
 
         input->mi.dx = rc.left + ((input->mi.dx * (rc.right - rc.left)) >> 16);
         input->mi.dy = rc.top  + ((input->mi.dy * (rc.bottom - rc.top)) >> 16);
@@ -657,6 +659,62 @@ static void update_mouse_coords( INPUT *input )
             if (abs( input->mi.dy ) > accel[1] && accel[2] == 2) input->mi.dy *= 2;
         }
     }
+}
+
+static const char *debugstr_mouseinput( const MOUSEINPUT *mi )
+{
+    return wine_dbg_sprintf( "pos %s, flags %#x, data %#x, time %d", wine_dbgstr_point( (POINT *)&mi->dx ),
+                             mi->dwFlags, mi->mouseData, mi->time );
+}
+
+static NTSTATUS send_mouse_motion( UINT flags )
+{
+    struct user_thread_info *info = get_user_thread_info();
+    INPUT input = info->mouse_motion;
+    NTSTATUS status;
+
+    if (!input.mi.dwFlags && !input.mi.mouseData) return STATUS_SUCCESS; /* ignore empty inputs */
+
+    TRACE( "Sending %s\n", debugstr_mouseinput( &input.mi ) );
+    status = server_send_hardware_message( info->mouse_hwnd, flags, &input, 0 );
+    memset( &info->mouse_motion, 0, sizeof(info->mouse_motion) );
+    info->mouse_hwnd = NULL;
+
+    return status;
+}
+
+static NTSTATUS accum_mouse_motion( HWND hwnd, UINT flags, INPUT input )
+{
+    struct user_thread_info *info = get_user_thread_info();
+    BOOL send;
+
+    /* don't accumulate if there's button / wheel / MOUSEEVENTF_MOVE_NOCOALESCE */
+    send = input.mi.mouseData || (input.mi.dwFlags & ~(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE));
+    if (send || info->mouse_hwnd != hwnd) send_mouse_motion( flags );
+
+    input.mi.dwFlags &= ~MOUSEEVENTF_MOVE_NOCOALESCE;
+    if (!input.mi.dwFlags) input = info->mouse_motion; /* only MOUSEEVENTF_MOVE_NOCOALESCE */
+    else if (!(input.mi.dwFlags & MOUSEEVENTF_ABSOLUTE))
+    {
+        input.mi.dwFlags |= (info->mouse_motion.mi.dwFlags & MOUSEEVENTF_ABSOLUTE);
+        input.mi.dx += info->mouse_motion.mi.dx;
+        input.mi.dy += info->mouse_motion.mi.dy;
+    }
+
+    info->mouse_hwnd = hwnd;
+    info->mouse_motion = input;
+
+    if (send) return send_mouse_motion( flags );
+
+    TRACE( "Keeping %s\n", debugstr_mouseinput( &info->mouse_motion.mi ) );
+    return STATUS_SUCCESS;
+}
+
+/* NtUserSendHardwareInput, for user drivers to feed host device input to wineserver */
+NTSTATUS send_hardware_input( HWND hwnd, UINT flags, const INPUT *input, LPARAM lparam )
+{
+    if (input->type == INPUT_MOUSE) return accum_mouse_motion( hwnd, flags, *input );
+    return server_send_hardware_message( hwnd, flags, input, lparam );
 }
 
 /***********************************************************************
@@ -695,7 +753,7 @@ UINT WINAPI NtUserSendInput( UINT count, INPUT *inputs, int size )
             update_mouse_coords( &input );
             /* fallthrough */
         case INPUT_KEYBOARD:
-            status = send_hardware_message( 0, SEND_HWMSG_INJECTED, &input, 0 );
+            status = server_send_hardware_message( 0, SEND_HWMSG_INJECTED, &input, 0 );
             break;
         case INPUT_HARDWARE:
             RtlSetLastWin32Error( ERROR_CALL_NOT_IMPLEMENTED );
@@ -2498,7 +2556,7 @@ BOOL set_ime_composition_rect( HWND hwnd, RECT rect )
 {
     if (!NtUserIsWindow( hwnd )) return FALSE;
     NtUserMapWindowPoints( hwnd, 0, (POINT *)&rect, 2, 0 /* per-monitor DPI */ );
-    rect = map_rect_virt_to_raw( rect, 0 /* per-monitor DPI */ );
+    rect = map_rect_virt_to_raw( rect, no_dpi /* per-monitor DPI */ );
     return user_driver->pSetIMECompositionRect( NtUserGetAncestor( hwnd, GA_ROOT ), rect );
 }
 
@@ -2766,7 +2824,7 @@ BOOL WINAPI NtUserGetPointerInfoList( UINT32 id, POINTER_INPUT_TYPE type, UINT_P
     return FALSE;
 }
 
-static BOOL get_clip_cursor( RECT *rect, UINT dpi, MONITOR_DPI_TYPE type )
+static BOOL get_clip_cursor( RECT *rect, struct ratio dpi, MONITOR_DPI_TYPE type )
 {
     struct object_lock lock = OBJECT_LOCK_INIT;
     const desktop_shm_t *desktop_shm;
@@ -2784,7 +2842,7 @@ static BOOL get_clip_cursor( RECT *rect, UINT dpi, MONITOR_DPI_TYPE type )
 BOOL process_wine_clipcursor( HWND hwnd, UINT flags, BOOL reset )
 {
     struct user_thread_info *thread_info = get_user_thread_info();
-    RECT rect, virtual_rect = get_virtual_screen_rect( 0, MDT_RAW_DPI );
+    RECT rect, virtual_rect = get_virtual_screen_rect( no_dpi, MDT_RAW_DPI );
     BOOL was_clipping, empty = !!(flags & SET_CURSOR_NOCLIP);
 
     TRACE( "hwnd %p, flags %#x, reset %u\n", hwnd, flags, reset );
@@ -2801,7 +2859,7 @@ BOOL process_wine_clipcursor( HWND hwnd, UINT flags, BOOL reset )
     if (!grab_pointer) return TRUE;
 
     /* we are clipping if the clip rectangle is smaller than the screen */
-    get_clip_cursor( &rect, 0, MDT_RAW_DPI );
+    get_clip_cursor( &rect, no_dpi, MDT_RAW_DPI );
     intersect_rect( &rect, &rect, &virtual_rect );
     if (EqualRect( &rect, &virtual_rect )) empty = TRUE;
     if (empty && !(flags & SET_CURSOR_FSCLIP))
@@ -2830,7 +2888,7 @@ BOOL WINAPI NtUserGetClipCursor( RECT *rect )
  */
 BOOL WINAPI NtUserClipCursor( const RECT *rect )
 {
-    UINT dpi = get_thread_dpi();
+    struct ratio dpi = get_thread_dpi();
     RECT new_rect;
     BOOL ret;
 
@@ -3065,7 +3123,7 @@ BOOL WINAPI NtUserGetPointerDeviceRects( HANDLE handle, RECT *device_rect, RECT 
         return FALSE;
     }
 
-    rect = get_virtual_screen_rect( 0, MDT_DEFAULT );
+    rect = get_virtual_screen_rect( no_dpi, MDT_DEFAULT );
     SetRect( device_rect, 0, 0, (rect.right - rect.left) * HIMETRIC_PER_INCH / system_dpi,
              (rect.bottom - rect.top) * HIMETRIC_PER_INCH / system_dpi );
     *display_rect = get_virtual_screen_rect( get_thread_dpi(), MDT_DEFAULT );
