@@ -2812,18 +2812,6 @@ BOOL clip_fullscreen_window( HWND hwnd, BOOL reset )
     return ret;
 }
 
-/**********************************************************************
- *       NtUserGetPointerInfoList    (win32u.@)
- */
-BOOL WINAPI NtUserGetPointerInfoList( UINT32 id, POINTER_INPUT_TYPE type, UINT_PTR unk0, UINT_PTR unk1, SIZE_T size,
-                                      UINT32 *entry_count, UINT32 *pointer_count, void *pointer_info )
-{
-    FIXME( "id %#x, type %#x, unk0 %#lx, unk1 %#lx, size %#lx, entry_count %p, pointer_count %p, pointer_info %p stub!\n",
-           id, type, (long)unk0, (long)unk1, size, entry_count, pointer_count, pointer_info );
-    RtlSetLastWin32Error( ERROR_CALL_NOT_IMPLEMENTED );
-    return FALSE;
-}
-
 static BOOL get_clip_cursor( RECT *rect, struct ratio dpi, MONITOR_DPI_TYPE type )
 {
     struct object_lock lock = OBJECT_LOCK_INIT;
@@ -2983,9 +2971,6 @@ static struct pointer *find_pointer( UINT32 id )
     LIST_FOR_EACH_ENTRY( pointer, &thread_info->known_pointers, struct pointer, entry )
         if (pointer->id == id) return pointer;
 
-    /* allocate a pointer for the mouse if we don't have one yet */
-    if (id == 1) return pointer_create( id, PT_MOUSE );
-
     WARN( "failed to find pointer with id %d\n", id );
     return NULL;
 }
@@ -3048,6 +3033,22 @@ static POINTER_BUTTON_CHANGE_TYPE compare_button( const POINTER_INFO *old, const
     return change;
 }
 
+void update_pointer_from_msg( POINTER_INPUT_TYPE type, const MSG *msg )
+{
+    POINTER_INFO info = pointer_info_from_msg( msg );
+    POINTER_BUTTON_CHANGE_TYPE buttons;
+    struct pointer *pointer;
+
+    TRACE( "updating pointer id %d.\n", info.pointerId );
+
+    if (!(pointer = find_pointer( info.pointerId )) && !(pointer = pointer_create( info.pointerId, type ))) return;
+
+    buttons = compare_button( &pointer->info, &info );
+    pointer->info = info;
+    pointer->info.pointerType = pointer->type;
+    pointer->info.ButtonChangeType = buttons;
+}
+
 static POINTER_INPUT_TYPE pointer_type_from_hw( const struct hw_msg_source *source )
 {
     switch (source->origin)
@@ -3067,17 +3068,8 @@ static POINTER_INPUT_TYPE pointer_type_from_hw( const struct hw_msg_source *sour
  */
 BOOL process_pointer_message( MSG *msg, UINT hw_id, const struct hardware_msg_data *msg_data )
 {
-    POINTER_INPUT_TYPE type = pointer_type_from_hw( &msg_data->source );
-    UINT id = GET_POINTERID_WPARAM( msg->wParam );
-    struct pointer *pointer;
-    POINTER_INFO info;
-
+    update_pointer_from_msg( pointer_type_from_hw( &msg_data->source ), msg );
     msg->pt = point_phys_to_win_dpi( msg->hwnd, msg->pt );
-    if (!(pointer = find_pointer( id )) && !(pointer = pointer_create( id, type ))) return TRUE;
-    info = pointer_info_from_msg( msg );
-    info.ButtonChangeType = compare_button( &pointer->info, &info );
-    pointer->info = info;
-    pointer->info.pointerType = pointer->type;
     return TRUE;
 }
 
@@ -3099,6 +3091,13 @@ BOOL WINAPI NtUserGetPointerType( UINT32 id, POINTER_INPUT_TYPE *type )
 
     TRACE( "%u, %p\n", id, type );
 
+    /* pointerid 1 is always the mouse */
+    if (id == 1 && type)
+    {
+        *type = PT_MOUSE;
+        return TRUE;
+    }
+
     if (!id || !type || !(pointer = find_pointer( id )))
     {
         RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
@@ -3106,6 +3105,50 @@ BOOL WINAPI NtUserGetPointerType( UINT32 id, POINTER_INPUT_TYPE *type )
     }
 
     *type = pointer->type;
+    return TRUE;
+}
+
+/**********************************************************************
+ *       NtUserGetPointerInfoList    (win32u.@)
+ */
+BOOL WINAPI NtUserGetPointerInfoList( UINT32 id, POINTER_INPUT_TYPE type, UINT_PTR unk0, UINT_PTR unk1, SIZE_T size,
+                                      UINT32 *entry_count, UINT32 *pointer_count, void *pointer_info )
+{
+    struct pointer *pointer;
+    size_t target_size = 0;
+
+    TRACE( "id %d, type %#x, unk0 %#lx, unk1 %#lx, size %#lx, entry_count %p, pointer_count %p, pointer_info %p\n",
+            id, type, (long)unk0, (long)unk1, size, entry_count, pointer_count, pointer_info );
+
+    switch (type)
+    {
+    case PT_MOUSE:
+    case PT_PEN: target_size = sizeof(POINTER_PEN_INFO); break;
+    case PT_POINTER: target_size = sizeof(POINTER_INFO); break;
+    case PT_TOUCHPAD:
+    case PT_TOUCH: target_size = sizeof(POINTER_TOUCH_INFO); break;
+    }
+
+    if (type == PT_MOUSE || size != target_size)
+    {
+        RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
+        return FALSE;
+    }
+
+    if (!(pointer = find_pointer( id )))
+    {
+        TRACE( "pointer id %d not found.\n", id );
+        RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
+        return FALSE;
+    }
+
+    if (type != PT_POINTER) FIXME( "Pointer type %#x not implemented!", type );
+
+    *entry_count = 1;
+    *pointer_count = 1;
+
+    memset( pointer_info, 0, size );
+    *(POINTER_INFO *)pointer_info = pointer->info;
     return TRUE;
 }
 
