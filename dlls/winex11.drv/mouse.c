@@ -267,6 +267,7 @@ void x11drv_xinput2_enable( Display *display, Window window )
 
     if (window == DefaultRootWindow( display ))
     {
+        if (x11drv_thread_data()->root_window_users++) return;
         XISetMask( mask_bits, XI_DeviceChanged );
         XISetMask( mask_bits, XI_RawMotion );
         XISetMask( mask_bits, XI_ButtonPress );
@@ -298,7 +299,10 @@ void x11drv_xinput2_disable( Display *display, Window window )
     memset( mask_bits, 0, sizeof(mask_bits) );
 
     if (window == DefaultRootWindow( display ))
+    {
+        if (--x11drv_thread_data()->root_window_users) return;
         XISetMask( mask_bits, XI_DeviceChanged );
+    }
 
     pXISelectEvents( display, window, &mask, 1 );
 }
@@ -389,9 +393,6 @@ static BOOL grab_clipping_window( const RECT *clip )
         return TRUE;
     }
 
-    /* enable XInput2 unless we are already clipping */
-    if (!data->clipping_cursor) x11drv_xinput2_enable( data->display, DefaultRootWindow( data->display ) );
-
     TRACE( "clipping to %s win %lx\n", wine_dbgstr_rect(clip), clip_window );
 
     if (!data->clipping_cursor) XUnmapWindow( data->display, clip_window );
@@ -421,11 +422,7 @@ static BOOL grab_clipping_window( const RECT *clip )
 
     set_window_cursor( clip_window, cursor );
 
-    if (!clipping_cursor)
-    {
-        x11drv_xinput2_disable( data->display, DefaultRootWindow( data->display ) );
-        return FALSE;
-    }
+    if (!clipping_cursor) return FALSE;
     clip_rect = *clip;
     data->clipping_cursor = TRUE;
     return TRUE;
@@ -452,7 +449,6 @@ void ungrab_clipping_window(void)
     if (clipping_cursor) XUngrabPointer( data->display, CurrentTime );
     clipping_cursor = FALSE;
     data->clipping_cursor = FALSE;
-    x11drv_xinput2_disable( data->display, DefaultRootWindow( data->display ) );
 }
 
 /***********************************************************************
@@ -520,13 +516,9 @@ static POINT map_event_coords( HWND hwnd, Window window, Window event_root, POIN
     return dst;
 }
 
-static void send_mouse_input( HWND hwnd, POINT pos, UINT flags, UINT data, UINT time )
+static void send_mouse_input( HWND hwnd, POINT pos, UINT flags, UINT data, UINT time, const struct raw_mouse *raw )
 {
-    struct x11drv_thread_data *thread_data = x11drv_thread_data();
     INPUT input = { .type = INPUT_MOUSE };
-
-    /* ignore clipping window input when not clipping */
-    if (!hwnd && !thread_data->clipping_cursor) return;
 
     if ((flags & MOUSEEVENTF_ABSOLUTE) || pos.x || pos.y) flags |= MOUSEEVENTF_MOVE;
 
@@ -536,7 +528,7 @@ static void send_mouse_input( HWND hwnd, POINT pos, UINT flags, UINT data, UINT 
     input.mi.mouseData = data;
     input.mi.time = time;
 
-    NtUserSendHardwareInput( hwnd, 0, &input, 0 );
+    NtUserSendHardwareInput( hwnd, SEND_HWMSG_RAWINPUT, &input, (LPARAM)raw );
 }
 
 #ifdef SONAME_LIBXCURSOR
@@ -1466,7 +1458,7 @@ void move_resize_window( HWND hwnd, int dir, POINT pos )
 
         if (!(xstate & (Button1Mask << button))) /* fake a button release event */
             send_mouse_input( hwnd, root_to_virtual_screen( x, y ), MOUSEEVENTF_ABSOLUTE | flags,
-                              button_up_data[button], NtGetTickCount() );
+                              button_up_data[button], NtGetTickCount(), NULL );
 
         while (NtUserPeekMessage( &msg, 0, 0, 0, PM_REMOVE ))
         {
@@ -1508,7 +1500,7 @@ BOOL X11DRV_ButtonPress( HWND hwnd, XEvent *xev )
     }
 
     pt = map_event_coords( hwnd, event->window, event->root, root, pt );
-    send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE | flags, button_down_data[button], time );
+    send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE | flags, button_down_data[button], time, NULL );
     return TRUE;
 }
 
@@ -1527,7 +1519,7 @@ BOOL X11DRV_ButtonRelease( HWND hwnd, XEvent *xev )
     TRACE( "hwnd %p/%lx button %u pos %s\n", hwnd, event->window, button, wine_dbgstr_point( &pt ) );
 
     pt = map_event_coords( hwnd, event->window, event->root, root, pt );
-    send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE | flags, button_up_data[button], time );
+    send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE | flags, button_up_data[button], time, NULL );
     return TRUE;
 }
 
@@ -1551,7 +1543,7 @@ BOOL X11DRV_MotionNotify( HWND hwnd, XEvent *xev )
     }
 
     pt = map_event_coords( hwnd, event->window, event->root, root, pt );
-    send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE, 0, time );
+    send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE, 0, time, NULL );
     return TRUE;
 }
 
@@ -1578,7 +1570,7 @@ BOOL X11DRV_EnterNotify( HWND hwnd, XEvent *xev )
     }
 
     pt = map_event_coords( hwnd, event->window, event->root, root, pt );
-    send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE, 0, time );
+    send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE, 0, time, NULL );
     return TRUE;
 }
 
@@ -1597,12 +1589,12 @@ static BOOL X11DRV_DeviceChanged( XGenericEventCookie *xev )
     return TRUE;
 }
 
-static POINT map_raw_event_coords( XIRawEvent *event )
+static POINT map_raw_event_coords( XIRawEvent *event, POINT *raw )
 {
     struct x11drv_thread_data *thread_data = x11drv_thread_data();
     XIValuatorClassInfo *x = &thread_data->x_valuator, *y = &thread_data->y_valuator;
+    const double *values = event->valuators.values, *raw_values = event->raw_values;
     double x_value = 0, y_value = 0, x_scale, y_scale;
-    const double *values = event->valuators.values;
     POINT pt = { 0, 0 };
     RECT virtual_rect;
     int i;
@@ -1624,21 +1616,33 @@ static POINT map_raw_event_coords( XIRawEvent *event )
         if (!XIMaskIsSet( event->valuators.mask, i )) continue;
         if (i == x->number)
         {
+            raw->x = *raw_values;
             x_value = *values;
             x->value += x_value * x_scale;
         }
         if (i == y->number)
         {
+            raw->y = *raw_values;
             y_value = *values;
             y->value += y_value * y_scale;
         }
+        raw_values++;
         values++;
+    }
+
+    /* when not clipping cursor, we use MotionNotify for absolute mouse position */
+    if (!thread_data->clipping_cursor)
+    {
+        TRACE( "received raw frame %s\n", wine_dbgstr_point( raw ) );
+        x->value = y->value = 0;
+        return pt;
     }
 
     pt.x = round( x->value );
     pt.y = round( y->value );
 
-    TRACE( "event %f,%f value %f,%f input %s\n", x_value, y_value, x->value, y->value, wine_dbgstr_point( &pt ) );
+    TRACE( "event %f,%f value %f,%f input %s, raw %s\n", x_value, y_value, x->value, y->value,
+           wine_dbgstr_point( &pt ), wine_dbgstr_point( raw ) );
 
     x->value -= pt.x;
     y->value -= pt.y;
@@ -1654,6 +1658,7 @@ static BOOL X11DRV_RawMotion( XGenericEventCookie *xev )
 {
     XIRawEvent *event = xev->data;
     UINT time = EVENT_x11_time_to_win32_time( event->time );
+    struct raw_mouse raw = { .count = 1 };
     POINT pt;
 
     if (broken_rawevents && is_old_motion_event( xev->serial ))
@@ -1662,8 +1667,8 @@ static BOOL X11DRV_RawMotion( XGenericEventCookie *xev )
         return FALSE;
     }
 
-    pt = map_raw_event_coords( event );
-    send_mouse_input( NULL, pt, 0, 0, time );
+    pt = map_raw_event_coords( event, raw.data );
+    send_mouse_input( NULL, pt, 0, 0, time, &raw );
     return TRUE;
 }
 
