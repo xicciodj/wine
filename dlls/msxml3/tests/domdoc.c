@@ -17853,6 +17853,23 @@ static void test_dtd_children(void)
 
     hr = IXMLDOMDocumentType_get_firstChild(doctype, &node);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IXMLDOMNode_get_nodeTypeString(node, NULL);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
+    hr = IXMLDOMNode_get_nodeTypeString(node, &str);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(!wcscmp(str, L"notation"), "Unexpected type %s.\n", debugstr_w(str));
+    SysFreeString(str);
+    hr = IXMLDOMNode_get_text(node, NULL);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
+    hr = IXMLDOMNode_get_text(node, &str);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(!*str, "Unexpected text %s.\n", debugstr_w(str));
+    SysFreeString(str);
+    hr = IXMLDOMNode_put_text(node, NULL);
+    ok(hr == E_FAIL, "Unexpected hr %#lx.\n", hr);
+    hr = IXMLDOMNode_put_text(node, _bstr_("text"));
+    ok(hr == E_FAIL, "Unexpected hr %#lx.\n", hr);
+
     expect_node(node, "N1.DT2.D1");
     hr = IXMLDOMDocumentType_removeChild(doctype, node, &node2);
     todo_wine
@@ -17861,7 +17878,6 @@ static void test_dtd_children(void)
 
     hr = IXMLDOMDocumentType_get_lastChild(doctype, &node);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-if (!winetest_platform_is_wine)
     expect_node(node, "N3.DT2.D1");
     IXMLDOMNode_Release(node);
 
@@ -17870,7 +17886,6 @@ if (!winetest_platform_is_wine)
 
     hr = IXMLDOMNodeList_get_length(list, &len);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    todo_wine
     ok(len == 3, "Unexpected length %ld.\n", len);
 
     hr = IXMLDOMNodeList_nextNode(list, &node);
@@ -17880,18 +17895,20 @@ if (!winetest_platform_is_wine)
 
     hr = IXMLDOMNodeList_nextNode(list, &node);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-if (!winetest_platform_is_wine)
+    hr = IXMLDOMNode_get_nodeTypeString(node, NULL);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
+    hr = IXMLDOMNode_get_nodeTypeString(node, &str);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(!wcscmp(str, L"entity"), "Unexpected type %s.\n", debugstr_w(str));
+    SysFreeString(str);
+
     expect_node(node, "EN2.DT2.D1");
     IXMLDOMNode_Release(node);
 
     hr = IXMLDOMNodeList_nextNode(list, &node);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-if (hr == S_OK)
-{
     expect_node(node, "N3.DT2.D1");
     IXMLDOMNode_Release(node);
-}
 
     IXMLDOMNodeList_Release(list);
 

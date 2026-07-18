@@ -283,23 +283,23 @@ static HRESULT WINAPI domnotation_cloneNode(IXMLDOMNotation *iface, VARIANT_BOOL
 
 static HRESULT WINAPI domnotation_get_nodeTypeString(IXMLDOMNotation *iface, BSTR *p)
 {
-    FIXME("%p, %p: stub\n", iface, p);
+    TRACE("%p, %p.\n", iface, p);
 
-    return E_NOTIMPL;
+    return return_bstr(L"notation", p);
 }
 
 static HRESULT WINAPI domnotation_get_text(IXMLDOMNotation *iface, BSTR *p)
 {
-    FIXME("%p, %p: stub\n", iface, p);
+    TRACE("%p, %p.\n", iface, p);
 
-    return E_NOTIMPL;
+    return return_bstr(L"", p);
 }
 
 static HRESULT WINAPI domnotation_put_text(IXMLDOMNotation *iface, BSTR p)
 {
-    FIXME("%p, %s: stub\n", iface, debugstr_w(p));
+    TRACE("%p, %s.\n", iface, debugstr_w(p));
 
-    return E_NOTIMPL;
+    return E_FAIL;
 }
 
 static HRESULT WINAPI domnotation_get_specified(IXMLDOMNotation *iface, VARIANT_BOOL *v)
