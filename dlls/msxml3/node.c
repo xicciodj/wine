@@ -1715,6 +1715,7 @@ HRESULT node_get_text(struct domnode *node, BSTR *text)
         case NODE_COMMENT:
         case NODE_ENTITY_REFERENCE:
         case NODE_CDATA_SECTION:
+        case NODE_ENTITY:
             return return_bstr(node->data, text);
 
         case NODE_PROCESSING_INSTRUCTION:
@@ -3439,6 +3440,15 @@ HRESULT node_get_attribute_by_index(const struct domnode *node, LONG index, IXML
     return create_node(curr, attr);
 }
 
+HRESULT node_get_attribute_count(const struct domnode *node, LONG *count)
+{
+    if (!count)
+        return E_INVALIDARG;
+
+    *count = list_count(&node->attributes);
+    return S_OK;
+}
+
 HRESULT node_get_attribute_value(struct domnode *node, const WCHAR *name, VARIANT *value)
 {
     struct string_buffer buffer;
@@ -3502,6 +3512,43 @@ HRESULT node_set_attribute(struct domnode *node, IXMLDOMNode *attribute, IXMLDOM
     }
 
     return S_OK;
+}
+
+/* Used for setNamedItem(), using different semantics for returned node comparing to setAttributeNode() */
+HRESULT node_set_named_attribute(struct domnode *node, IXMLDOMNode *attribute, IXMLDOMNode **ret)
+{
+    struct domnode *attr, *old_attr;
+    HRESULT hr = S_OK;
+
+    if (!attribute)
+        return E_INVALIDARG;
+
+    if (!(attr = get_node_obj(attribute)))
+        return E_FAIL;
+
+    if (attr->type != NODE_ATTRIBUTE)
+        return E_FAIL;
+
+    if (attr->parent)
+        return E_FAIL;
+
+    if (ret)
+        *ret = NULL;
+
+    if (domnode_get_attribute(node, attr->qname, &old_attr) == S_OK)
+    {
+        domnode_insert_attribute(node, attr, old_attr);
+        domnode_unlink_attribute(old_attr);
+    }
+    else
+    {
+        domnode_insert_attribute(node, attr, NULL);
+    }
+
+    if (ret)
+        hr = create_node(attr, ret);
+
+    return hr;
 }
 
 static bool is_namespace_definition_name(const struct parsed_name *name)
@@ -3965,10 +4012,24 @@ static HRESULT WINAPI parse_dtd_handler_notationDecl(ISAXDTDHandler *iface, cons
         int name_len, const WCHAR *pubid, int pubid_len, const WCHAR *sysid, int sysid_len)
 {
     struct parse_context *c = impl_from_ISAXDTDHandler(iface);
-    struct domnode *node;
+    struct domnode *node, *attr;
 
     parse_context_node_create(c, NODE_NOTATION, name, name_len, NULL, 0, c->root, &node);
     parse_context_append_child(c, c->node, node);
+
+    if (pubid)
+    {
+        parse_context_node_create(c, NODE_ATTRIBUTE, L"PUBLIC", 6, NULL, 0, c->root, &attr);
+        parse_context_append_attribute(c, node, attr);
+        parse_context_node_put_data(c, attr, pubid, pubid_len);
+    }
+
+    if (sysid)
+    {
+        parse_context_node_create(c, NODE_ATTRIBUTE, L"SYSTEM", 6, NULL, 0, c->root, &attr);
+        parse_context_append_attribute(c, node, attr);
+        parse_context_node_put_data(c, attr, sysid, sysid_len);
+    }
 
     return c->status;
 }
@@ -3978,9 +4039,32 @@ static HRESULT WINAPI parse_dtd_handler_unparsedEntityDecl(ISAXDTDHandler *iface
         const WCHAR *notation_name, int notation_name_len)
 {
     struct parse_context *c = impl_from_ISAXDTDHandler(iface);
-    struct domnode *node;
+    struct domnode *node, *attr;
 
     parse_context_node_create(c, NODE_ENTITY, name, name_len, NULL, 0, c->root, &node);
+    parse_context_node_put_data(c, node, NULL, 0);
+
+    if (pubid)
+    {
+        parse_context_node_create(c, NODE_ATTRIBUTE, L"PUBLIC", 6, NULL, 0, c->root, &attr);
+        parse_context_append_attribute(c, node, attr);
+        parse_context_node_put_data(c, attr, pubid, pubid_len);
+    }
+
+    if (sysid)
+    {
+        parse_context_node_create(c, NODE_ATTRIBUTE, L"SYSTEM", 6, NULL, 0, c->root, &attr);
+        parse_context_append_attribute(c, node, attr);
+        parse_context_node_put_data(c, attr, sysid, sysid_len);
+    }
+
+    if (notation_name)
+    {
+        parse_context_node_create(c, NODE_ATTRIBUTE, L"NDATA", 6, NULL, 0, c->root, &attr);
+        parse_context_append_attribute(c, node, attr);
+        parse_context_node_put_data(c, attr, notation_name, notation_name_len);
+    }
+
     parse_context_append_child(c, c->node, node);
 
     return c->status;
@@ -4039,8 +4123,12 @@ static HRESULT WINAPI parse_decl_handler_internalEntityDecl(ISAXDeclHandler *ifa
     struct parse_context *c = impl_from_ISAXDeclHandler(iface);
     struct domnode *node;
 
-    parse_context_node_create(c, NODE_ENTITY, name, name_len, NULL, 0, c->root, &node);
-    parse_context_append_child(c, c->node, node);
+    if (name[0] != '%')
+    {
+        parse_context_node_create(c, NODE_ENTITY, name, name_len, NULL, 0, c->root, &node);
+        parse_context_append_child(c, c->node, node);
+        parse_context_node_put_data(c, node, value, value_len);
+    }
 
     return c->status;
 }
@@ -4276,6 +4364,10 @@ static HRESULT parse_context_init(struct parse_context *c, const struct domdoc_p
     V_VT(&v) = VT_UNKNOWN;
     V_UNKNOWN(&v) = (IUnknown *)&c->lexical_handler;
     ISAXXMLReader_putProperty(c->reader, L"http://xml.org/sax/properties/lexical-handler", v);
+
+    V_VT(&v) = VT_UNKNOWN;
+    V_UNKNOWN(&v) = (IUnknown *)&c->decl_handler;
+    ISAXXMLReader_putProperty(c->reader, L"http://xml.org/sax/properties/declaration-handler", v);
 
     V_VT(&v) = VT_UNKNOWN;
     V_UNKNOWN(&v) = (IUnknown *)&c->extension_handler;

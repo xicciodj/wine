@@ -41,7 +41,9 @@ struct domentity
     struct domnode *node;
 };
 
-static const tid_t notation_se_tids[] =
+static const struct nodemap_funcs domentity_attr_map;
+
+static const tid_t entity_se_tids[] =
 {
     IXMLDOMNode_tid,
     IXMLDOMEntity_tid,
@@ -55,7 +57,7 @@ static inline struct domentity *impl_from_IXMLDOMEntity(IXMLDOMEntity *iface)
 
 static HRESULT WINAPI domentity_QueryInterface(IXMLDOMEntity *iface, REFIID riid, void **obj)
 {
-    struct domentity *notation = impl_from_IXMLDOMEntity(iface);
+    struct domentity *entity = impl_from_IXMLDOMEntity(iface);
 
     TRACE("%p, %s, %p.\n", iface, debugstr_guid(riid), obj);
 
@@ -64,19 +66,19 @@ static HRESULT WINAPI domentity_QueryInterface(IXMLDOMEntity *iface, REFIID riid
         IsEqualGUID(riid, &IID_IDispatch) ||
         IsEqualGUID(riid, &IID_IUnknown))
     {
-        *obj = &notation->IXMLDOMEntity_iface;
+        *obj = &entity->IXMLDOMEntity_iface;
     }
-    else if (dispex_query_interface(&notation->dispex, riid, obj))
+    else if (dispex_query_interface(&entity->dispex, riid, obj))
     {
         return *obj ? S_OK : E_NOINTERFACE;
     }
-    else if (node_query_interface(notation->node, riid, obj))
+    else if (node_query_interface(entity->node, riid, obj))
     {
         return *obj ? S_OK : E_NOINTERFACE;
     }
     else if (IsEqualGUID(riid, &IID_ISupportErrorInfo))
     {
-        return node_create_supporterrorinfo(notation_se_tids, obj);
+        return node_create_supporterrorinfo(entity_se_tids, obj);
     }
     else
     {
@@ -91,8 +93,8 @@ static HRESULT WINAPI domentity_QueryInterface(IXMLDOMEntity *iface, REFIID riid
 
 static ULONG WINAPI domentity_AddRef(IXMLDOMEntity *iface)
 {
-    struct domentity *notation = impl_from_IXMLDOMEntity(iface);
-    LONG refcount = InterlockedIncrement(&notation->refcount);
+    struct domentity *entity = impl_from_IXMLDOMEntity(iface);
+    LONG refcount = InterlockedIncrement(&entity->refcount);
 
     TRACE("%p, refcount %ld.\n", iface, refcount);
 
@@ -101,15 +103,15 @@ static ULONG WINAPI domentity_AddRef(IXMLDOMEntity *iface)
 
 static ULONG WINAPI domentity_Release(IXMLDOMEntity *iface)
 {
-    struct domentity *notation = impl_from_IXMLDOMEntity(iface);
-    ULONG refcount = InterlockedDecrement(&notation->refcount);
+    struct domentity *entity = impl_from_IXMLDOMEntity(iface);
+    ULONG refcount = InterlockedDecrement(&entity->refcount);
 
     TRACE("%p, refcount %ld.\n", iface, refcount);
 
     if (!refcount)
     {
-        domnode_release(notation->node);
-        free(notation);
+        domnode_release(entity->node);
+        free(entity);
     }
 
     return refcount;
@@ -117,36 +119,38 @@ static ULONG WINAPI domentity_Release(IXMLDOMEntity *iface)
 
 static HRESULT WINAPI domentity_GetTypeInfoCount(IXMLDOMEntity *iface, UINT *count)
 {
-    struct domentity *notation = impl_from_IXMLDOMEntity(iface);
-    return IDispatchEx_GetTypeInfoCount(&notation->dispex.IDispatchEx_iface, count);
+    struct domentity *entity = impl_from_IXMLDOMEntity(iface);
+    return IDispatchEx_GetTypeInfoCount(&entity->dispex.IDispatchEx_iface, count);
 }
 
 static HRESULT WINAPI domentity_GetTypeInfo(IXMLDOMEntity *iface, UINT index, LCID lcid, ITypeInfo **ti)
 {
-    struct domentity *notation = impl_from_IXMLDOMEntity(iface);
-    return IDispatchEx_GetTypeInfo(&notation->dispex.IDispatchEx_iface, index, lcid, ti);
+    struct domentity *entity = impl_from_IXMLDOMEntity(iface);
+    return IDispatchEx_GetTypeInfo(&entity->dispex.IDispatchEx_iface, index, lcid, ti);
 }
 
 static HRESULT WINAPI domentity_GetIDsOfNames(IXMLDOMEntity *iface, REFIID riid, LPOLESTR* rgszNames,
     UINT cNames, LCID lcid, DISPID *rgDispId)
 {
-    struct domentity *notation = impl_from_IXMLDOMEntity(iface);
-    return IDispatchEx_GetIDsOfNames(&notation->dispex.IDispatchEx_iface, riid, rgszNames, cNames, lcid, rgDispId);
+    struct domentity *entity = impl_from_IXMLDOMEntity(iface);
+    return IDispatchEx_GetIDsOfNames(&entity->dispex.IDispatchEx_iface, riid, rgszNames, cNames, lcid, rgDispId);
 }
 
 static HRESULT WINAPI domentity_Invoke(IXMLDOMEntity *iface, DISPID dispIdMember, REFIID riid, LCID lcid,
         WORD flags, DISPPARAMS *params, VARIANT *result, EXCEPINFO *ei, UINT *puArgErr)
 {
-    struct domentity *notation = impl_from_IXMLDOMEntity(iface);
-    return IDispatchEx_Invoke(&notation->dispex.IDispatchEx_iface, dispIdMember, riid, lcid, flags, params,
+    struct domentity *entity = impl_from_IXMLDOMEntity(iface);
+    return IDispatchEx_Invoke(&entity->dispex.IDispatchEx_iface, dispIdMember, riid, lcid, flags, params,
             result, ei, puArgErr);
 }
 
 static HRESULT WINAPI domentity_get_nodeName(IXMLDOMEntity *iface, BSTR *p)
 {
-    FIXME("%p, %p: stub\n", iface, p);
+    struct domentity *entity = impl_from_IXMLDOMEntity(iface);
 
-    return E_NOTIMPL;
+    TRACE("%p, %p.\n", iface, p);
+
+    return node_get_name(entity->node, p);
 }
 
 static HRESULT WINAPI domentity_get_nodeValue(IXMLDOMEntity *iface, VARIANT *v)
@@ -173,11 +177,11 @@ static HRESULT WINAPI domentity_get_nodeType(IXMLDOMEntity *iface, DOMNodeType *
 
 static HRESULT WINAPI domentity_get_parentNode(IXMLDOMEntity *iface, IXMLDOMNode **parent)
 {
-    struct domentity *notation = impl_from_IXMLDOMEntity(iface);
+    struct domentity *entity = impl_from_IXMLDOMEntity(iface);
 
     TRACE("%p, %p.\n", iface, parent);
 
-    return node_get_parent(notation->node, parent);
+    return node_get_parent(entity->node, parent);
 }
 
 static HRESULT WINAPI domentity_get_childNodes(IXMLDOMEntity *iface, IXMLDOMNodeList **list)
@@ -203,27 +207,29 @@ static HRESULT WINAPI domentity_get_lastChild(IXMLDOMEntity *iface, IXMLDOMNode 
 
 static HRESULT WINAPI domentity_get_previousSibling(IXMLDOMEntity *iface, IXMLDOMNode **node)
 {
-    struct domentity *notation = impl_from_IXMLDOMEntity(iface);
+    struct domentity *entity = impl_from_IXMLDOMEntity(iface);
 
     TRACE("%p, %p.\n", iface, node);
 
-    return node_get_previous_sibling(notation->node, node);
+    return node_get_previous_sibling(entity->node, node);
 }
 
 static HRESULT WINAPI domentity_get_nextSibling(IXMLDOMEntity *iface, IXMLDOMNode **node)
 {
-    struct domentity *notation = impl_from_IXMLDOMEntity(iface);
+    struct domentity *entity = impl_from_IXMLDOMEntity(iface);
 
     TRACE("%p, %p.\n", iface, node);
 
-    return node_get_next_sibling(notation->node, node);
+    return node_get_next_sibling(entity->node, node);
 }
 
 static HRESULT WINAPI domentity_get_attributes(IXMLDOMEntity *iface, IXMLDOMNamedNodeMap **map)
 {
-    FIXME("%p, %p: stub\n", iface, map);
+    struct domentity *entity = impl_from_IXMLDOMEntity(iface);
 
-    return E_NOTIMPL;
+    TRACE("%p, %p.\n", iface, map);
+
+    return create_nodemap(entity->node, &domentity_attr_map, map);
 }
 
 static HRESULT WINAPI domentity_insertBefore(IXMLDOMEntity *iface, IXMLDOMNode *node,
@@ -267,11 +273,11 @@ static HRESULT WINAPI domentity_hasChildNodes(IXMLDOMEntity *iface, VARIANT_BOOL
 
 static HRESULT WINAPI domentity_get_ownerDocument(IXMLDOMEntity *iface, IXMLDOMDocument **doc)
 {
-    struct domentity *notation = impl_from_IXMLDOMEntity(iface);
+    struct domentity *entity = impl_from_IXMLDOMEntity(iface);
 
     TRACE("%p, %p.\n", iface, doc);
 
-    return node_get_owner_document(notation->node, doc);
+    return node_get_owner_document(entity->node, doc);
 }
 
 static HRESULT WINAPI domentity_cloneNode(IXMLDOMEntity *iface, VARIANT_BOOL deep, IXMLDOMNode **node)
@@ -290,16 +296,18 @@ static HRESULT WINAPI domentity_get_nodeTypeString(IXMLDOMEntity *iface, BSTR *p
 
 static HRESULT WINAPI domentity_get_text(IXMLDOMEntity *iface, BSTR *p)
 {
-    FIXME("%p, %p: stub\n", iface, p);
+    struct domentity *entity = impl_from_IXMLDOMEntity(iface);
 
-    return E_NOTIMPL;
+    TRACE("%p, %p.\n", iface, p);
+
+    return node_get_text(entity->node, p);
 }
 
 static HRESULT WINAPI domentity_put_text(IXMLDOMEntity *iface, BSTR p)
 {
-    FIXME("%p, %s: stub\n", iface, debugstr_w(p));
+    TRACE("%p, %s.\n", iface, debugstr_w(p));
 
-    return E_NOTIMPL;
+    return E_FAIL;
 }
 
 static HRESULT WINAPI domentity_get_specified(IXMLDOMEntity *iface, VARIANT_BOOL *v)
@@ -393,11 +401,13 @@ static HRESULT WINAPI domentity_get_prefix(IXMLDOMEntity *iface, BSTR *prefix)
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI domentity_get_baseName(IXMLDOMEntity *iface, BSTR *name)
+static HRESULT WINAPI domentity_get_baseName(IXMLDOMEntity *iface, BSTR *p)
 {
-    FIXME("%p, %p: stub\n", iface, name);
+    struct domentity *entity = impl_from_IXMLDOMEntity(iface);
 
-    return E_NOTIMPL;
+    TRACE("%p, %p.\n", iface, p);
+
+    return node_get_name(entity->node, p);
 }
 
 static HRESULT WINAPI domentity_transformNodeToObject(IXMLDOMEntity *iface, IXMLDOMNode *node, VARIANT var1)
@@ -476,6 +486,81 @@ static const struct IXMLDOMEntityVtbl domentity_vtbl =
     domentity_get_publicId,
     domentity_get_systemId,
     domentity_get_notationName,
+};
+
+static HRESULT domentity_get_qualified_item(const struct domnode *node, BSTR name, BSTR uri,
+    IXMLDOMNode **item)
+{
+    TRACE("%p, %s, %s, %p.\n", node, debugstr_w(name), debugstr_w(uri), item);
+
+    if (!name || !item)
+        return E_INVALIDARG;
+
+    return node_get_qualified_attribute(node, name, uri, item);
+}
+
+static HRESULT domentity_get_named_item(const struct domnode *node, BSTR name, IXMLDOMNode **item)
+{
+    TRACE("%p, %s, %p.\n", node, debugstr_w(name), item);
+
+    if (!name || !item)
+        return E_INVALIDARG;
+
+    return node_get_attribute(node, name, (IXMLDOMAttribute **)item);
+}
+
+static HRESULT domentity_set_named_item(struct domnode *node, IXMLDOMNode *newItem, IXMLDOMNode **namedItem)
+{
+    TRACE("%p, %p, %p.\n", node, newItem, namedItem );
+
+    return E_INVALIDARG;
+}
+
+static HRESULT domentity_remove_qualified_item(struct domnode *node, BSTR name, BSTR uri, IXMLDOMNode **item)
+{
+    TRACE("%p, %s, %s, %p.\n", node, debugstr_w(name), debugstr_w(uri), item);
+
+    return E_INVALIDARG;
+}
+
+static HRESULT domentity_remove_named_item(struct domnode *node, BSTR name, IXMLDOMNode **item)
+{
+    TRACE("%p, %s, %p.\n", node, debugstr_w(name), item);
+
+    return E_INVALIDARG;
+}
+
+static HRESULT domentity_get_item(struct domnode *node, LONG index, IXMLDOMNode **item)
+{
+    TRACE("%p, %ld, %p.\n", node, index, item);
+
+    return node_get_attribute_by_index(node, index, item);
+}
+
+static HRESULT domentity_get_length(struct domnode *node, LONG *length)
+{
+    TRACE("%p, %p.\n", node, length);
+
+    return node_get_attribute_count(node, length);
+}
+
+static HRESULT domentity_next_node(const struct domnode *node, LONG *iter, IXMLDOMNode **nextNode)
+{
+    FIXME("%p, %ld, %p.\n", node, *iter, nextNode);
+
+    return E_NOTIMPL;
+}
+
+static const struct nodemap_funcs domentity_attr_map =
+{
+    .get_named_item = domentity_get_named_item,
+    .set_named_item = domentity_set_named_item,
+    .remove_named_item = domentity_remove_named_item,
+    .get_item = domentity_get_item,
+    .get_length = domentity_get_length,
+    .get_qualified_item = domentity_get_qualified_item,
+    .remove_qualified_item = domentity_remove_qualified_item,
+    .next_node = domentity_next_node,
 };
 
 static const tid_t domentity_iface_tids[] =
