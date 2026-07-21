@@ -159,10 +159,13 @@ static HRESULT WINAPI holder_AllocResource(IHolder *iface, const RESTYPID typeid
     {
         if (res->timestamp == RESOURCE_IN_USE) continue;
         hr = IDispenserDriver_RateResource(This->driver, typeid, res->resid, FALSE, &rating);
-        if (SUCCEEDED(hr) && rating && rating >= best_rating)
+        if (SUCCEEDED(hr) && rating && rating > best_rating)
         {
             best_rating = rating;
             best = res;
+
+            if (rating >= 100)
+                break;
         }
     }
     if (best)
@@ -190,7 +193,6 @@ static HRESULT WINAPI holder_AllocResource(IHolder *iface, const RESTYPID typeid
         free(res);
         return hr;
     }
-    if (res->ttl) FIXME("ignoring maximum idle time\n");
 
     EnterCriticalSection(&This->cs);
     if (!This->driver)
@@ -239,6 +241,8 @@ static HRESULT WINAPI holder_FreeResource(IHolder *iface, const RESID resid)
         }
 
         res->timestamp = GetTickCount64();
+        list_remove(&res->entry);
+        list_add_head(&This->pool, &res->entry);
         LeaveCriticalSection(&This->cs);
         return hr;
     }
@@ -455,7 +459,7 @@ static DWORD WINAPI purge_expired_resources(void *arg)
             EnterCriticalSection(&hold->cs);
             LIST_FOR_EACH_ENTRY_SAFE(res, tmp, &hold->pool, resource, entry)
             {
-                if (res->timestamp == RESOURCE_IN_USE) continue;
+                if (res->timestamp == RESOURCE_IN_USE) break;
                 if (!res->ttl) continue;
                 if (res->timestamp + res->ttl * 1000 > ticks) continue;
 

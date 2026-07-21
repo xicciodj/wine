@@ -169,27 +169,11 @@ static void fd_destroy( struct object *obj );
 
 static const struct object_ops fd_ops =
 {
-    sizeof(struct fd),        /* size */
-    &no_type,                 /* type */
-    fd_dump,                  /* dump */
-    NULL,                     /* add_queue */
-    NULL,                     /* remove_queue */
-    NULL,                     /* signaled */
-    NULL,                     /* satisfied */
-    no_signal,                /* signal */
-    no_get_fd,                /* get_fd */
-    fd_get_sync,              /* get_sync */
-    default_map_access,       /* map_access */
-    default_get_sd,           /* get_sd */
-    default_set_sd,           /* set_sd */
-    no_get_full_name,         /* get_full_name */
-    no_lookup_name,           /* lookup_name */
-    no_link_name,             /* link_name */
-    NULL,                     /* unlink_name */
-    no_open_file,             /* open_file */
-    no_kernel_obj_list,       /* get_kernel_obj_list */
-    no_close_handle,          /* close_handle */
-    fd_destroy                /* destroy */
+    .size     = sizeof(struct fd),
+    .type     = &no_type,
+    .dump     = fd_dump,
+    .get_sync = fd_get_sync,
+    .destroy  = fd_destroy,
 };
 
 /* device object */
@@ -211,27 +195,10 @@ static void device_destroy( struct object *obj );
 
 static const struct object_ops device_ops =
 {
-    sizeof(struct device),    /* size */
-    &no_type,                 /* type */
-    device_dump,              /* dump */
-    no_add_queue,             /* add_queue */
-    NULL,                     /* remove_queue */
-    NULL,                     /* signaled */
-    NULL,                     /* satisfied */
-    no_signal,                /* signal */
-    no_get_fd,                /* get_fd */
-    default_get_sync,         /* get_sync */
-    default_map_access,       /* map_access */
-    default_get_sd,           /* get_sd */
-    default_set_sd,           /* set_sd */
-    no_get_full_name,         /* get_full_name */
-    no_lookup_name,           /* lookup_name */
-    no_link_name,             /* link_name */
-    NULL,                     /* unlink_name */
-    no_open_file,             /* open_file */
-    no_kernel_obj_list,       /* get_kernel_obj_list */
-    no_close_handle,          /* close_handle */
-    device_destroy            /* destroy */
+    .size    = sizeof(struct device),
+    .type    = &no_type,
+    .dump    = device_dump,
+    .destroy = device_destroy,
 };
 
 /* inode object */
@@ -252,27 +219,10 @@ static void inode_destroy( struct object *obj );
 
 static const struct object_ops inode_ops =
 {
-    sizeof(struct inode),     /* size */
-    &no_type,                 /* type */
-    inode_dump,               /* dump */
-    no_add_queue,             /* add_queue */
-    NULL,                     /* remove_queue */
-    NULL,                     /* signaled */
-    NULL,                     /* satisfied */
-    no_signal,                /* signal */
-    no_get_fd,                /* get_fd */
-    default_get_sync,         /* get_sync */
-    default_map_access,       /* map_access */
-    default_get_sd,           /* get_sd */
-    default_set_sd,           /* set_sd */
-    no_get_full_name,         /* get_full_name */
-    no_lookup_name,           /* lookup_name */
-    no_link_name,             /* link_name */
-    NULL,                     /* unlink_name */
-    no_open_file,             /* open_file */
-    no_kernel_obj_list,       /* get_kernel_obj_list */
-    no_close_handle,          /* close_handle */
-    inode_destroy             /* destroy */
+    .size    = sizeof(struct inode),
+    .type    = &no_type,
+    .dump    = inode_dump,
+    .destroy = inode_destroy,
 };
 
 /* file lock object */
@@ -297,27 +247,11 @@ static void file_lock_destroy( struct object *obj );
 
 static const struct object_ops file_lock_ops =
 {
-    sizeof(struct file_lock),   /* size */
-    &no_type,                   /* type */
-    file_lock_dump,             /* dump */
-    NULL,                       /* add_queue */
-    NULL,                       /* remove_queue */
-    NULL,                       /* signaled */
-    NULL,                       /* satisfied */
-    no_signal,                  /* signal */
-    no_get_fd,                  /* get_fd */
-    file_lock_get_sync,         /* get_sync */
-    default_map_access,         /* map_access */
-    default_get_sd,             /* get_sd */
-    default_set_sd,             /* set_sd */
-    no_get_full_name,           /* get_full_name */
-    no_lookup_name,             /* lookup_name */
-    no_link_name,               /* link_name */
-    NULL,                       /* unlink_name */
-    no_open_file,               /* open_file */
-    no_kernel_obj_list,         /* get_kernel_obj_list */
-    no_close_handle,            /* close_handle */
-    file_lock_destroy,          /* destroy */
+    .size     = sizeof(struct file_lock),
+    .type     = &no_type,
+    .dump     = file_lock_dump,
+    .get_sync = file_lock_get_sync,
+    .destroy  = file_lock_destroy,
 };
 
 
@@ -3094,7 +3028,8 @@ DECL_HANDLER(open_file_object)
     if (root) release_object( root );
     if (!obj) return;
 
-    if ((result = obj->ops->open_file( obj, req->access, req->sharing, req->options )))
+    if (!obj->ops->open_file) set_error( STATUS_OBJECT_TYPE_MISMATCH );
+    else if ((result = obj->ops->open_file( obj, req->access, req->sharing, req->options )))
     {
         reply->handle = alloc_handle( current->process, result, req->access, req->attributes );
         release_object( result );

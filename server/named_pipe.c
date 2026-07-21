@@ -103,36 +103,33 @@ struct named_pipe_device_file
 };
 
 static void named_pipe_dump( struct object *obj, int verbose );
-static unsigned int named_pipe_map_access( struct object *obj, unsigned int access );
 static WCHAR *named_pipe_get_full_name( struct object *obj, data_size_t max, data_size_t *ret_len );
 static int named_pipe_link_name( struct object *obj, struct object_name *name, struct object *parent );
 static struct object *named_pipe_open_file( struct object *obj, unsigned int access,
                                             unsigned int sharing, unsigned int options );
 static void named_pipe_destroy( struct object *obj );
 
+static struct type_descr named_pipe_type =
+{
+    { NULL, 0 },                /* name */
+    STANDARD_RIGHTS_ALL,        /* valid_access */
+    {                           /* mapping */
+        STANDARD_RIGHTS_READ,
+        STANDARD_RIGHTS_WRITE | FILE_CREATE_PIPE_INSTANCE,
+        STANDARD_RIGHTS_EXECUTE,
+        STANDARD_RIGHTS_ALL
+    }
+};
+
 static const struct object_ops named_pipe_ops =
 {
-    sizeof(struct named_pipe),    /* size */
-    &no_type,                     /* type */
-    named_pipe_dump,              /* dump */
-    no_add_queue,                 /* add_queue */
-    NULL,                         /* remove_queue */
-    NULL,                         /* signaled */
-    NULL,                         /* satisfied */
-    no_signal,                    /* signal */
-    no_get_fd,                    /* get_fd */
-    default_get_sync,             /* get_sync */
-    named_pipe_map_access,        /* map_access */
-    default_get_sd,               /* get_sd */
-    default_set_sd,               /* set_sd */
-    named_pipe_get_full_name,     /* get_full_name */
-    no_lookup_name,               /* lookup_name */
-    named_pipe_link_name,         /* link_name */
-    default_unlink_name,          /* unlink_name */
-    named_pipe_open_file,         /* open_file */
-    no_kernel_obj_list,           /* get_kernel_obj_list */
-    no_close_handle,              /* close_handle */
-    named_pipe_destroy            /* destroy */
+    .size          = sizeof(struct named_pipe),
+    .type          = &named_pipe_type,
+    .dump          = named_pipe_dump,
+    .get_full_name = named_pipe_get_full_name,
+    .link_name     = named_pipe_link_name,
+    .open_file     = named_pipe_open_file,
+    .destroy       = named_pipe_destroy,
 };
 
 /* common server and client pipe end functions */
@@ -161,27 +158,18 @@ static void pipe_server_ioctl( struct fd *fd, ioctl_code_t code, struct async *a
 
 static const struct object_ops pipe_server_ops =
 {
-    sizeof(struct pipe_server),   /* size */
-    &file_type,                   /* type */
-    pipe_server_dump,             /* dump */
-    NULL,                         /* add_queue */
-    NULL,                         /* remove_queue */
-    NULL,                         /* signaled */
-    NULL,                         /* satisfied */
-    no_signal,                    /* signal */
-    pipe_end_get_fd,              /* get_fd */
-    default_fd_get_sync,          /* get_sync */
-    default_map_access,           /* map_access */
-    pipe_end_get_sd,              /* get_sd */
-    pipe_end_set_sd,              /* set_sd */
-    pipe_end_get_full_name,       /* get_full_name */
-    pipe_server_lookup_name,      /* lookup_name */
-    no_link_name,                 /* link_name */
-    NULL,                         /* unlink_name */
-    pipe_server_open_file,        /* open_file */
-    no_kernel_obj_list,           /* get_kernel_obj_list */
-    async_close_obj_handle,       /* close_handle */
-    pipe_server_destroy           /* destroy */
+    .size          = sizeof(struct pipe_server),
+    .type          = &file_type,
+    .dump          = pipe_server_dump,
+    .get_fd        = pipe_end_get_fd,
+    .get_sync      = default_fd_get_sync,
+    .get_sd        = pipe_end_get_sd,
+    .set_sd        = pipe_end_set_sd,
+    .get_full_name = pipe_end_get_full_name,
+    .lookup_name   = pipe_server_lookup_name,
+    .open_file     = pipe_server_open_file,
+    .close_handle  = async_close_obj_handle,
+    .destroy       = pipe_server_destroy,
 };
 
 static const struct fd_ops pipe_server_fd_ops =
@@ -206,27 +194,16 @@ static void pipe_client_ioctl( struct fd *fd, ioctl_code_t code, struct async *a
 
 static const struct object_ops pipe_client_ops =
 {
-    sizeof(struct pipe_end),      /* size */
-    &file_type,                   /* type */
-    pipe_client_dump,             /* dump */
-    NULL,                         /* add_queue */
-    NULL,                         /* remove_queue */
-    NULL,                         /* signaled */
-    NULL,                         /* satisfied */
-    no_signal,                    /* signal */
-    pipe_end_get_fd,              /* get_fd */
-    default_fd_get_sync,          /* get_sync */
-    default_map_access,           /* map_access */
-    pipe_end_get_sd,              /* get_sd */
-    pipe_end_set_sd,              /* set_sd */
-    pipe_end_get_full_name,       /* get_full_name */
-    no_lookup_name,               /* lookup_name */
-    no_link_name,                 /* link_name */
-    NULL,                         /* unlink_name */
-    no_open_file,                 /* open_file */
-    no_kernel_obj_list,           /* get_kernel_obj_list */
-    async_close_obj_handle,       /* close_handle */
-    pipe_end_destroy              /* destroy */
+    .size          = sizeof(struct pipe_end),
+    .type          = &file_type,
+    .dump          = pipe_client_dump,
+    .get_fd        = pipe_end_get_fd,
+    .get_sync      = default_fd_get_sync,
+    .get_sd        = pipe_end_get_sd,
+    .set_sd        = pipe_end_set_sd,
+    .get_full_name = pipe_end_get_full_name,
+    .close_handle  = async_close_obj_handle,
+    .destroy       = pipe_end_destroy,
 };
 
 static const struct fd_ops pipe_client_fd_ops =
@@ -255,27 +232,13 @@ static void named_pipe_device_destroy( struct object *obj );
 
 static const struct object_ops named_pipe_device_ops =
 {
-    sizeof(struct named_pipe_device), /* size */
-    &device_type,                     /* type */
-    named_pipe_device_dump,           /* dump */
-    no_add_queue,                     /* add_queue */
-    NULL,                             /* remove_queue */
-    NULL,                             /* signaled */
-    no_satisfied,                     /* satisfied */
-    no_signal,                        /* signal */
-    no_get_fd,                        /* get_fd */
-    default_get_sync,                 /* get_sync */
-    default_map_access,               /* map_access */
-    default_get_sd,                   /* get_sd */
-    default_set_sd,                   /* set_sd */
-    named_pipe_device_get_full_name,  /* get_full_name */
-    named_pipe_device_lookup_name,    /* lookup_name */
-    directory_link_name,              /* link_name */
-    default_unlink_name,              /* unlink_name */
-    named_pipe_device_open_file,      /* open_file */
-    no_kernel_obj_list,               /* get_kernel_obj_list */
-    no_close_handle,                  /* close_handle */
-    named_pipe_device_destroy         /* destroy */
+    .size          = sizeof(struct named_pipe_device),
+    .type          = &device_type,
+    .dump          = named_pipe_device_dump,
+    .get_full_name = named_pipe_device_get_full_name,
+    .lookup_name   = named_pipe_device_lookup_name,
+    .open_file     = named_pipe_device_open_file,
+    .destroy       = named_pipe_device_destroy,
 };
 
 static void named_pipe_device_file_dump( struct object *obj, int verbose );
@@ -287,27 +250,13 @@ static void named_pipe_device_file_destroy( struct object *obj );
 
 static const struct object_ops named_pipe_device_file_ops =
 {
-    sizeof(struct named_pipe_device_file),   /* size */
-    &file_type,                              /* type */
-    named_pipe_device_file_dump,             /* dump */
-    NULL,                                    /* add_queue */
-    NULL,                                    /* remove_queue */
-    NULL,                                    /* signaled */
-    NULL,                                    /* satisfied */
-    no_signal,                               /* signal */
-    named_pipe_device_file_get_fd,           /* get_fd */
-    default_fd_get_sync,                     /* get_sync */
-    default_map_access,                      /* map_access */
-    default_get_sd,                          /* get_sd */
-    default_set_sd,                          /* set_sd */
-    named_pipe_device_file_get_full_name,    /* get_full_name */
-    no_lookup_name,                          /* lookup_name */
-    no_link_name,                            /* link_name */
-    NULL,                                    /* unlink_name */
-    no_open_file,                            /* open_file */
-    no_kernel_obj_list,                      /* get_kernel_obj_list */
-    no_close_handle,                         /* close_handle */
-    named_pipe_device_file_destroy           /* destroy */
+    .size          = sizeof(struct named_pipe_device_file),
+    .type          = &file_type,
+    .dump          = named_pipe_device_file_dump,
+    .get_fd        = named_pipe_device_file_get_fd,
+    .get_sync      = default_fd_get_sync,
+    .get_full_name = named_pipe_device_file_get_full_name,
+    .destroy       = named_pipe_device_file_destroy,
 };
 
 static const struct fd_ops named_pipe_device_fd_ops =
@@ -338,27 +287,15 @@ static void named_pipe_dir_destroy( struct object *obj );
 
 static const struct object_ops named_pipe_dir_ops =
 {
-    sizeof(struct named_pipe_device_file),   /* size */
-    &file_type,                              /* type */
-    named_pipe_dir_dump,                     /* dump */
-    NULL,                                    /* add_queue */
-    NULL,                                    /* remove_queue */
-    NULL,                                    /* signaled */
-    NULL,                                    /* satisfied */
-    no_signal,                               /* signal */
-    named_pipe_dir_get_fd,                   /* get_fd */
-    default_fd_get_sync,                     /* get_sync */
-    default_map_access,                      /* map_access */
-    default_get_sd,                          /* get_sd */
-    default_set_sd,                          /* set_sd */
-    named_pipe_dir_get_full_name,            /* get_full_name */
-    named_pipe_dir_lookup_name,              /* lookup_name */
-    no_link_name,                            /* link_name */
-    NULL,                                    /* unlink_name */
-    named_pipe_dir_open_file,                /* open_file */
-    no_kernel_obj_list,                      /* get_kernel_obj_list */
-    no_close_handle,                         /* close_handle */
-    named_pipe_dir_destroy                   /* destroy */
+    .size          = sizeof(struct named_pipe_device_file),
+    .type          = &file_type,
+    .dump          = named_pipe_dir_dump,
+    .get_fd        = named_pipe_dir_get_fd,
+    .get_sync      = default_fd_get_sync,
+    .get_full_name = named_pipe_dir_get_full_name,
+    .lookup_name   = named_pipe_dir_lookup_name,
+    .open_file     = named_pipe_dir_open_file,
+    .destroy       = named_pipe_dir_destroy,
 };
 
 static const struct fd_ops named_pipe_dir_fd_ops =
@@ -380,15 +317,6 @@ static const struct fd_ops named_pipe_dir_fd_ops =
 static void named_pipe_dump( struct object *obj, int verbose )
 {
     fputs( "Named pipe\n", stderr );
-}
-
-static unsigned int named_pipe_map_access( struct object *obj, unsigned int access )
-{
-    if (access & GENERIC_READ)    access |= STANDARD_RIGHTS_READ;
-    if (access & GENERIC_WRITE)   access |= STANDARD_RIGHTS_WRITE | FILE_CREATE_PIPE_INSTANCE;
-    if (access & GENERIC_EXECUTE) access |= STANDARD_RIGHTS_EXECUTE;
-    if (access & GENERIC_ALL)     access |= STANDARD_RIGHTS_ALL;
-    return access & ~(GENERIC_READ | GENERIC_WRITE | GENERIC_EXECUTE | GENERIC_ALL);
 }
 
 static WCHAR *named_pipe_get_full_name( struct object *obj, data_size_t max, data_size_t *ret_len )
@@ -525,7 +453,7 @@ static struct object *pipe_server_open_file( struct object *obj, unsigned int ac
 {
     struct pipe_server *server = (struct pipe_server *)obj;
 
-    return server->pipe_end.pipe->obj.ops->open_file( &server->pipe_end.pipe->obj, access, sharing, options );
+    return named_pipe_open_file(  &server->pipe_end.pipe->obj, access, sharing, options );
 }
 
 static void pipe_server_destroy( struct object *obj )
@@ -642,7 +570,7 @@ static struct fd *named_pipe_device_file_get_fd( struct object *obj )
 static WCHAR *named_pipe_device_file_get_full_name( struct object *obj, data_size_t max, data_size_t *len )
 {
     struct named_pipe_device_file *file = (struct named_pipe_device_file *)obj;
-    return file->device->obj.ops->get_full_name( &file->device->obj, max, len );
+    return named_pipe_device_get_full_name( &file->device->obj, max, len );
 }
 
 static enum server_fd_type named_pipe_device_file_get_fd_type( struct fd *fd )
@@ -675,9 +603,9 @@ static WCHAR *named_pipe_dir_get_full_name( struct object *obj, data_size_t max,
 {
     struct named_pipe_device_file *dir = (struct named_pipe_device_file *)obj;
     data_size_t len;
-    char *device_name, *ret;
+    WCHAR *device_name, *ret;
 
-    device_name = (char *)dir->device->obj.ops->get_full_name( &dir->device->obj, max, &len );
+    device_name = named_pipe_device_get_full_name( &dir->device->obj, max, &len );
     if (!device_name) return NULL;
 
     len += sizeof(WCHAR);
@@ -687,11 +615,11 @@ static WCHAR *named_pipe_dir_get_full_name( struct object *obj, data_size_t max,
         free(device_name);
         return NULL;
     }
-    *(WCHAR *)(ret + len - sizeof(WCHAR)) = '\\';
+    ret[len / sizeof(WCHAR) - 1] = '\\';
 
     if (len > max) set_error( STATUS_BUFFER_OVERFLOW );
     *ret_len = len;
-    return (WCHAR *)ret;
+    return ret;
 }
 
 static struct object *named_pipe_dir_lookup_name( struct object *obj, struct unicode_str *name,
@@ -699,7 +627,7 @@ static struct object *named_pipe_dir_lookup_name( struct object *obj, struct uni
 {
     struct named_pipe_device_file *dir = (struct named_pipe_device_file *)obj;
     if (!name || !name->len) return NULL;  /* open the directory itself */
-    return dir->device->obj.ops->lookup_name( &dir->device->obj, name, attr, root );
+    return named_pipe_device_lookup_name( &dir->device->obj, name, attr, root );
 }
 
 static struct object *named_pipe_dir_open_file( struct object *obj, unsigned int access,
@@ -710,7 +638,8 @@ static struct object *named_pipe_dir_open_file( struct object *obj, unsigned int
     if (dir->fd)
     {
         /* Trying to open by (already opened) file object */
-        return no_open_file( obj, access, sharing, options );
+        set_error( STATUS_OBJECT_TYPE_MISMATCH );
+        return NULL;
     }
 
     /* Turn this "proto-object" into an actual file object */
@@ -917,7 +846,7 @@ static void pipe_end_get_file_info( struct fd *fd, obj_handle_t handle, unsigned
 static struct security_descriptor *pipe_end_get_sd( struct object *obj )
 {
     struct pipe_end *pipe_end = (struct pipe_end *) obj;
-    if (pipe_end->pipe) return default_get_sd( &pipe_end->pipe->obj );
+    if (pipe_end->pipe) return pipe_end->pipe->obj.sd;
     set_error( STATUS_PIPE_DISCONNECTED );
     return NULL;
 }
@@ -934,7 +863,7 @@ static int pipe_end_set_sd( struct object *obj, const struct security_descriptor
 static WCHAR *pipe_end_get_full_name( struct object *obj, data_size_t max, data_size_t *len )
 {
     struct pipe_end *pipe_end = (struct pipe_end *) obj;
-    return pipe_end->pipe->obj.ops->get_full_name( &pipe_end->pipe->obj, max, len );
+    return named_pipe_get_full_name( &pipe_end->pipe->obj, max, len );
 }
 
 static void pipe_end_get_volume_info( struct fd *fd, struct async *async, unsigned int info_class )

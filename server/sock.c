@@ -479,27 +479,13 @@ static void poll_socket( struct sock *poll_sock, struct async *async, int exclus
 
 static const struct object_ops sock_ops =
 {
-    sizeof(struct sock),          /* size */
-    &file_type,                   /* type */
-    sock_dump,                    /* dump */
-    NULL,                         /* add_queue */
-    NULL,                         /* remove_queue */
-    NULL,                         /* signaled */
-    NULL,                         /* satisfied */
-    no_signal,                    /* signal */
-    sock_get_fd,                  /* get_fd */
-    default_fd_get_sync,          /* get_sync */
-    default_map_access,           /* map_access */
-    default_get_sd,               /* get_sd */
-    default_set_sd,               /* set_sd */
-    no_get_full_name,             /* get_full_name */
-    no_lookup_name,               /* lookup_name */
-    no_link_name,                 /* link_name */
-    NULL,                         /* unlink_name */
-    no_open_file,                 /* open_file */
-    no_kernel_obj_list,           /* get_kernel_obj_list */
-    sock_close_handle,            /* close_handle */
-    sock_destroy                  /* destroy */
+    .size         = sizeof(struct sock),
+    .type         = &file_type,
+    .dump         = sock_dump,
+    .get_fd       = sock_get_fd,
+    .get_sync     = default_fd_get_sync,
+    .close_handle = sock_close_handle,
+    .destroy      = sock_destroy,
 };
 
 static const struct fd_ops sock_fd_ops =
@@ -3699,27 +3685,11 @@ struct ifchange
 
 static const struct object_ops ifchange_ops =
 {
-    sizeof(struct ifchange), /* size */
-    &no_type,                /* type */
-    ifchange_dump,           /* dump */
-    no_add_queue,            /* add_queue */
-    NULL,                    /* remove_queue */
-    NULL,                    /* signaled */
-    no_satisfied,            /* satisfied */
-    no_signal,               /* signal */
-    ifchange_get_fd,         /* get_fd */
-    default_get_sync,        /* get_sync */
-    default_map_access,      /* map_access */
-    default_get_sd,          /* get_sd */
-    default_set_sd,          /* set_sd */
-    no_get_full_name,        /* get_full_name */
-    no_lookup_name,          /* lookup_name */
-    no_link_name,            /* link_name */
-    NULL,                    /* unlink_name */
-    no_open_file,            /* open_file */
-    no_kernel_obj_list,      /* get_kernel_obj_list */
-    no_close_handle,         /* close_handle */
-    ifchange_destroy         /* destroy */
+    .size    = sizeof(struct ifchange),
+    .type    = &no_type,
+    .dump    = ifchange_dump,
+    .get_fd  = ifchange_get_fd,
+    .destroy = ifchange_destroy,
 };
 
 static const struct fd_ops ifchange_fd_ops =
@@ -3921,27 +3891,11 @@ static struct object *socket_device_open_file( struct object *obj, unsigned int 
 
 static const struct object_ops socket_device_ops =
 {
-    sizeof(struct object),      /* size */
-    &device_type,               /* type */
-    socket_device_dump,         /* dump */
-    no_add_queue,               /* add_queue */
-    NULL,                       /* remove_queue */
-    NULL,                       /* signaled */
-    no_satisfied,               /* satisfied */
-    no_signal,                  /* signal */
-    no_get_fd,                  /* get_fd */
-    default_get_sync,           /* get_sync */
-    default_map_access,         /* map_access */
-    default_get_sd,             /* get_sd */
-    default_set_sd,             /* set_sd */
-    default_get_full_name,      /* get_full_name */
-    socket_device_lookup_name,  /* lookup_name */
-    directory_link_name,        /* link_name */
-    default_unlink_name,        /* unlink_name */
-    socket_device_open_file,    /* open_file */
-    no_kernel_obj_list,         /* get_kernel_obj_list */
-    no_close_handle,            /* close_handle */
-    no_destroy                  /* destroy */
+    .size        = sizeof(struct object),
+    .type        = &device_type,
+    .dump        = socket_device_dump,
+    .lookup_name = socket_device_lookup_name,
+    .open_file   = socket_device_open_file,
 };
 
 static void socket_device_dump( struct object *obj, int verbose )
