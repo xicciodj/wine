@@ -103,18 +103,10 @@ static const struct object_ops file_ops =
 
 static const struct fd_ops file_fd_ops =
 {
-    default_fd_get_poll_events,   /* get_poll_events */
-    default_poll_event,           /* poll_event */
-    file_get_fd_type,             /* get_fd_type */
-    no_fd_read,                   /* read */
-    no_fd_write,                  /* write */
-    no_fd_flush,                  /* flush */
-    default_fd_get_file_info,     /* get_file_info */
-    no_fd_get_volume_info,        /* get_volume_info */
-    default_fd_ioctl,             /* ioctl */
-    default_fd_cancel_async,      /* cancel_async */
-    default_fd_queue_async,       /* queue_async */
-    default_fd_reselect_async     /* reselect_async */
+    .get_fd_type   = file_get_fd_type,
+    .get_file_info = default_fd_get_file_info,
+    .ioctl         = default_fd_ioctl,
+    .queue_async   = default_fd_queue_async,
 };
 
 /* create a file from a file descriptor */

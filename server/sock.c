@@ -490,18 +490,13 @@ static const struct object_ops sock_ops =
 
 static const struct fd_ops sock_fd_ops =
 {
-    sock_get_poll_events,         /* get_poll_events */
-    sock_poll_event,              /* poll_event */
-    sock_get_fd_type,             /* get_fd_type */
-    no_fd_read,                   /* read */
-    no_fd_write,                  /* write */
-    no_fd_flush,                  /* flush */
-    default_fd_get_file_info,     /* get_file_info */
-    no_fd_get_volume_info,        /* get_volume_info */
-    sock_ioctl,                   /* ioctl */
-    sock_cancel_async,            /* cancel_async */
-    no_fd_queue_async,            /* queue_async */
-    sock_reselect_async           /* reselect_async */
+    .get_poll_events = sock_get_poll_events,
+    .poll_event      = sock_poll_event,
+    .get_fd_type     = sock_get_fd_type,
+    .get_file_info   = default_fd_get_file_info,
+    .ioctl           = sock_ioctl,
+    .cancel_async    = sock_cancel_async,
+    .reselect_async  = sock_reselect_async,
 };
 
 static int sockaddr_from_unix( const union unix_sockaddr *uaddr, struct WS_sockaddr *wsaddr, socklen_t wsaddrlen )
@@ -2728,6 +2723,11 @@ static void sock_ioctl( struct fd *fd, ioctl_code_t code, struct async *async )
             set_error( STATUS_INVALID_ADDRESS );
             return;
         }
+        if (sock->state == SOCK_UNCONNECTED) /* clear events */
+        {
+            sock->pending_events &= ~AFD_POLL_CONNECT_ERR;
+            sock->reported_events &= ~AFD_POLL_CONNECT_ERR;
+        }
         if (unix_addr.addr.sa_family == AF_INET && !memcmp( &unix_addr.in.sin_addr, magic_loopback_addr, 4 ))
             unix_addr.in.sin_addr.s_addr = htonl( INADDR_LOOPBACK );
 
@@ -3694,18 +3694,8 @@ static const struct object_ops ifchange_ops =
 
 static const struct fd_ops ifchange_fd_ops =
 {
-    ifchange_get_poll_events, /* get_poll_events */
-    ifchange_poll_event,      /* poll_event */
-    NULL,                     /* get_fd_type */
-    no_fd_read,               /* read */
-    no_fd_write,              /* write */
-    no_fd_flush,              /* flush */
-    no_fd_get_file_info,      /* get_file_info */
-    no_fd_get_volume_info,    /* get_volume_info */
-    no_fd_ioctl,              /* ioctl */
-    NULL,                     /* cancel_async */
-    NULL,                     /* queue_async */
-    NULL                      /* reselect_async */
+    .get_poll_events = ifchange_get_poll_events,
+    .poll_event      = ifchange_poll_event,
 };
 
 static void ifchange_dump( struct object *obj, int verbose )

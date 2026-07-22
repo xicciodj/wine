@@ -125,18 +125,11 @@ static enum server_fd_type dir_get_fd_type( struct fd *fd );
 
 static const struct fd_ops dir_fd_ops =
 {
-    dir_get_poll_events,         /* get_poll_events */
-    default_poll_event,          /* poll_event */
-    dir_get_fd_type,             /* get_fd_type */
-    no_fd_read,                  /* read */
-    no_fd_write,                 /* write */
-    no_fd_flush,                 /* flush */
-    default_fd_get_file_info,    /* get_file_info */
-    no_fd_get_volume_info,       /* get_volume_info */
-    default_fd_ioctl,            /* ioctl */
-    default_fd_cancel_async,     /* cancel_async */
-    default_fd_queue_async,      /* queue_async */
-    default_fd_reselect_async    /* reselect_async */
+    .get_poll_events = dir_get_poll_events,
+    .get_fd_type     = dir_get_fd_type,
+    .get_file_info   = default_fd_get_file_info,
+    .ioctl           = default_fd_ioctl,
+    .queue_async     = default_fd_queue_async,
 };
 
 static struct list change_list = LIST_INIT(change_list);
@@ -640,13 +633,8 @@ static void inotify_poll_event( struct fd *fd, int event );
 
 static const struct fd_ops inotify_fd_ops =
 {
-    inotify_get_poll_events,     /* get_poll_events */
-    inotify_poll_event,          /* poll_event */
-    NULL,                        /* flush */
-    NULL,                        /* get_fd_type */
-    NULL,                        /* ioctl */
-    NULL,                        /* queue_async */
-    NULL                         /* reselect_async */
+    .get_poll_events = inotify_get_poll_events,
+    .poll_event      = inotify_poll_event,
 };
 
 static int inotify_get_poll_events( struct fd *fd )

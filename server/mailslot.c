@@ -94,18 +94,11 @@ static void mailslot_get_file_info( struct fd *fd, obj_handle_t handle, unsigned
 
 static const struct fd_ops mailslot_fd_ops =
 {
-    default_fd_get_poll_events, /* get_poll_events */
-    default_poll_event,         /* poll_event */
-    mailslot_get_fd_type,       /* get_fd_type */
-    mailslot_read,              /* read */
-    mailslot_write,             /* write */
-    no_fd_flush,                /* flush */
-    mailslot_get_file_info,     /* get_file_info */
-    no_fd_get_volume_info,      /* get_volume_info */
-    default_fd_ioctl,           /* ioctl */
-    default_fd_cancel_async,    /* cancel_async */
-    no_fd_queue_async,          /* queue_async */
-    default_fd_reselect_async   /* reselect_async */
+    .get_fd_type   = mailslot_get_fd_type,
+    .read          = mailslot_read,
+    .write         = mailslot_write,
+    .get_file_info = mailslot_get_file_info,
+    .ioctl         = default_fd_ioctl,
 };
 
 
@@ -140,18 +133,12 @@ static void mail_writer_write( struct fd *fd, struct async *async, file_pos_t po
 
 static const struct fd_ops mail_writer_fd_ops =
 {
-    default_fd_get_poll_events,  /* get_poll_events */
-    default_poll_event,          /* poll_event */
-    mail_writer_get_fd_type,     /* get_fd_type */
-    mail_writer_read,            /* read */
-    mail_writer_write,           /* write */
-    no_fd_flush,                 /* flush */
-    default_fd_get_file_info,    /* get_file_info */
-    no_fd_get_volume_info,       /* get_volume_info */
-    default_fd_ioctl,            /* ioctl */
-    default_fd_cancel_async,     /* cancel_async */
-    default_fd_queue_async,      /* queue_async */
-    default_fd_reselect_async    /* reselect_async */
+    .get_fd_type   = mail_writer_get_fd_type,
+    .read          = mail_writer_read,
+    .write         = mail_writer_write,
+    .get_file_info = default_fd_get_file_info,
+    .ioctl         = default_fd_ioctl,
+    .queue_async   = default_fd_queue_async,
 };
 
 
@@ -204,18 +191,10 @@ static const struct object_ops mailslot_device_file_ops =
 
 static const struct fd_ops mailslot_device_fd_ops =
 {
-    default_fd_get_poll_events,         /* get_poll_events */
-    default_poll_event,                 /* poll_event */
-    mailslot_device_file_get_fd_type,   /* get_fd_type */
-    no_fd_read,                         /* read */
-    no_fd_write,                        /* write */
-    no_fd_flush,                        /* flush */
-    default_fd_get_file_info,           /* get_file_info */
-    no_fd_get_volume_info,              /* get_volume_info */
-    default_fd_ioctl,                   /* ioctl */
-    default_fd_cancel_async,            /* cancel_async */
-    default_fd_queue_async,             /* queue_async */
-    default_fd_reselect_async           /* reselect_async */
+    .get_fd_type   = mailslot_device_file_get_fd_type,
+    .get_file_info = default_fd_get_file_info,
+    .ioctl         = default_fd_ioctl,
+    .queue_async   = default_fd_queue_async,
 };
 
 static struct mailslot_message *get_first_message( struct mailslot *mailslot )

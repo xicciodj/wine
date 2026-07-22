@@ -461,7 +461,8 @@ static int get_next_timeout( struct timespec *ts );
 
 static inline void fd_poll_event( struct fd *fd, int event )
 {
-    fd->fd_ops->poll_event( fd, event );
+    if (fd->fd_ops->poll_event) fd->fd_ops->poll_event( fd, event );
+    else default_poll_event( fd, event );
 }
 
 #ifdef USE_EPOLL
@@ -1625,6 +1626,13 @@ void set_fd_events( struct fd *fd, int events )
     }
 }
 
+/* get the events we want to poll() for */
+static int get_poll_events( struct fd *fd )
+{
+    if (fd->fd_ops->get_poll_events) return fd->fd_ops->get_poll_events( fd );
+    return default_fd_get_poll_events( fd );
+}
+
 /* prepare an fd for unmounting its corresponding device */
 static inline void unmount_fd( struct fd *fd )
 {
@@ -2189,7 +2197,7 @@ void default_poll_event( struct fd *fd, int event )
 
     /* if an error occurred, stop polling this fd to avoid busy-looping */
     if (event & (POLLERR | POLLHUP)) set_fd_events( fd, -1 );
-    else if (!fd->inode) set_fd_events( fd, fd->fd_ops->get_poll_events( fd ) );
+    else if (!fd->inode) set_fd_events( fd, get_poll_events( fd ) );
 }
 
 void fd_queue_async( struct fd *fd, struct async *async, int type )
@@ -2217,7 +2225,7 @@ void fd_queue_async( struct fd *fd, struct async *async, int type )
     if (type != ASYNC_TYPE_WAIT)
     {
         if (!fd->inode)
-            set_fd_events( fd, fd->fd_ops->get_poll_events( fd ) );
+            set_fd_events( fd, get_poll_events( fd ) );
         else  /* regular files are always ready for read and write */
             async_wake_up( queue, STATUS_ALERTED );
     }
@@ -2243,22 +2251,14 @@ void fd_async_wake_up( struct fd *fd, int type, unsigned int status )
 
 void fd_cancel_async( struct fd *fd, struct async *async )
 {
-    fd->fd_ops->cancel_async( fd, async );
+    if (fd->fd_ops->cancel_async) fd->fd_ops->cancel_async( fd, async );
+    else async_terminate( async, STATUS_CANCELLED );
 }
 
 void fd_reselect_async( struct fd *fd, struct async_queue *queue )
 {
-    fd->fd_ops->reselect_async( fd, queue );
-}
-
-void no_fd_queue_async( struct fd *fd, struct async *async, int type, int count )
-{
-    set_error( STATUS_OBJECT_TYPE_MISMATCH );
-}
-
-void default_fd_cancel_async( struct fd *fd, struct async *async )
-{
-    async_terminate( async, STATUS_CANCELLED );
+    if (fd->fd_ops->reselect_async) fd->fd_ops->reselect_async( fd, queue );
+    else default_fd_reselect_async( fd, queue );
 }
 
 void default_fd_queue_async( struct fd *fd, struct async *async, int type, int count )
@@ -2272,9 +2272,9 @@ void default_fd_reselect_async( struct fd *fd, struct async_queue *queue )
 {
     if (queue == &fd->read_q || queue == &fd->write_q)
     {
-        int poll_events = fd->fd_ops->get_poll_events( fd );
+        int poll_events = get_poll_events( fd );
         int events = check_fd_events( fd, poll_events );
-        if (events) fd->fd_ops->poll_event( fd, events );
+        if (events) fd_poll_event( fd, events );
         else set_fd_events( fd, poll_events );
     }
 }
@@ -2559,30 +2559,6 @@ static void delete_reparse_point( struct fd *fd, struct async *async )
     xattr_fremove( fd->unix_fd, XATTR_REPARSE );
 }
 
-/* default read() routine */
-void no_fd_read( struct fd *fd, struct async *async, file_pos_t pos )
-{
-    set_error( STATUS_OBJECT_TYPE_MISMATCH );
-}
-
-/* default write() routine */
-void no_fd_write( struct fd *fd, struct async *async, file_pos_t pos )
-{
-    set_error( STATUS_OBJECT_TYPE_MISMATCH );
-}
-
-/* default flush() routine */
-void no_fd_flush( struct fd *fd, struct async *async )
-{
-    set_error( STATUS_OBJECT_TYPE_MISMATCH );
-}
-
-/* default get_file_info() routine */
-void no_fd_get_file_info( struct fd *fd, obj_handle_t handle, unsigned int info_class )
-{
-    set_error( STATUS_OBJECT_TYPE_MISMATCH );
-}
-
 /* default get_file_info() routine */
 void default_fd_get_file_info( struct fd *fd, obj_handle_t handle, unsigned int info_class )
 {
@@ -2654,18 +2630,6 @@ void default_fd_get_file_info( struct fd *fd, obj_handle_t handle, unsigned int 
     default:
         set_error( STATUS_NOT_IMPLEMENTED );
     }
-}
-
-/* default get_volume_info() routine */
-void no_fd_get_volume_info( struct fd *fd, struct async *async, unsigned int info_class )
-{
-    set_error( STATUS_OBJECT_TYPE_MISMATCH );
-}
-
-/* default ioctl() routine */
-void no_fd_ioctl( struct fd *fd, ioctl_code_t code, struct async *async )
-{
-    set_error( STATUS_OBJECT_TYPE_MISMATCH );
 }
 
 /* default ioctl() routine */
@@ -2980,7 +2944,8 @@ DECL_HANDLER(flush)
 
     if ((async = create_request_async( fd, fd->comp_flags, &req->async, 0 )))
     {
-        fd->fd_ops->flush( fd, async );
+        if (fd->fd_ops->flush) fd->fd_ops->flush( fd, async );
+        else set_error( STATUS_OBJECT_TYPE_MISMATCH );
         reply->event = async_handoff( async, NULL, 1 );
         release_object( async );
     }
@@ -2994,7 +2959,8 @@ DECL_HANDLER(get_file_info)
 
     if (fd)
     {
-        fd->fd_ops->get_file_info( fd, req->handle, req->info_class );
+        if (fd->fd_ops->get_file_info) fd->fd_ops->get_file_info( fd, req->handle, req->info_class );
+        else set_error( STATUS_OBJECT_TYPE_MISMATCH );
         release_object( fd );
     }
 }
@@ -3009,7 +2975,8 @@ DECL_HANDLER(get_volume_info)
 
     if ((async = create_request_async( fd, fd->comp_flags, &req->async, 0 )))
     {
-        fd->fd_ops->get_volume_info( fd, async, req->info_class );
+        if (fd->fd_ops->get_volume_info) fd->fd_ops->get_volume_info( fd, async, req->info_class );
+        else set_error( STATUS_OBJECT_TYPE_MISMATCH );
         reply->wait = async_handoff( async, NULL, 1 );
         release_object( async );
     }
@@ -3086,7 +3053,8 @@ DECL_HANDLER(read)
 
     if ((async = create_request_async( fd, fd->comp_flags, &req->async, 0 )))
     {
-        fd->fd_ops->read( fd, async, req->pos );
+        if (fd->fd_ops->read) fd->fd_ops->read( fd, async, req->pos );
+        else set_error( STATUS_OBJECT_TYPE_MISMATCH );
         reply->wait = async_handoff( async, NULL, 0 );
         reply->options = fd->options;
         release_object( async );
@@ -3104,7 +3072,8 @@ DECL_HANDLER(write)
 
     if ((async = create_request_async( fd, fd->comp_flags, &req->async, 0 )))
     {
-        fd->fd_ops->write( fd, async, req->pos );
+        if (fd->fd_ops->write) fd->fd_ops->write( fd, async, req->pos );
+        else set_error( STATUS_OBJECT_TYPE_MISMATCH );
         reply->wait = async_handoff( async, &reply->size, 0 );
         reply->options = fd->options;
         release_object( async );
@@ -3123,7 +3092,8 @@ DECL_HANDLER(ioctl)
 
     if ((async = create_request_async( fd, fd->comp_flags, &req->async, 0 )))
     {
-        fd->fd_ops->ioctl( fd, req->code, async );
+        if (fd->fd_ops->ioctl) fd->fd_ops->ioctl( fd, req->code, async );
+        else set_error( STATUS_OBJECT_TYPE_MISMATCH );
         reply->wait = async_handoff( async, NULL, 0 );
         reply->options = fd->options;
         release_object( async );
@@ -3153,7 +3123,8 @@ DECL_HANDLER(register_async)
 
     if ((fd = get_handle_fd_obj( current->process, req->async.handle, access )))
     {
-        if (get_unix_fd( fd ) != -1 && (async = create_async( fd, current, &req->async, NULL )))
+        if (!fd->fd_ops->queue_async) set_error( STATUS_OBJECT_TYPE_MISMATCH );
+        else if (get_unix_fd( fd ) != -1 && (async = create_async( fd, current, &req->async, NULL )))
         {
             fd->fd_ops->queue_async( fd, async, req->type, req->count );
             release_object( async );
