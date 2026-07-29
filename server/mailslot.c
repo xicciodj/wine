@@ -439,8 +439,10 @@ struct object *create_mailslot_device( struct object *root, struct unicode_str n
                                        unsigned int attr, const struct security_descriptor *sd )
 {
     struct mailslot_device *dev;
+    struct object_params params = { .ops = &mailslot_device_ops, .root = root,
+                                    .name = name, .attr = attr, .sd = sd };
 
-    if ((dev = create_named_object( root, &mailslot_device_ops, name, attr, sd )) &&
+    if ((dev = create_named_object( &params )) &&
         get_error() != STATUS_OBJECT_NAME_EXISTS)
     {
         dev->mailslots = NULL;
@@ -487,13 +489,12 @@ static enum server_fd_type mailslot_device_file_get_fd_type( struct fd *fd )
     return FD_TYPE_DEVICE;
 }
 
-static struct mailslot *create_mailslot( struct object *root, struct unicode_str name, unsigned int attr,
-                                         unsigned int options, int max_msgsize, timeout_t read_timeout,
-                                         const struct security_descriptor *sd )
+static struct mailslot *create_mailslot( const struct object_params *params,
+                                         unsigned int options, int max_msgsize, timeout_t read_timeout )
 {
     struct mailslot *mailslot;
 
-    if (!(mailslot = create_named_object( root, &mailslot_ops, name, attr & ~OBJ_OPENIF, sd ))) return NULL;
+    if (!(mailslot = create_named_object( params ))) return NULL;
 
     mailslot->fd = NULL;
     mailslot->max_msgsize = max_msgsize;
@@ -573,38 +574,35 @@ static struct mailslot *get_mailslot_obj( struct process *process, obj_handle_t 
 DECL_HANDLER(create_mailslot)
 {
     struct mailslot *mailslot;
-    struct unicode_str name;
-    struct object *root;
-    const struct security_descriptor *sd;
-    const struct object_attributes *objattr = get_req_object_attributes( &sd, &name, &root );
+    struct object_params params = { .ops = &mailslot_ops };
 
-    if (!objattr) return;
+    if (!get_req_object_attributes( &params )) return;
 
-    if (!name.len)  /* mailslots need a root directory even without a name */
+    if (!params.name.len)  /* mailslots need a root directory even without a name */
     {
-        if (!objattr->rootdir)
+        if (!params.objattr->rootdir)
         {
             set_error( STATUS_OBJECT_PATH_SYNTAX_BAD );
             return;
         }
-        if (!(root = get_directory_obj( current->process, objattr->rootdir ))) return;
+        if (!(params.root = get_directory_obj( current->process, params.objattr->rootdir ))) return;
     }
 
     if (!req->access)
     {
         set_error( STATUS_ACCESS_DENIED );
-        if (root) release_object( root );
+        if (params.root) release_object( params.root );
         return;
     }
 
-    if ((mailslot = create_mailslot( root, name, objattr->attributes, req->options, req->max_msgsize,
-                                     req->read_timeout, sd )))
+    params.attr &= ~OBJ_OPENIF;
+    if ((mailslot = create_mailslot( &params, req->options, req->max_msgsize, req->read_timeout )))
     {
-        reply->handle = alloc_handle( current->process, mailslot, req->access, objattr->attributes );
+        reply->handle = alloc_handle( current->process, mailslot, req->access, params.attr );
         release_object( mailslot );
     }
 
-    if (root) release_object( root );
+    if (params.root) release_object( params.root );
 }
 
 

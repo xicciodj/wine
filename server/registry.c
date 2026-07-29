@@ -683,10 +683,12 @@ static struct key *create_key_object( struct object *parent, struct unicode_str 
                                       const struct security_descriptor *sd )
 {
     struct key *key;
+    struct object_params params = { .ops = &key_ops, .root = parent, .name = name,
+                                    .attr = attributes, .sd = sd };
 
-    if (!name.len) return open_named_object( parent, &key_ops, name, attributes );
+    if (!name.len) return open_named_object( &params );
 
-    if ((key = create_named_object( parent, &key_ops, name, attributes, sd )))
+    if ((key = create_named_object( &params )))
     {
         if (get_error() != STATUS_OBJECT_NAME_EXISTS)
         {
@@ -807,6 +809,8 @@ static struct key *open_key( struct key *parent, struct unicode_str name,
                              unsigned int access, unsigned int attributes )
 {
     struct key *key;
+    struct object_params params = { .ops = &key_ops, .root = &parent->obj,
+                                    .name = name, .attr = attributes };
 
     if (name.len >= 65534)
     {
@@ -818,12 +822,12 @@ static struct key *open_key( struct key *parent, struct unicode_str name,
     {
         key = get_wow6432node( parent );
         if (key && ((access & KEY_WOW64_32KEY) || (key->flags & KEY_WOWSHARE)))
-            parent = key;
+            params.root = &key->obj;
     }
 
-    if (!(access & KEY_WOW64_64KEY)) attributes |= OBJ_KEY_WOW64;
+    if (!(access & KEY_WOW64_64KEY)) params.attr |= OBJ_KEY_WOW64;
 
-    if (!(key = open_named_object( &parent->obj, &key_ops, name, attributes ))) return NULL;
+    if (!(key = open_named_object( &params ))) return NULL;
 
     if (!(access & KEY_WOW64_64KEY)) key = grab_wow6432node( key );
     if (debug_level > 1) dump_operation( key, NULL, "Open" );
@@ -2171,31 +2175,30 @@ DECL_HANDLER(create_key)
     struct key *key, *parent = NULL;
     unsigned int access = req->access;
     const WCHAR *class;
-    struct unicode_str name;
-    const struct security_descriptor *sd;
-    const struct object_attributes *objattr = get_req_object_attributes( &sd, &name, NULL );
+    struct object_params params;
 
-    if (!objattr) return;
+    if (!get_req_object_attributes( &params )) return;
+    if (params.root) release_object( params.root );
 
     if (!is_wow64_process( current->process )) access = (access & ~KEY_WOW64_32KEY) | KEY_WOW64_64KEY;
 
-    if (objattr->rootdir)
+    if (params.objattr->rootdir)
     {
-        if (!(parent = get_hkey_obj( objattr->rootdir, 0 ))) return;
+        if (!(parent = get_hkey_obj( params.objattr->rootdir, 0 ))) return;
     }
 
-    if ((key = create_key( parent, name, req->options, access, objattr->attributes, sd )))
+    if ((key = create_key( parent, params.name, req->options, access, params.attr, params.sd )))
     {
-        if ((class = get_req_data_after_objattr( objattr, &key->classlen )))
+        if ((class = get_req_data_after_objattr( &params, &key->classlen )))
         {
             key->classlen = (key->classlen / sizeof(WCHAR)) * sizeof(WCHAR);
             if (!(key->class = memdup( class, key->classlen ))) key->classlen = 0;
         }
         if (get_error() == STATUS_OBJECT_NAME_EXISTS)
-            reply->hkey = alloc_handle( current->process, key, access, objattr->attributes );
+            reply->hkey = alloc_handle( current->process, key, access, params.attr );
         else
             reply->hkey = alloc_handle_no_access_check( current->process, key,
-                                                        access, objattr->attributes );
+                                                        access, params.attr );
         release_object( key );
     }
     if (parent) release_object( parent );
@@ -2322,23 +2325,22 @@ DECL_HANDLER(delete_key_value)
 DECL_HANDLER(load_registry)
 {
     struct key *key, *parent = NULL;
-    struct unicode_str name;
-    const struct security_descriptor *sd;
-    const struct object_attributes *objattr = get_req_object_attributes( &sd, &name, NULL );
+    struct object_params params;
 
-    if (!objattr) return;
+    if (!get_req_object_attributes( &params )) return;
 
     if (!thread_single_check_privilege( current, SeRestorePrivilege ))
     {
         set_error( STATUS_PRIVILEGE_NOT_HELD );
         return;
     }
-    if (objattr->rootdir)
+    if (params.objattr->rootdir)
     {
-        if (!(parent = get_hkey_obj( objattr->rootdir, 0 ))) return;
+        if (params.root) release_object( params.root );
+        if (!(parent = get_hkey_obj( params.objattr->rootdir, 0 ))) return;
     }
 
-    if ((key = create_key( parent, name, 0, KEY_WOW64_64KEY, 0, sd )))
+    if ((key = create_key( parent, params.name, 0, KEY_WOW64_64KEY, 0, params.sd )))
     {
         load_registry( key, req->file );
         release_object( key );

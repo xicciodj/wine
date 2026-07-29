@@ -1054,10 +1054,9 @@ static unsigned int get_mapping_flags( obj_handle_t handle, unsigned int flags )
 }
 
 
-static struct mapping *create_mapping( struct object *root, struct unicode_str name,
-                                       unsigned int attr, mem_size_t size, unsigned int flags,
-                                       obj_handle_t handle, unsigned int file_access,
-                                       const struct security_descriptor *sd )
+static struct mapping *create_mapping( struct object_params *params,
+                                       mem_size_t size, unsigned int flags,
+                                       obj_handle_t handle, unsigned int file_access )
 {
     struct mapping *mapping;
     struct file *file;
@@ -1065,10 +1064,8 @@ static struct mapping *create_mapping( struct object *root, struct unicode_str n
     int unix_fd;
     struct stat st;
 
-    if (!(mapping = create_named_object( root, &mapping_ops, name, attr, sd )))
-        return NULL;
-    if (get_error() == STATUS_OBJECT_NAME_EXISTS)
-        return mapping;  /* Nothing else to do */
+    if (!(mapping = create_named_object( params ))) return NULL;
+    if (get_error() == STATUS_OBJECT_NAME_EXISTS) return mapping;  /* Nothing else to do */
 
     mapping->size        = size;
     mapping->fd          = NULL;
@@ -1161,8 +1158,10 @@ struct mapping *create_fd_mapping( struct object *root, struct unicode_str name,
     struct mapping *mapping;
     int unix_fd;
     struct stat st;
+    struct object_params params = { .ops = &mapping_ops, .root = root, .name = name,
+                                    .attr = attr, .sd = sd };
 
-    if (!(mapping = create_named_object( root, &mapping_ops, name, attr, sd ))) return NULL;
+    if (!(mapping = create_named_object( &params ))) return NULL;
     if (get_error() == STATUS_OBJECT_NAME_EXISTS) return mapping;  /* Nothing else to do */
 
     mapping->shared    = NULL;
@@ -1365,9 +1364,11 @@ struct mapping *create_session_mapping( struct object *root, struct unicode_str 
 {
     static const unsigned int access = FILE_READ_DATA | FILE_WRITE_DATA;
     size_t size = max( sizeof(*shared_session) + sizeof(object_shm_t) * 512, 0x10000 );
+    struct object_params params = { .ops = &mapping_ops, .root = root, .name = name,
+                                    .attr = attr, .sd = sd };
 
     size = round_size( size, host_page_mask );
-    return create_mapping( root, name, attr, size, SEC_COMMIT, 0, access, sd );
+    return create_mapping( &params, size, SEC_COMMIT, 0, access );
 }
 
 void set_session_mapping( struct mapping *mapping )
@@ -1518,9 +1519,11 @@ struct object *create_user_data_mapping( struct object *root, struct unicode_str
 {
     void *ptr;
     struct mapping *mapping;
+    struct object_params params = { .ops = &mapping_ops, .root = root, .name = name,
+                                    .attr = attr, .sd = sd };
 
-    if (!(mapping = create_mapping( root, name, attr, sizeof(KUSER_SHARED_DATA),
-                                    SEC_COMMIT, 0, FILE_READ_DATA | FILE_WRITE_DATA, sd ))) return NULL;
+    if (!(mapping = create_mapping( &params, sizeof(KUSER_SHARED_DATA),
+                                    SEC_COMMIT, 0, FILE_READ_DATA | FILE_WRITE_DATA ))) return NULL;
     ptr = mmap( NULL, mapping->size, PROT_WRITE, MAP_SHARED, get_unix_fd( mapping->fd ), 0 );
     if (ptr != MAP_FAILED) user_shared_data = ptr;
     return &mapping->obj;
@@ -1529,26 +1532,22 @@ struct object *create_user_data_mapping( struct object *root, struct unicode_str
 /* create a file mapping */
 DECL_HANDLER(create_mapping)
 {
-    struct object *root;
     struct mapping *mapping;
-    struct unicode_str name;
-    const struct security_descriptor *sd;
-    const struct object_attributes *objattr = get_req_object_attributes( &sd, &name, &root );
+    struct object_params params = { .ops = &mapping_ops };
 
-    if (!objattr) return;
+    if (!get_req_object_attributes( &params )) return;
 
-    if ((mapping = create_mapping( root, name, objattr->attributes, req->size, req->flags,
-                                   req->file_handle, req->file_access, sd )))
+    if ((mapping = create_mapping( &params, req->size, req->flags, req->file_handle, req->file_access )))
     {
         if (get_error() == STATUS_OBJECT_NAME_EXISTS)
-            reply->handle = alloc_handle( current->process, &mapping->obj, req->access, objattr->attributes );
+            reply->handle = alloc_handle( current->process, &mapping->obj, req->access, params.attr );
         else
             reply->handle = alloc_handle_no_access_check( current->process, &mapping->obj,
-                                                          req->access, objattr->attributes );
+                                                          req->access, params.attr );
         release_object( mapping );
     }
 
-    if (root) release_object( root );
+    if (params.root) release_object( params.root );
 }
 
 /* open a handle to a mapping */

@@ -373,97 +373,105 @@ data_size_t get_path_element( const WCHAR *name, data_size_t len )
     return i * sizeof(WCHAR);
 }
 
-static struct object *create_object( struct object *parent, const struct object_ops *ops,
-                                     struct unicode_str name, unsigned int attributes,
-                                     const struct security_descriptor *sd )
+static struct object *create_object_without_name( const struct object_params *params )
 {
     struct object *obj;
-    struct object_name *name_ptr;
 
-    if (!(name_ptr = alloc_name( name ))) return NULL;
-    if (!(obj = alloc_object( ops ))) goto failed;
-    if (sd && !default_set_sd( obj, sd, OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION |
-                               DACL_SECURITY_INFORMATION | SACL_SECURITY_INFORMATION ))
+    if (!(obj = alloc_object( params->ops ))) return NULL;
+
+    if (params->sd && !default_set_sd( obj, params->sd,
+                                       OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION |
+                                       DACL_SECURITY_INFORMATION | SACL_SECURITY_INFORMATION ))
         goto failed;
-    if (obj->ops->link_name ?
-        obj->ops->link_name( obj, name_ptr, parent ) :
-        directory_link_name( obj, name_ptr, parent ))
-    {
-        name_ptr->obj = obj;
-        obj->name = name_ptr;
-        return obj;
-    }
 
-failed:
-    if (obj) free_object( obj );
-    free( name_ptr );
+    if (!obj->ops->init || obj->ops->init( obj, params->init_data )) return obj;
+
+ failed:
+    free_object( obj );
     return NULL;
 }
 
-/* create an object as named child under the specified parent */
-void *create_named_object( struct object *parent, const struct object_ops *ops,
-                           struct unicode_str name, unsigned int attributes,
-                           const struct security_descriptor *sd )
+static struct object *create_object_with_name( const struct object_params *params )
 {
-    struct object *obj, *new_obj;
+    struct object *obj = NULL, *parent;
+    struct object_name *name_ptr;
     struct unicode_str new_name;
 
     clear_error();
 
-    if (!name.len)
+    if (!params->name.len) return create_object_without_name( params );
+
+    if (!(parent = lookup_named_object( params->root, params->name, params->attr, &new_name )))
+        return NULL;
+
+    if (!new_name.len)
     {
-        if (!(new_obj = alloc_object( ops ))) return NULL;
-        if (sd && !default_set_sd( new_obj, sd, OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION |
-                                   DACL_SECURITY_INFORMATION | SACL_SECURITY_INFORMATION ))
+        if (params->attr & OBJ_OPENIF && parent->ops == params->ops)
         {
-            free_object( new_obj );
-            return NULL;
+            set_error( STATUS_OBJECT_NAME_EXISTS );
+            return parent;
         }
+        release_object( parent );
+        if (params->attr & OBJ_OPENIF)
+            set_error( STATUS_OBJECT_TYPE_MISMATCH );
+        else
+            set_error( STATUS_OBJECT_NAME_COLLISION );
+        return NULL;
     }
-    else
+
+    if (!(name_ptr = alloc_name( new_name ))) goto failed;
+    if (!(obj = alloc_object( params->ops ))) goto failed;
+
+    if (params->sd && !default_set_sd( obj, params->sd,
+                                       OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION |
+                                       DACL_SECURITY_INFORMATION | SACL_SECURITY_INFORMATION ))
+        goto failed;
+
+    if (!(obj->ops->link_name ? obj->ops->link_name( obj, name_ptr, parent ) :
+                                directory_link_name( obj, name_ptr, parent )))
+        goto failed;
+
+    name_ptr->obj = obj;
+    obj->name = name_ptr;
+    release_object( parent );
+
+    if (!obj->ops->init || obj->ops->init( obj, params->init_data )) return obj;
+
+    unlink_named_object( obj );
+    free_object( obj );
+    return NULL;
+
+ failed:
+    if (obj) free_object( obj );
+    free( name_ptr );
+    release_object( parent );
+    return NULL;
+}
+
+/* create an object as named child with the specified parameters */
+void *create_named_object( const struct object_params *params )
+{
+    struct object *obj = create_object_with_name( params );
+
+    if (obj && (params->attr & OBJ_PERMANENT))
     {
-        if (!(obj = lookup_named_object( parent, name, attributes, &new_name ))) return NULL;
-
-        if (!new_name.len)
-        {
-            if (attributes & OBJ_OPENIF && obj->ops == ops)
-            {
-                set_error( STATUS_OBJECT_NAME_EXISTS );
-                return obj;
-            }
-            release_object( obj );
-            if (attributes & OBJ_OPENIF)
-                set_error( STATUS_OBJECT_TYPE_MISMATCH );
-            else
-                set_error( STATUS_OBJECT_NAME_COLLISION );
-            return NULL;
-        }
-
-        new_obj = create_object( obj, ops, new_name, attributes, sd );
-        release_object( obj );
-        if (!new_obj) return NULL;
+        make_object_permanent( obj );
+        grab_object( obj );
     }
-
-    if (attributes & OBJ_PERMANENT)
-    {
-        make_object_permanent( new_obj );
-        grab_object( new_obj );
-    }
-    return new_obj;
+    return obj;
 }
 
 /* open a object by name under the specified parent */
-void *open_named_object( struct object *parent, const struct object_ops *ops,
-                         struct unicode_str name, unsigned int attributes )
+void *open_named_object( const struct object_params *params )
 {
     struct unicode_str name_left;
     struct object *obj;
 
-    if ((obj = lookup_named_object( parent, name, attributes, &name_left )))
+    if ((obj = lookup_named_object( params->root, params->name, params->attr, &name_left )))
     {
         if (name_left.len) /* not fully parsed */
             set_error( STATUS_OBJECT_NAME_NOT_FOUND );
-        else if (ops && obj->ops != ops)
+        else if (params->ops && obj->ops != params->ops)
             set_error( STATUS_OBJECT_TYPE_MISMATCH );
         else
             return obj;
@@ -744,12 +752,11 @@ static void dump_reserve( struct object *obj, int verbose )
     fprintf( stderr, "reserve type=%d\n", reserve->type);
 }
 
-static struct reserve *create_reserve( struct object *root, struct unicode_str name,
-                                       unsigned int attr, int type, const struct security_descriptor *sd )
+static struct reserve *create_reserve( struct object_params *params, int type )
 {
     struct reserve *reserve;
 
-    if (name.len)
+    if (params->name.len)
     {
         set_error( STATUS_OBJECT_NAME_INVALID );
         return NULL;
@@ -757,11 +764,13 @@ static struct reserve *create_reserve( struct object *root, struct unicode_str n
 
     if (type == MemoryReserveObjectTypeUserApc)
     {
-        reserve = create_named_object( root, &apc_reserve_ops, name, attr, sd );
+        params->ops = &apc_reserve_ops;
+        reserve = create_named_object( params );
     }
     else if (type == MemoryReserveObjectTypeIoCompletion)
     {
-        reserve = create_named_object( root, &completion_reserve_ops, name, attr, sd );
+        params->ops = &completion_reserve_ops;
+        reserve = create_named_object( params );
     }
     else
     {
@@ -808,20 +817,17 @@ void reserve_obj_unbind( struct reserve *reserve )
 /* Allocate a reserve object for pre-allocating memory for object types */
 DECL_HANDLER(allocate_reserve_object)
 {
-    struct unicode_str name;
-    struct object *root;
-    const struct security_descriptor *sd;
-    const struct object_attributes *objattr = get_req_object_attributes( &sd, &name, &root );
     struct reserve *reserve;
+    struct object_params params;
 
-    if (!objattr) return;
+    if (!get_req_object_attributes( &params )) return;
 
-    if ((reserve = create_reserve( root, name, objattr->attributes, req->type, sd )))
+    if ((reserve = create_reserve( &params, req->type )))
     {
         reply->handle = alloc_handle_no_access_check( current->process, reserve, GENERIC_READ | GENERIC_WRITE,
-                                                      objattr->attributes );
+                                                      params.attr );
         release_object( reserve );
     }
 
-    if (root) release_object( root );
+    if (params.root) release_object( params.root );
 }
