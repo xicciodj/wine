@@ -38,6 +38,7 @@
 #include "shlwapi.h"
 #include "ocidl.h"
 #include "objsafe.h"
+#include "asptlb.h"
 
 #include "wine/debug.h"
 
@@ -327,7 +328,7 @@ static HRESULT WINAPI PersistStreamInit_Save(IPersistStreamInit *iface, IStream 
 
     TRACE("%p, %p, %d.\n", iface, stream, clr_dirty);
 
-    return node_save(doc->node, stream);
+    return node_save(doc->node, (ISequentialStream *)stream);
 }
 
 static HRESULT WINAPI PersistStreamInit_GetSizeMax(IPersistStreamInit *iface, ULARGE_INTEGER *size)
@@ -1548,7 +1549,9 @@ static HRESULT WINAPI domdoc_loadXML(IXMLDOMDocument3 *iface, BSTR data, VARIANT
 static HRESULT WINAPI domdoc_save(IXMLDOMDocument3 *iface, VARIANT dest)
 {
     domdoc *doc = impl_from_IXMLDOMDocument3(iface);
+    ISequentialStream *sequential_stream;
     IStream *stream;
+    IUnknown *unk;
     HRESULT hr;
 
     TRACE("%p, %s.\n", iface, debugstr_variant(&dest));
@@ -1556,58 +1559,63 @@ static HRESULT WINAPI domdoc_save(IXMLDOMDocument3 *iface, VARIANT dest)
     switch (V_VT(&dest))
     {
         case VT_UNKNOWN:
+            if (IUnknown_QueryInterface(V_UNKNOWN(&dest), &IID_IStream, (void **)&stream) == S_OK)
             {
-                IUnknown *unk = V_UNKNOWN(&dest);
-                IXMLDOMDocument3 *document;
-
-                hr = IUnknown_QueryInterface(unk, &IID_IXMLDOMDocument3, (void **)&document);
-                if (hr == S_OK)
-                {
-                    VARIANT_BOOL success;
-                    BSTR xml;
-
-                    hr = IXMLDOMDocument3_get_xml(iface, &xml);
-                    if (hr == S_OK)
-                    {
-                        hr = IXMLDOMDocument3_loadXML(document, xml, &success);
-                        SysFreeString(xml);
-                    }
-
-                    IXMLDOMDocument3_Release(document);
-                    return hr;
-                }
-
-                hr = IUnknown_QueryInterface(unk, &IID_IStream, (void **)&stream);
-                if (hr == S_OK)
-                {
-                    hr = node_save(doc->node, stream);
-                    IStream_Release(stream);
-                }
+                hr = node_save(doc->node, (ISequentialStream *)stream);
+                IStream_Release(stream);
+            }
+            else if (IUnknown_QueryInterface(V_UNKNOWN(&dest), &IID_ISequentialStream, (void **)&sequential_stream) == S_OK)
+            {
+                hr = node_save(doc->node, sequential_stream);
+                ISequentialStream_Release(sequential_stream);
+            }
+            else if (IUnknown_QueryInterface(V_UNKNOWN(&dest), &IID_IPersistStream, (void **)&unk) == S_OK)
+            {
+                FIXME("Saving to IPersistStream is not implemented.\n");
+                IUnknown_Release(unk);
+                hr = E_NOTIMPL;
+            }
+            else if (IUnknown_QueryInterface(V_UNKNOWN(&dest), &IID_IPersistStreamInit, (void **)&unk) == S_OK)
+            {
+                FIXME("Saving to IPersistStreamInit is not implemented.\n");
+                IUnknown_Release(unk);
+                hr = E_NOTIMPL;
+            }
+            else if (IUnknown_QueryInterface(V_UNKNOWN(&dest), &IID_IResponse, (void **)&unk) == S_OK)
+            {
+                FIXME("Saving to IResponse is not implemented.\n");
+                IUnknown_Release(unk);
+                hr = E_NOTIMPL;
+            }
+            else
+            {
+                WARN("Unsupported destination type.\n");
+                hr = E_INVALIDARG;
             }
             break;
 
-    case VT_BSTR:
-    case VT_BSTR | VT_BYREF:
-        {
-            const WCHAR *path;
-
-            path = V_VT(&dest) & VT_BYREF ? *V_BSTRREF(&dest) : V_BSTR(&dest);
-
-            hr = SHCreateStreamOnFileEx(path, STGM_CREATE | STGM_WRITE, FILE_ATTRIBUTE_NORMAL, TRUE, NULL, &stream);
-            if (FAILED(hr))
+        case VT_BSTR:
+        case VT_BSTR | VT_BYREF:
             {
-                WARN("Failed to create a file stream, hr %#lx.\n", hr);
-                return hr;
+                const WCHAR *path;
+
+                path = V_VT(&dest) & VT_BYREF ? *V_BSTRREF(&dest) : V_BSTR(&dest);
+
+                hr = SHCreateStreamOnFileEx(path, STGM_CREATE | STGM_WRITE, FILE_ATTRIBUTE_NORMAL, TRUE, NULL, &stream);
+                if (FAILED(hr))
+                {
+                    WARN("Failed to create a file stream, hr %#lx.\n", hr);
+                    return hr;
+                }
+
+                hr = node_save(doc->node, (ISequentialStream *)stream);
+                IStream_Release(stream);
             }
+            break;
 
-            hr = node_save(doc->node, stream);
-            IStream_Release(stream);
-        }
-        break;
-
-    default:
-        FIXME("Unhandled destination type %s.\n", debugstr_variant(&dest));
-        return S_FALSE;
+        default:
+            FIXME("Unhandled destination type %s.\n", debugstr_variant(&dest));
+            return S_FALSE;
     }
 
     return hr;
@@ -2577,7 +2585,7 @@ static HRESULT docstream_save(struct docstream *stream)
     if (stream->state == DOCSTREAM_STATE_INITIAL
             && !list_empty(&stream->doc->node->children))
     {
-        hr = node_save(stream->doc->node, stream->stream);
+        hr = node_save(stream->doc->node, (ISequentialStream *)stream->stream);
 
         offset.QuadPart = 0;
         IStream_Seek(stream->stream, offset, STREAM_SEEK_SET, NULL);
