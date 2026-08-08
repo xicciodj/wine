@@ -1254,6 +1254,7 @@ static HRESULT WINAPI domdoc_load(IXMLDOMDocument3 *iface, VARIANT source, VARIA
     LPWSTR filename = NULL;
     HRESULT hr = S_FALSE;
     struct domnode *node;
+    IUnknown *unk;
 
     TRACE("%p, %s, %p.\n", iface, debugstr_variant(&source), result);
 
@@ -1323,52 +1324,43 @@ static HRESULT WINAPI domdoc_load(IXMLDOMDocument3 *iface, VARIANT source, VARIA
         }
         break;
     case VT_UNKNOWN:
-    {
-        IXMLDOMDocument3 *newdoc = NULL;
 
         if (!V_UNKNOWN(&source)) return E_INVALIDARG;
 
-        hr = IUnknown_QueryInterface(V_UNKNOWN(&source), &IID_IXMLDOMDocument3, (void **)&newdoc);
-        if (hr == S_OK)
-        {
-            if (newdoc)
-            {
-                struct domnode *node = get_node_obj((IXMLDOMNode *)newdoc);
-                struct domnode *cloned;
-
-                hr = node_clone_domnode(node, true, &cloned);
-                IXMLDOMDocument3_Release(newdoc);
-
-                if (FAILED(hr))
-                {
-                    WARN("Failed to clone a document, hr %#lx.\n", hr);
-                    return hr;
-                }
-
-                attach_doc_node(doc, cloned);
-                if (SUCCEEDED(hr))
-                    *result = VARIANT_TRUE;
-
-                return hr;
-            }
-        }
-
-        hr = IUnknown_QueryInterface(V_UNKNOWN(&source), &IID_IStream, (void**)&stream);
-        if (FAILED(hr))
-            hr = IUnknown_QueryInterface(V_UNKNOWN(&source), &IID_ISequentialStream, (void**)&stream);
-
-        if (hr == S_OK)
+        if (IUnknown_QueryInterface(V_UNKNOWN(&source), &IID_IStream, (void **)&stream) == S_OK
+            || IUnknown_QueryInterface(V_UNKNOWN(&source), &IID_ISequentialStream, (void **)&stream) == S_OK)
         {
             hr = doc->error = domdoc_load_from_stream(doc, stream);
-            if (hr == S_OK)
+            if (SUCCEEDED(hr))
                 *result = VARIANT_TRUE;
             ISequentialStream_Release(stream);
             return hr;
         }
-
-        FIXME("unsupported IUnknown type (%#lx) (%p)\n", hr, V_UNKNOWN(&source)->lpVtbl);
+        else if (IUnknown_QueryInterface(V_UNKNOWN(&source), &IID_IPersistStream, (void **)&unk) == S_OK)
+        {
+            FIXME("Loading from IPersistStream is not implemented.\n");
+            IUnknown_Release(unk);
+            hr = E_NOTIMPL;
+        }
+        else if (IUnknown_QueryInterface(V_UNKNOWN(&source), &IID_IPersistStreamInit, (void **)&unk) == S_OK)
+        {
+            FIXME("Loading from IPersistStreamInit is not implemented.\n");
+            IUnknown_Release(unk);
+            hr = E_NOTIMPL;
+        }
+        else if (IUnknown_QueryInterface(V_UNKNOWN(&source), &IID_IRequest, (void **)&unk) == S_OK)
+        {
+            FIXME("Loading from IRequest is not implemented.\n");
+            IUnknown_Release(unk);
+            hr = E_NOTIMPL;
+        }
+        else
+        {
+            WARN("Unsupported destination type.\n");
+            hr = E_INVALIDARG;
+        }
         break;
-    }
+
     default:
         FIXME("VT type not supported (%d)\n", V_VT(&source));
     }
@@ -1559,6 +1551,10 @@ static HRESULT WINAPI domdoc_save(IXMLDOMDocument3 *iface, VARIANT dest)
     switch (V_VT(&dest))
     {
         case VT_UNKNOWN:
+
+            if (!V_UNKNOWN(&dest))
+                return E_INVALIDARG;
+
             if (IUnknown_QueryInterface(V_UNKNOWN(&dest), &IID_IStream, (void **)&stream) == S_OK)
             {
                 hr = node_save(doc->node, (ISequentialStream *)stream);
