@@ -626,6 +626,12 @@ static NTSTATUS NTAPI kerberos_SpInitLsaModeContext( LSA_SEC_HANDLE credential, 
         idx = get_buffer_index( input, SECBUFFER_TOKEN );
         if (idx != -1)
         {
+            status = lsa_funcs->MapBuffer( input->pBuffers + idx, input->pBuffers + idx );
+            if (status)
+            {
+                free( target );
+                return status;
+            }
             params.input_token = input->pBuffers[idx].pvBuffer;
             params.input_token_length = input->pBuffers[idx].cbBuffer;
         }
@@ -645,6 +651,15 @@ static NTSTATUS NTAPI kerberos_SpInitLsaModeContext( LSA_SEC_HANDLE credential, 
             }
             output->pBuffers[idx].cbBuffer = KERBEROS_MAX_BUF;
         }
+        else
+        {
+            status = lsa_funcs->MapBuffer( output->pBuffers + idx, output->pBuffers + idx );
+            if (status)
+            {
+                free( target );
+                return status;
+            }
+        }
         params.output_token = output->pBuffers[idx].pvBuffer;
         params.output_token_length = &output->pBuffers[idx].cbBuffer;
 
@@ -657,7 +672,7 @@ static NTSTATUS NTAPI kerberos_SpInitLsaModeContext( LSA_SEC_HANDLE credential, 
 
             if (status == SEC_E_OK)
             {
-                *mapped_context = TRUE;
+                /* FIXME: *mapped_context = TRUE; */
                 expiry_to_timestamp( exptime, expiry );
             }
         }
@@ -700,10 +715,14 @@ static NTSTATUS NTAPI kerberos_SpAcceptLsaModeContext( LSA_SEC_HANDLE credential
         if (input)
         {
             if ((idx = get_buffer_index( input, SECBUFFER_TOKEN )) == -1) return SEC_E_INVALID_TOKEN;
+            status = lsa_funcs->MapBuffer( input->pBuffers + idx, input->pBuffers + idx );
+            if (status) return status;
             params.input_token  = input->pBuffers[idx].pvBuffer;
             params.input_token_length = input->pBuffers[idx].cbBuffer;
         }
         if ((idx = get_buffer_index( output, SECBUFFER_TOKEN )) == -1) return SEC_E_INVALID_TOKEN;
+        status = lsa_funcs->MapBuffer( output->pBuffers + idx, output->pBuffers + idx );
+        if (status) return status;
         params.output_token = output->pBuffers[idx].pvBuffer;
         params.output_token_length = &output->pBuffers[idx].cbBuffer;
 
@@ -713,7 +732,7 @@ static NTSTATUS NTAPI kerberos_SpAcceptLsaModeContext( LSA_SEC_HANDLE credential
             *new_context = create_context_handle( context_handle, new_context_handle );
         if (!status)
         {
-            *mapped_context = TRUE;
+            /* FIXME: *mapped_context = TRUE; */
             expiry_to_timestamp( exptime, expiry );
         }
         /* FIXME: initialize context_data */

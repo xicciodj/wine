@@ -126,7 +126,12 @@ void *opengl_drawable_create( UINT size, const struct opengl_drawable_funcs *fun
     drawable->interval = INT_MIN;
     drawable->doublebuffer = !!(pixel_formats[format - 1].pfd.dwFlags & PFD_DOUBLEBUFFER);
     drawable->stereo = !!(pixel_formats[format - 1].pfd.dwFlags & PFD_STEREO);
-    if ((drawable->client = client)) client_surface_add_ref( client );
+
+    if ((drawable->client = client))
+    {
+        client_surface_get_size( client, &drawable->virtual_size, &drawable->monitor_size );
+        client_surface_add_ref( client );
+    }
 
     opengl_drawable_map_buffer( drawable, GL_FRONT_LEFT, GL_FRONT_LEFT );
     opengl_drawable_map_buffer( drawable, GL_FRONT, GL_FRONT );
@@ -180,7 +185,9 @@ static void opengl_drawable_flush( struct opengl_drawable *drawable, int interva
 {
     if (!is_client_surface_window( drawable->client, 0 )) return;
 
-    if (InterlockedCompareExchange( &drawable->client->updated, 0, 1 )) flags |= GL_FLUSH_UPDATED;
+    if (client_surface_get_size( drawable->client, &drawable->virtual_size, &drawable->monitor_size ))
+        flags |= GL_FLUSH_UPDATED;
+
     if (interval != drawable->interval)
     {
         drawable->interval = interval;
@@ -335,6 +342,58 @@ static GLenum depth_format_from_pfd( const struct wgl_pixel_format *desc )
     return 0;
 }
 
+static void init_framebuffer_attachment( struct opengl_drawable *drawable, GLenum fbo, GLenum attachment, GLenum type,
+                                         GLuint name, const struct wgl_pixel_format *desc, SIZE size )
+{
+    GLenum internal_format = attachment == GL_DEPTH_ATTACHMENT ? depth_format_from_pfd( desc ) : color_format_from_pfd( desc );
+    const char *kind = attachment == GL_DEPTH_ATTACHMENT ? "depth" : "color";
+    const struct opengl_funcs *funcs = &display_funcs;
+
+    switch (type)
+    {
+    case GL_RENDERBUFFER:
+        funcs->p_glNamedRenderbufferStorageMultisample( name, desc->samples, internal_format, size.cx, size.cy );
+        break;
+    default:
+        ERR( "Unexpected type %#x\n", type );
+        return;
+    }
+
+    TRACE( "drawable %p/%u resized %s buffer %#x/%u to %s\n", drawable, fbo, kind, attachment, name, wine_dbgstr_point( (POINT *)&size ) );
+}
+
+static void resize_framebuffer_attachment( struct opengl_drawable *drawable, GLenum fbo, GLenum attachment,
+                                           const struct wgl_pixel_format *desc, SIZE size )
+{
+    const struct opengl_funcs *funcs = &display_funcs;
+    GLenum type;
+    GLuint name;
+
+    funcs->p_glGetNamedFramebufferAttachmentParameteriv( fbo, attachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, (GLint *)&name );
+    funcs->p_glGetNamedFramebufferAttachmentParameteriv( fbo, attachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, (GLint *)&type );
+
+    init_framebuffer_attachment( drawable, fbo, attachment, type, name, desc, size );
+}
+
+static void destroy_framebuffer_attachment( struct opengl_drawable *drawable, GLenum fbo, GLenum attachment )
+{
+    const char *kind = attachment == GL_DEPTH_ATTACHMENT ? "depth" : "color";
+    const struct opengl_funcs *funcs = &display_funcs;
+    GLenum type;
+    GLuint name;
+
+    funcs->p_glGetNamedFramebufferAttachmentParameteriv( fbo, attachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, (GLint *)&name );
+    funcs->p_glGetNamedFramebufferAttachmentParameteriv( fbo, attachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, (GLint *)&type );
+
+    switch (type)
+    {
+    case GL_RENDERBUFFER: funcs->p_glDeleteRenderbuffers( 1, &name ); break;
+    default: ERR( "Unexpected type %#x\n", type ); return;
+    }
+
+    TRACE( "drawable %p/%u destroyed %s buffer %#x/%u\n", drawable, fbo, kind, attachment, name );
+}
+
 static GLuint create_framebuffer( struct opengl_drawable *drawable, const struct wgl_pixel_format *desc )
 {
     const struct opengl_funcs *funcs = &display_funcs;
@@ -367,56 +426,33 @@ static GLuint create_framebuffer( struct opengl_drawable *drawable, const struct
     return fbo;
 }
 
-static void resize_framebuffer( struct opengl_drawable *drawable, const struct wgl_pixel_format *desc, GLuint fbo,
-                                int width, int height )
+static void resize_framebuffer( struct opengl_drawable *drawable, const struct wgl_pixel_format *desc, GLuint fbo, SIZE size )
 {
     const struct opengl_funcs *funcs = &display_funcs;
-    GLuint count = 1, name;
+    GLuint count = 1;
     GLenum ret;
 
     if (drawable->doublebuffer) count *= 2;
     if (drawable->stereo) count *= 2;
 
-    for (GLuint i = 0; i < count; i++)
-    {
-        funcs->p_glGetNamedFramebufferAttachmentParameteriv( fbo, GL_COLOR_ATTACHMENT0 + i, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, (GLint *)&name );
-        funcs->p_glNamedRenderbufferStorageMultisample( name, desc->samples, color_format_from_pfd( desc ), width, height );
-        TRACE( "drawable %p/%u resized color buffer %#x/%u to %d,%d\n", drawable, fbo, GL_COLOR_ATTACHMENT0 + i, name, width, height );
-    }
-
-    if (desc->pfd.cDepthBits)
-    {
-        funcs->p_glGetNamedFramebufferAttachmentParameteriv( fbo, GL_DEPTH_ATTACHMENT, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, (GLint *)&name );
-        funcs->p_glNamedRenderbufferStorageMultisample( name, desc->samples, depth_format_from_pfd( desc ), width, height );
-        TRACE( "drawable %p/%u resized depth buffer %u to %d,%d\n", drawable, fbo, name, width, height );
-    }
+    for (GLuint i = 0; i < count; i++) resize_framebuffer_attachment( drawable, fbo, GL_COLOR_ATTACHMENT0 + i, desc, size );
+    if (desc->pfd.cDepthBits) resize_framebuffer_attachment( drawable, fbo, GL_DEPTH_ATTACHMENT, desc, size );
 
     ret = funcs->p_glCheckNamedFramebufferStatus( fbo, GL_FRAMEBUFFER );
     if (ret != GL_FRAMEBUFFER_COMPLETE) WARN( "glCheckNamedFramebufferStatus returned %#x\n", ret );
-    TRACE( "drawable %p/%u resized buffers to %d,%d\n", drawable, fbo, width, height );
+    TRACE( "drawable %p/%u resized buffers to %s\n", drawable, fbo, wine_dbgstr_point( (POINT *)&size ) );
 }
 
 static void destroy_framebuffer( struct opengl_drawable *drawable, const struct wgl_pixel_format *desc, GLuint fbo )
 {
     const struct opengl_funcs *funcs = &display_funcs;
-    GLuint count = 1, name;
+    GLuint count = 1;
 
     if (drawable->doublebuffer) count *= 2;
     if (drawable->stereo) count *= 2;
 
-    for (GLuint i = 0; i < count; i++)
-    {
-        funcs->p_glGetNamedFramebufferAttachmentParameteriv( fbo, GL_COLOR_ATTACHMENT0 + i, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, (GLint *)&name );
-        funcs->p_glDeleteRenderbuffers( 1, &name );
-        TRACE( "drawable %p/%u destroyed color buffer %#x/%u\n", drawable, fbo, GL_COLOR_ATTACHMENT0 + i, name );
-    }
-
-    if (desc->pfd.cDepthBits)
-    {
-        funcs->p_glGetNamedFramebufferAttachmentParameteriv( fbo, GL_DEPTH_ATTACHMENT, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, (GLint *)&name );
-        funcs->p_glDeleteRenderbuffers( 1, &name );
-        TRACE( "drawable %p/%u destroyed depth buffer %u\n", drawable, fbo, name );
-    }
+    for (GLuint i = 0; i < count; i++) destroy_framebuffer_attachment( drawable, fbo, GL_COLOR_ATTACHMENT0 + i );
+    if (desc->pfd.cDepthBits) destroy_framebuffer_attachment( drawable, fbo, GL_DEPTH_ATTACHMENT );
 
     funcs->p_glDeleteFramebuffers( 1, &fbo );
     TRACE( "drawable %p destroyed framebuffer %u\n", drawable, fbo );
@@ -438,35 +474,30 @@ static void framebuffer_surface_destroy( struct opengl_drawable *drawable )
     make_client_context_current();
 }
 
-static void framebuffer_surface_resize( struct opengl_drawable *drawable )
-{
-    struct wgl_pixel_format draw_desc = pixel_formats[drawable->format - 1], read_desc = draw_desc;
-    RECT rect;
-
-    make_null_context_current( NULL );
-
-    NtUserGetClientRect( drawable->client->hwnd, &rect, NtUserGetDpiForWindow( drawable->client->hwnd ) );
-    if (!rect.right) rect.right = 1;
-    if (!rect.bottom) rect.bottom = 1;
-
-    read_desc.samples = read_desc.sample_buffers = 0;
-
-    TRACE( "Resizing drawable %p/%u to %ux%u\n", drawable, drawable->read_fbo, rect.right, rect.bottom );
-    resize_framebuffer( drawable, &read_desc, drawable->read_fbo, rect.right, rect.bottom );
-
-    if (drawable->draw_fbo != drawable->read_fbo)
-    {
-        TRACE( "Resizing drawable %p/%u to %ux%u\n", drawable, drawable->draw_fbo, rect.right, rect.bottom );
-        resize_framebuffer( drawable, &draw_desc, drawable->draw_fbo, rect.right, rect.bottom );
-    }
-
-    make_client_context_current();
-}
-
 static void framebuffer_surface_flush( struct opengl_drawable *drawable, UINT flags )
 {
     TRACE( "%s, flags %#x\n", debugstr_opengl_drawable( drawable ), flags );
-    if (flags & GL_FLUSH_UPDATED && drawable->read_fbo) framebuffer_surface_resize( drawable );
+
+    make_null_context_current( NULL );
+
+    if (flags & GL_FLUSH_UPDATED && drawable->read_fbo)
+    {
+        struct wgl_pixel_format draw_desc = pixel_formats[drawable->format - 1], read_desc = draw_desc;
+        SIZE size = drawable->virtual_size;
+
+        read_desc.samples = read_desc.sample_buffers = 0;
+
+        TRACE( "Resizing drawable %p/%u to %s\n", drawable, drawable->read_fbo, wine_dbgstr_point( (POINT *)&size ) );
+        resize_framebuffer( drawable, &read_desc, drawable->read_fbo, size );
+
+        if (drawable->draw_fbo != drawable->read_fbo)
+        {
+            TRACE( "Resizing drawable %p/%u to %s\n", drawable, drawable->draw_fbo, wine_dbgstr_point( (POINT *)&size ) );
+            resize_framebuffer( drawable, &draw_desc, drawable->draw_fbo, size );
+        }
+    }
+
+    make_client_context_current();
 }
 
 static BOOL framebuffer_surface_swap( struct opengl_drawable *drawable )
@@ -519,7 +550,7 @@ static struct opengl_drawable *framebuffer_surface_create( int format, struct cl
 
     make_client_context_current();
 
-    framebuffer_surface_resize( &surface->base );
+    framebuffer_surface_flush( &surface->base, GL_FLUSH_UPDATED );
     return &surface->base;
 }
 

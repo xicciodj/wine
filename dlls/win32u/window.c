@@ -347,8 +347,12 @@ static RECT get_client_surface_rects( HWND toplevel, HWND hwnd, RECT *monitor_re
 
     get_win_monitor_dpi( hwnd, &raw_dpi );
     *monitor_rect = map_dpi_rect( rect, dpi, raw_dpi );
+
+    /* use toplevel visible rect relative position, so drivers can then assume it */
     OffsetRect( monitor_rect, monitor_rects.client.left - monitor_rects.visible.left,
                 monitor_rects.client.top - monitor_rects.visible.top );
+    OffsetRect( &rect, rects.client.left - rects.visible.left,
+                rects.client.top - rects.visible.top );
 
     return rect;
 }
@@ -437,6 +441,24 @@ void client_surface_update( struct client_surface *surface )
     pthread_mutex_lock( &surfaces_lock );
     if (surface->hwnd) client_surface_update_locked( surface );
     pthread_mutex_unlock( &surfaces_lock );
+}
+
+BOOL client_surface_get_size( struct client_surface *surface, SIZE *virtual_size, SIZE *monitor_size )
+{
+    BOOL updated;
+
+    pthread_mutex_lock( &surfaces_lock );
+
+    virtual_size->cx = max( 1, surface->virtual_rect.right - surface->virtual_rect.left );
+    virtual_size->cy = max( 1, surface->virtual_rect.bottom - surface->virtual_rect.top );
+    monitor_size->cx = max( 1, surface->monitor_rect.right - surface->monitor_rect.left );
+    monitor_size->cy = max( 1, surface->monitor_rect.bottom - surface->monitor_rect.top );
+    updated = surface->updated;
+    surface->updated = FALSE;
+
+    pthread_mutex_unlock( &surfaces_lock );
+
+    return updated;
 }
 
 void use_window_client_surface( struct client_surface *surface, BOOL use )

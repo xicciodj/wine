@@ -136,6 +136,7 @@ struct opengl_context
     GLuint                      read_fbo;           /* currently bound read FBO name */
     GLenum                      read_buffer;        /* currently bound default FBO read buffers */
     GLenum                      draw_buffers[16];   /* currently bound default FBO draw buffers */
+    GLuint                      draw_buffer_count;  /* number of draw buffers set */
 };
 
 static inline struct opengl_context *opengl_context_from_handle( HGLRC client_context )
@@ -242,6 +243,8 @@ struct opengl_drawable
     HDC                                 owner_hdc;      /* HDC owning the drawable, if any (for pbuffer / D3D swapchains) */
     int                                 format;         /* pixel format of the drawable */
     int                                 interval;       /* last set surface swap interval */
+    SIZE                                virtual_size;   /* size in virtual coordinate space */
+    SIZE                                monitor_size;   /* size in raw physical coordinate space */
     BOOL                                doublebuffer;   /* pixel format is double buffered */
     BOOL                                stereo;         /* pixel format is stereo buffered */
     EGLSurface                          surface;        /* surface for EGL based drivers */
