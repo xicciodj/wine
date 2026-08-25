@@ -905,7 +905,6 @@ static void flush_context( TEB *teb, void (*flush)(void) )
     struct opengl_drawable *read, *draw;
     struct opengl_client_context *client;
     struct opengl_context *ctx = get_current_context( teb, &read, &draw, &client );
-    HWND draw_hwnd = ctx && draw && draw->client ? draw->client->hwnd : NULL;
     const struct opengl_funcs *funcs = teb->glTable;
     UINT flags = 0;
 
@@ -921,14 +920,13 @@ static void flush_context( TEB *teb, void (*flush)(void) )
     if (flags & GL_FLUSH_FORCE_SWAP)
     {
         GLenum mask = GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
-        RECT rect;
+        SIZE size = draw->virtual_size;
 
         WARN( "Front buffer rendering emulation, copying front buffer back\n" );
 
-        NtUserGetClientRect( draw_hwnd, &rect, NtUserGetDpiForWindow( draw_hwnd ) );
         if (ctx->read_fbo) funcs->p_glBindFramebuffer( GL_READ_FRAMEBUFFER, 0 );
         funcs->p_glReadBuffer( GL_FRONT_LEFT );
-        funcs->p_glBlitFramebuffer( 0, 0, rect.right, rect.bottom, 0, 0, rect.right, rect.bottom, mask, GL_NEAREST );
+        funcs->p_glBlitFramebuffer( 0, 0, size.cx, size.cy, 0, 0, size.cx, size.cy, mask, GL_NEAREST );
         if (ctx->read_fbo) funcs->p_glBindFramebuffer( GL_READ_FRAMEBUFFER, ctx->read_fbo );
         else funcs->p_glReadBuffer( drawable_buffer_from_buffer( read, ctx->read_buffer ) );
     }
@@ -1166,9 +1164,7 @@ void resolve_default_fbo( TEB *teb, BOOL read )
     if (drawable->draw_fbo && drawable->read_fbo && drawable->draw_fbo != drawable->read_fbo)
     {
         GLenum mask = GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
-        RECT rect;
-
-        NtUserGetClientRect( drawable->client->hwnd, &rect, NtUserGetDpiForWindow( drawable->client->hwnd ) );
+        SIZE size = drawable->virtual_size;
 
         funcs->p_glBindFramebuffer( GL_READ_FRAMEBUFFER, drawable->draw_fbo );
         funcs->p_glBindFramebuffer( GL_DRAW_FRAMEBUFFER, drawable->read_fbo );
@@ -1177,7 +1173,7 @@ void resolve_default_fbo( TEB *teb, BOOL read )
         {
             funcs->p_glReadBuffer( GL_COLOR_ATTACHMENT0 );
             funcs->p_glDrawBuffer( GL_COLOR_ATTACHMENT0 );
-            funcs->p_glBlitFramebuffer( 0, 0, 0, 0, rect.right, rect.bottom, rect.right, rect.bottom, mask, GL_NEAREST );
+            funcs->p_glBlitFramebuffer( 0, 0, 0, 0, size.cx, size.cy, size.cx, size.cy, mask, GL_NEAREST );
             mask &= ~(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         }
 
@@ -1185,7 +1181,7 @@ void resolve_default_fbo( TEB *teb, BOOL read )
         {
             funcs->p_glReadBuffer( GL_COLOR_ATTACHMENT1 );
             funcs->p_glDrawBuffer( GL_COLOR_ATTACHMENT1 );
-            funcs->p_glBlitFramebuffer( 0, 0, 0, 0, rect.right, rect.bottom, rect.right, rect.bottom, mask, GL_NEAREST );
+            funcs->p_glBlitFramebuffer( 0, 0, 0, 0, size.cx, size.cy, size.cx, size.cy, mask, GL_NEAREST );
             mask &= ~(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         }
 
@@ -1193,7 +1189,7 @@ void resolve_default_fbo( TEB *teb, BOOL read )
         {
             funcs->p_glReadBuffer( GL_COLOR_ATTACHMENT2 );
             funcs->p_glDrawBuffer( GL_COLOR_ATTACHMENT2 );
-            funcs->p_glBlitFramebuffer( 0, 0, 0, 0, rect.right, rect.bottom, rect.right, rect.bottom, mask, GL_NEAREST );
+            funcs->p_glBlitFramebuffer( 0, 0, 0, 0, size.cx, size.cy, size.cx, size.cy, mask, GL_NEAREST );
             mask &= ~(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         }
 
@@ -1201,7 +1197,7 @@ void resolve_default_fbo( TEB *teb, BOOL read )
         {
             funcs->p_glReadBuffer( GL_COLOR_ATTACHMENT3 );
             funcs->p_glDrawBuffer( GL_COLOR_ATTACHMENT3 );
-            funcs->p_glBlitFramebuffer( 0, 0, 0, 0, rect.right, rect.bottom, rect.right, rect.bottom, mask, GL_NEAREST );
+            funcs->p_glBlitFramebuffer( 0, 0, 0, 0, size.cx, size.cy, size.cx, size.cy, mask, GL_NEAREST );
             mask &= ~(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         }
 

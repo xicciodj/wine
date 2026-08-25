@@ -331,9 +331,8 @@ static UINT custom_get_thread_return( MSIPACKAGE *package, HANDLE thread )
     case ERROR_SUCCESS:
     case ERROR_INSTALL_USEREXIT:
     case ERROR_INSTALL_FAILURE:
-        return rc;
     case ERROR_NO_MORE_ITEMS:
-        return ERROR_SUCCESS;
+        return rc;
     case ERROR_INSTALL_SUSPEND:
         ACTION_ForceReboot( package );
         return ERROR_SUCCESS;
@@ -997,18 +996,23 @@ static UINT HANDLE_CustomType19( MSIPACKAGE *package, const WCHAR *source, const
 
 static WCHAR *build_msiexec_args( const WCHAR *filename, const WCHAR *params )
 {
-    UINT len_filename = lstrlenW( filename ), len_params = lstrlenW( params );
+    UINT len_filename = wcslen( filename ), len_params = 0;
     UINT len = ARRAY_SIZE(L"/qb /i ") - 1;
     WCHAR *ret;
 
+    if (params) len_params = wcslen( params );
     if (!(ret = malloc( (len + len_filename + len_params + 4) * sizeof(WCHAR) ))) return NULL;
+
     memcpy( ret, L"/qb /i ", sizeof(L"/qb /i ") );
     ret[len++] = '"';
     memcpy( ret + len, filename, len_filename * sizeof(WCHAR) );
     len += len_filename;
     ret[len++] = '"';
-    ret[len++] = ' ';
-    lstrcpyW( ret + len, params );
+    if (params)
+    {
+        ret[len++] = ' ';
+        wcscpy( ret + len, params );
+    }
     return ret;
 }
 
