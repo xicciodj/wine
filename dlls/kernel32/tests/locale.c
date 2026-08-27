@@ -6935,7 +6935,6 @@ static void test_GetThreadPreferredUILanguages(void)
     ret = pGetThreadPreferredUILanguages( MUI_LANGUAGE_NAME | MUI_THREAD_LANGUAGES, &count, buf, &size );
     ok( ret, "failed %lu\n", GetLastError() );
     ok( !memcmp( buf, L"fr-BE\0en-US\0en-GB\0", size ), "wrong result %s\n", debugstr_wn(buf,size) );
-    todo_wine
     ok( pGetThreadUILanguage() == MAKELANGID( LANG_FRENCH, SUBLANG_FRENCH_BELGIAN ),
         "wrong ui language %x\n", pGetThreadUILanguage() );
 
@@ -7289,12 +7288,6 @@ static void test_SetThreadUILanguage(void)
 {
     LANGID res;
 
-    if (!pGetThreadUILanguage)
-    {
-        win_skip("GetThreadUILanguage isn't implemented, skipping SetThreadUILanguage tests for version < Vista\n");
-        return;   /* BTW SetThreadUILanguage is present on winxp/2003 but doesn`t set the LANGID anyway when tested */
-    }
-
     res = pSetThreadUILanguage(0);
     ok(res == pGetThreadUILanguage(), "expected %d got %d\n", pGetThreadUILanguage(), res);
 
@@ -7303,7 +7296,7 @@ static void test_SetThreadUILanguage(void)
     "expected %d got %d\n", MAKELANGID(LANG_DUTCH, SUBLANG_DUTCH_BELGIAN), res);
 
     res = pSetThreadUILanguage(0);
-    todo_wine ok(res == MAKELANGID(LANG_DUTCH, SUBLANG_DUTCH_BELGIAN),
+    ok(res == MAKELANGID(LANG_DUTCH, SUBLANG_DUTCH_BELGIAN),
     "expected %d got %d\n", MAKELANGID(LANG_DUTCH, SUBLANG_DUTCH_BELGIAN), res);
 }
 

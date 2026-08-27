@@ -127,6 +127,7 @@ void *opengl_drawable_create( UINT size, const struct opengl_drawable_funcs *fun
     drawable->interval = INT_MIN;
     drawable->doublebuffer = !!(pixel_formats[format - 1].pfd.dwFlags & PFD_DOUBLEBUFFER);
     drawable->stereo = !!(pixel_formats[format - 1].pfd.dwFlags & PFD_STEREO);
+    drawable->srgb = !!(pixel_formats[format - 1].framebuffer_srgb_capable);
 
     if ((drawable->client = client))
     {
@@ -268,14 +269,10 @@ static BOOL make_null_context_current( struct opengl_drawable *drawable )
     return TRUE;
 }
 
-static void make_client_context_current(void)
-{
-    struct opengl_context *context;
-    if (!(context = NtCurrentTeb()->glContext) || get_opengl_thread_data()->client_current) return;
-    driver_funcs->p_make_current( context->draw, context->read, context->driver_private );
-}
-
-static GLuint framebuffer_program;
+static pthread_mutex_t gamma_lock = PTHREAD_MUTEX_INITIALIZER;
+static GLuint framebuffer_program, gamma_ramp;
+static GLsync gamma_sync;
+static LONG gamma_serial;
 
 static const char *framebuffer_vertex_shader =
 "#version 330\n"
@@ -305,20 +302,35 @@ static const char *framebuffer_fragment_shader =
 "#version 330\n"
 "\n"
 "uniform sampler2D tex;\n"
+"layout (std140) uniform ramp {\n"
+"    vec3 values[256];\n"
+"};\n"
 "in vec2 uv;\n"
 "layout(location = 0) out vec4 color;\n"
 "\n"
+"vec3 color_from_index(vec3 index)\n"
+"{\n"
+"    ivec3 i = ivec3(index);\n"
+"    return vec3(values[i.r].r, values[i.g].g, values[i.b].b);\n"
+"}\n"
+"\n"
 "void main(void)\n"
 "{\n"
-"    color.xyz = texture(tex, uv).xyz;\n"
+"    vec3 sample = texture(tex, uv).xyz * 255.0;\n"
+"    vec3 prev = floor(sample);\n"
+"    vec3 next = ceil(sample);\n"
+"    color.xyz = mix(color_from_index(prev), color_from_index(next), sample - prev);\n"
 "    color.a = 1.0;\n"
 "}\n"
 ;
 
+#define GAMMA_RAMP_SIZE 256
+
 static void init_framebuffer_program(void)
 {
+    GLuint vs = 0, fs = 0, program = 0, ramp_index, tex;
     const struct opengl_funcs *funcs = &display_funcs;
-    GLuint vs = 0, fs = 0, program = 0, tex;
+    float ramp_data[GAMMA_RAMP_SIZE * 4];
     char error[512];
     GLint success;
 
@@ -343,7 +355,18 @@ static void init_framebuffer_program(void)
 
     funcs->p_glDeleteShader( fs );
     funcs->p_glDeleteShader( vs );
+
+    get_float_gamma_ramp( ramp_data, &gamma_serial );
+    funcs->p_glGenBuffers( 1, &gamma_ramp );
+    funcs->p_glBindBuffer( GL_UNIFORM_BUFFER, gamma_ramp );
+    funcs->p_glBufferData( GL_UNIFORM_BUFFER, sizeof(float) * 4 * GAMMA_RAMP_SIZE, ramp_data, GL_DYNAMIC_DRAW );
+    gamma_sync = funcs->p_glFenceSync( GL_SYNC_GPU_COMMANDS_COMPLETE, 0 );
+
+    ramp_index = funcs->p_glGetUniformBlockIndex( program, "ramp" );
+    funcs->p_glUniformBlockBinding( program, ramp_index, 0 );
+
     funcs->p_glUseProgram( program );
+    funcs->p_glBindBufferBase( GL_UNIFORM_BUFFER, 0, gamma_ramp );
 
     tex = funcs->p_glGetUniformLocation( program, "tex" );
     funcs->p_glUniform1i( tex, 0 );
@@ -379,12 +402,27 @@ struct framebuffer_surface
     struct opengl_drawable *target;         /* driver drawable to present to */
 };
 
+static const struct opengl_drawable_funcs framebuffer_surface_funcs;
+
 static struct framebuffer_surface *framebuffer_from_opengl_drawable( struct opengl_drawable *base )
 {
     return CONTAINING_RECORD( base, struct framebuffer_surface, base );
 }
 
-static GLenum color_format_from_pfd( const struct wgl_pixel_format *desc )
+static struct opengl_drawable *get_target( struct opengl_drawable *drawable )
+{
+    if (drawable->funcs == &framebuffer_surface_funcs) return framebuffer_from_opengl_drawable( drawable )->target;
+    return drawable;
+}
+
+static void make_client_context_current(void)
+{
+    struct opengl_context *context;
+    if (!(context = NtCurrentTeb()->glContext) || get_opengl_thread_data()->client_current) return;
+    driver_funcs->p_make_current( get_target( context->draw ), get_target( context->read ), context->driver_private );
+}
+
+static GLenum color_format_from_pfd( const struct wgl_pixel_format *desc, BOOL srgb )
 {
     TRACE( "format type %u bits %u/%u/%u/%u\n", desc->pixel_type, desc->pfd.cRedBits,
            desc->pfd.cGreenBits, desc->pfd.cBlueBits, desc->pfd.cAlphaBits );
@@ -407,11 +445,11 @@ static GLenum color_format_from_pfd( const struct wgl_pixel_format *desc )
             return GL_RGB10_A2;
         if (desc->pfd.cAlphaBits == 32) return GL_RGBA32UI;
         if (desc->pfd.cAlphaBits == 16) return GL_RGBA16;
-        if (desc->pfd.cAlphaBits == 8) return GL_RGBA8;
+        if (desc->pfd.cAlphaBits == 8) return srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
         if (desc->pfd.cAlphaBits == 4) return GL_RGBA4;
         if (desc->pfd.cBlueBits == 32) return GL_RGB32UI;
         if (desc->pfd.cBlueBits == 16) return GL_RGB16;
-        if (desc->pfd.cBlueBits == 8) return GL_RGB8;
+        if (desc->pfd.cBlueBits == 8) return srgb ? GL_SRGB8 : GL_RGB8;
         if (desc->pfd.cBlueBits == 4) return GL_RGB4;
         if (desc->pfd.cGreenBits == 32) return GL_RG32UI;
         if (desc->pfd.cGreenBits == 16) return GL_RG16;
@@ -461,7 +499,7 @@ static GLenum depth_format_from_pfd( const struct wgl_pixel_format *desc )
 static void init_framebuffer_attachment( struct opengl_drawable *drawable, GLenum fbo, GLenum attachment, GLenum type,
                                          GLuint name, const struct wgl_pixel_format *desc, SIZE size )
 {
-    GLenum internal_format = attachment == GL_DEPTH_ATTACHMENT ? depth_format_from_pfd( desc ) : color_format_from_pfd( desc );
+    GLenum internal_format = attachment == GL_DEPTH_ATTACHMENT ? depth_format_from_pfd( desc ) : color_format_from_pfd( desc, drawable->srgb );
     const char *kind = attachment == GL_DEPTH_ATTACHMENT ? "depth" : "color";
     const struct opengl_funcs *funcs = &display_funcs;
 
@@ -627,6 +665,7 @@ static void blit_framebuffer_surface( struct opengl_drawable *drawable )
 
     const struct opengl_funcs *funcs = &display_funcs;
     SIZE src = drawable->virtual_size, dst = drawable->monitor_size;
+    float ramp_data[GAMMA_RAMP_SIZE * 4];
 
     TRACE( "%s src %s dst %s fbo %u\n", debugstr_opengl_drawable( drawable ), wine_dbgstr_point( (POINT *)&src ),
            wine_dbgstr_point( (POINT *)&dst ), drawable->read_fbo );
@@ -634,8 +673,9 @@ static void blit_framebuffer_surface( struct opengl_drawable *drawable )
     funcs->p_glBindFramebuffer( GL_READ_FRAMEBUFFER, drawable->read_fbo );
     funcs->p_glBindFramebuffer( GL_DRAW_FRAMEBUFFER, 0 );
     funcs->p_glDrawBuffer( GL_BACK );
+    if (drawable->srgb) funcs->p_glEnable( GL_FRAMEBUFFER_SRGB );
 
-    if (drawable->read_fbo == drawable->draw_fbo)
+    if (drawable->read_fbo == drawable->draw_fbo && use_default_gamma_ramp())
     {
         funcs->p_glReadBuffer( GL_COLOR_ATTACHMENT0 );
         funcs->p_glBlitFramebuffer( 0, 0, src.cx, src.cy, 0, 0, dst.cx, dst.cy, GL_COLOR_BUFFER_BIT, GL_LINEAR );
@@ -651,9 +691,21 @@ static void blit_framebuffer_surface( struct opengl_drawable *drawable )
         funcs->p_glGetFramebufferAttachmentParameteriv( GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &front );
         funcs->p_glBindTexture( GL_TEXTURE_2D, front );
 
+        pthread_mutex_lock( &gamma_lock );
+        if (get_float_gamma_ramp( ramp_data, &gamma_serial ))
+        {
+            funcs->p_glDeleteSync( gamma_sync );
+            funcs->p_glBufferSubData( GL_UNIFORM_BUFFER, 0, sizeof(float) * 4 * GAMMA_RAMP_SIZE, ramp_data );
+            gamma_sync = funcs->p_glFenceSync( GL_SYNC_GPU_COMMANDS_COMPLETE, 0 );
+        }
+        funcs->p_glWaitSync( gamma_sync, 0, GL_TIMEOUT_IGNORED );
+        pthread_mutex_unlock( &gamma_lock );
+
         funcs->p_glViewport( 0, 0, dst.cx, dst.cy );
         funcs->p_glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
     }
+
+    if (drawable->srgb) funcs->p_glDisable( GL_FRAMEBUFFER_SRGB );
 }
 
 static void framebuffer_surface_flush( struct opengl_drawable *drawable, UINT flags )
@@ -716,6 +768,14 @@ static BOOL framebuffer_surface_swap( struct opengl_drawable *drawable )
             funcs->p_glGetFramebufferAttachmentParameteriv( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, (GLint *)&back );
             funcs->p_glFramebufferRenderbuffer( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, back );
             funcs->p_glFramebufferRenderbuffer( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_RENDERBUFFER, front );
+
+            if (drawable->stereo)
+            {
+                funcs->p_glGetFramebufferAttachmentParameteriv( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &front );
+                funcs->p_glGetFramebufferAttachmentParameteriv( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &back );
+                funcs->p_glFramebufferTexture( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, back, 0 );
+                funcs->p_glFramebufferTexture( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, front, 0 );
+            }
         }
 
         funcs->p_glBindFramebuffer( GL_READ_FRAMEBUFFER, drawable->read_fbo );
@@ -2160,12 +2220,6 @@ static struct opengl_drawable *get_updated_drawable( HDC hdc, int format, struct
 
     /* get an updated drawable with the desired format */
     return get_window_unused_drawable( hwnd, format );
-}
-
-static struct opengl_drawable *get_target( struct opengl_drawable *drawable )
-{
-    if (drawable->funcs == &framebuffer_surface_funcs) return framebuffer_from_opengl_drawable( drawable )->target;
-    return drawable;
 }
 
 static BOOL context_sync_drawables( struct opengl_context *context, HDC draw_hdc, HDC read_hdc )

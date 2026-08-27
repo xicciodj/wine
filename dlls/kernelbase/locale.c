@@ -6327,6 +6327,49 @@ BOOL WINAPI DECLSPEC_HOTPATCH GetThreadPreferredUILanguages( DWORD flags, ULONG 
 
 
 /***********************************************************************
+ *      GetThreadUILanguage   (kernelbase.@)
+ */
+LANGID WINAPI DECLSPEC_HOTPATCH GetThreadUILanguage(void)
+{
+    WCHAR *buffer;
+    ULONG size = 0;
+    LANGID ret = 0;
+
+    if (GetThreadPreferredUILanguages( MUI_LANGUAGE_ID | MUI_UI_FALLBACK, NULL, NULL, &size ))
+    {
+        if (!(buffer = HeapAlloc( GetProcessHeap(), 0, size * sizeof(WCHAR) ))) return 0;
+        if (GetThreadPreferredUILanguages( MUI_LANGUAGE_ID | MUI_UI_FALLBACK, NULL, buffer, &size ))
+            ret = wcstoul( buffer, NULL, 16 );
+        HeapFree( GetProcessHeap(), 0, buffer );
+    }
+    return ret;
+}
+
+
+/**********************************************************************
+ *	SetThreadUILanguage   (kernelbase.@)
+ */
+LANGID WINAPI DECLSPEC_HOTPATCH SetThreadUILanguage( LANGID langid )
+{
+    LCID lcid = langid;
+    WCHAR buffer[LOCALE_NAME_MAX_LENGTH + 1];
+    const NLS_LOCALE_DATA *locale;
+
+    if (!langid) return GetThreadUILanguage(); /* FIXME: set MUI_CONSOLE_FILTER */
+
+    if (!(locale = NlsValidateLocale( &lcid, 0 )))
+    {
+        SetLastError( ERROR_INVALID_PARAMETER );
+        return 0;
+    }
+    wcscpy( buffer, locale_strings + locale->sname + 1 );
+    buffer[wcslen(buffer) + 1] = 0;
+    if (!SetThreadPreferredUILanguages( MUI_LANGUAGE_NAME, buffer, NULL )) return 0;
+    return LANGIDFROMLCID( lcid );
+}
+
+
+/***********************************************************************
  *	GetTimeZoneInformation   (kernelbase.@)
  */
 DWORD WINAPI DECLSPEC_HOTPATCH GetTimeZoneInformation( TIME_ZONE_INFORMATION *info )
