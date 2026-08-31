@@ -545,6 +545,20 @@ NTSTATUS WINAPI RtlSetThreadPreferredUILanguages( DWORD flags, PCZZWSTR buffer, 
 }
 
 
+/**************************************************************************
+ *      RtlpQueryDefaultUILanguage   (NTDLL.@)
+ */
+NTSTATUS WINAPI RtlpQueryDefaultUILanguage( LANGID *lang, BOOLEAN system )
+{
+    USHORT idx = system ? system_ui_languages_default[0] : user_ui_languages_default[0];
+
+    *lang = get_locale_data( locale_table, idx )->ilanguage;
+    if (*lang == LOCALE_CUSTOM_UNSPECIFIED && idx == user_ui_languages_default[0])
+        *lang = LOCALE_CUSTOM_UI_DEFAULT;
+    return STATUS_SUCCESS;
+}
+
+
 /******************************************************************
  *      RtlInitCodePageTable   (NTDLL.@)
  */
@@ -1109,31 +1123,37 @@ NTSTATUS WINAPI RtlLcidToLocaleName( LCID lcid, UNICODE_STRING *str, ULONG flags
 {
     const NLS_LOCALE_LCID_INDEX *entry;
     const WCHAR *name;
-    ULONG len;
+    ULONG len, idx;
 
     if (!str) return STATUS_INVALID_PARAMETER_2;
 
     switch (lcid)
     {
-    case LOCALE_USER_DEFAULT:
-        NtQueryDefaultLocale( TRUE, &lcid );
-        break;
     case LOCALE_SYSTEM_DEFAULT:
-    case LOCALE_CUSTOM_DEFAULT:
         lcid = system_lcid;
         break;
+    case LOCALE_USER_DEFAULT:
+    case LOCALE_CUSTOM_DEFAULT:
+        idx = system_ui_languages_default[0];
+        name = locale_strings + get_locale_data( locale_table, idx )->sname;
+        goto found;
     case LOCALE_CUSTOM_UI_DEFAULT:
-        return STATUS_UNSUCCESSFUL;
+        idx = user_ui_languages_default[0];
+        name = locale_strings + get_locale_data( locale_table, idx )->sname;
+        goto found;
     case LOCALE_CUSTOM_UNSPECIFIED:
         return STATUS_INVALID_PARAMETER_1;
     }
 
     if (!(entry = find_lcid_entry( locale_table, lcid ))) return STATUS_INVALID_PARAMETER_1;
+    idx = entry->idx;
+    name = locale_strings + entry->name;
+
+ found:
     /* reject neutral locale unless flag 2 is set */
-    if (!(flags & 2) && !get_locale_data( locale_table, entry->idx )->inotneutral)
+    if (!(flags & 2) && !get_locale_data( locale_table, idx )->inotneutral)
         return STATUS_INVALID_PARAMETER_1;
 
-    name = locale_strings + entry->name;
     len = *name++;
 
     if (alloc)
