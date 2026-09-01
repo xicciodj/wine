@@ -719,7 +719,7 @@ static NTSTATUS NTAPI ntlm_SpAcquireCredentialsHandle( UNICODE_STRING *principal
         cred->mode = cred_use == SECPKG_CRED_OUTBOUND ? MODE_CLIENT : MODE_BOTH;
         cred->no_cached_credentials = (cred_use & WINE_NO_CACHED_CREDENTIALS);
 
-        if (id)
+        if (id && (id->DomainLength || id->UserLength || id->PasswordLength))
         {
             int domain_len = 0, user_len = 0, password_len = 0;
             if (id->Flags & SEC_WINNT_AUTH_IDENTITY_ANSI)
@@ -1750,9 +1750,11 @@ static NTSTATUS NTAPI ntlm_SpAcceptLsaModeContext( LSA_SEC_HANDLE cred_handle, L
                     hmac_md5_init( &ctx->mic, ctx->session_key, sizeof(ctx->session_key) );
                     hmac_md5_update( &ctx->mic, (const char *)negotiate, input->pBuffers[0].cbBuffer );
                     hmac_md5_update( &ctx->mic, bin, bin_len );
+                    break;
                 }
+                goto done;
             }
-        } while(0);
+        } while(1);
 
         if (!output || output->cBuffers < 1)
         {
@@ -2022,7 +2024,6 @@ static NTSTATUS NTAPI ntlm_SpQueryContextAttributes( LSA_SEC_HANDLE handle, ULON
     X(SECPKG_ATTR_LIFESPAN);
     X(SECPKG_ATTR_NAMES);
     X(SECPKG_ATTR_NATIVE_NAMES);
-    X(SECPKG_ATTR_PACKAGE_INFO);
     X(SECPKG_ATTR_PASSWORD_EXPIRY);
     X(SECPKG_ATTR_STREAM_SIZES);
     X(SECPKG_ATTR_TARGET_INFORMATION);
@@ -2045,6 +2046,30 @@ static NTSTATUS NTAPI ntlm_SpQueryContextAttributes( LSA_SEC_HANDLE handle, ULON
         sizes.cbBlockSize       = 0;
         sizes.cbSecurityTrailer = 16;
         return lsa_secpkg_table->CopyToClientBuffer( NULL, sizeof(sizes), buf, &sizes );
+    }
+    case SECPKG_ATTR_PACKAGE_INFO:
+    {
+        SecPkgContext_PackageInfoW info;
+        SECPKG_CALL_INFO call_info;
+        NTSTATUS status;
+
+        lsa_secpkg_table->GetCallInfo( &call_info );
+        status = build_package_info( &ntlm_package_info, &info.PackageInfo, &call_info );
+        if (status) return status;
+
+        if (call_info.Attributes & SECPKG_CALL_WOWCLIENT)
+        {
+            struct
+            {
+                ULONG PackageInfo;
+            } info32 =
+            {
+                (ULONG_PTR)info.PackageInfo,
+            };
+
+            return lsa_secpkg_table->CopyToClientBuffer( NULL, sizeof(info32), buf, &info32 );
+        }
+        return lsa_secpkg_table->CopyToClientBuffer( NULL, sizeof(info), buf, &info );
     }
     case SECPKG_ATTR_NEGOTIATION_INFO:
     {
