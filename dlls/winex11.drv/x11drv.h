@@ -431,8 +431,8 @@ struct x11drv_thread_data
     double              raw_x;
     double              raw_y;
     int      xinput2_pointer;      /* XInput2 master pointer device id */
-    int      root_window_users;    /* counter for root window XISelectEvents */
 #endif /* HAVE_X11_EXTENSIONS_XINPUT2_H */
+    int      root_window_users;    /* counter for root window XISelectEvents */
 
     struct display_state desired_state;       /* display state tracking the desired / win32 state */
     struct display_state pending_state;       /* display state tracking the pending / requested state */
@@ -770,6 +770,7 @@ extern void reapply_cursor_clipping(void);
 extern void ungrab_clipping_window(void);
 extern void move_resize_window( HWND hwnd, int dir, POINT pos );
 extern void x11drv_init_keyboard( Display *display );
+extern void x11drv_init_mouse( Display *display );
 extern BOOL X11DRV_ProcessEvents( DWORD mask );
 
 typedef int (*x11drv_error_callback)( Display *display, XErrorEvent *event, void *arg );

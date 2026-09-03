@@ -25,6 +25,14 @@
 #include <stdint.h>
 #include <assert.h>
 
+static const D3DXMATRIX identity =
+{
+    ._11 = 1.0f,
+    ._22 = 1.0f,
+    ._33 = 1.0f,
+    ._44 = 1.0f,
+};
+
 #define SWAPCHAIN_FLAG_SHADER_INPUT             0x1
 
 struct swapchain_desc
@@ -7825,13 +7833,6 @@ static void test_sprite(void)
     D3DXMATRIX mat, mat2;
     ULONG refcount;
     HRESULT hr;
-    static const D3DXMATRIX identity =
-    {
-        ._11 = 1.0f,
-        ._22 = 1.0f,
-        ._33 = 1.0f,
-        ._44 = 1.0f,
-    };
 
     if (!(device = create_device()))
     {
@@ -7906,12 +7907,18 @@ static void test_sprite(void)
     ok(!memcmp(&mat, &mat2, sizeof(mat)), "Unexpected matrix.\n");
 
     /* View transform */
+    hr = ID3DX10Sprite_GetViewTransform(sprite, NULL);
+    ok(hr == E_FAIL, "Unexpected hr %#lx.\n", hr);
+
+    memset(&mat, 0, sizeof(mat));
+    hr = ID3DX10Sprite_GetViewTransform(sprite, &mat);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(!memcmp(&mat, &identity, sizeof(mat)), "Unexpected view transform.\n");
+
     hr = ID3DX10Sprite_SetViewTransform(sprite, NULL);
-    todo_wine
     ok(hr == E_FAIL, "Unexpected hr %#lx.\n", hr);
 
     hr = ID3DX10Sprite_SetViewTransform(sprite, &mat);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     /* Begin */
@@ -7923,7 +7930,6 @@ static void test_sprite(void)
 
     /* Flush/End */
     hr = ID3DX10Sprite_Flush(sprite);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = ID3DX10Sprite_End(sprite);
@@ -7958,11 +7964,9 @@ static void test_sprite(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = ID3DX10Sprite_Flush(sprite);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = ID3DX10Sprite_Flush(sprite);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = ID3DX10Sprite_End(sprite);
@@ -7981,7 +7985,6 @@ static void test_sprite(void)
     ok(get_refcount(srv1) > refcount, "Unexpected refcount.\n");
 
     hr = ID3DX10Sprite_Flush(sprite);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     ok(get_refcount(srv1) == refcount, "Unexpected refcount.\n");
 
@@ -8162,27 +8165,113 @@ static void test_sprite_render(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = ID3DX10Sprite_Flush(sprite);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     hr = ID3DX10Sprite_End(sprite);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     color = get_texture_color(test_context.backbuffer, 160, 120);
-    todo_wine
     ok(compare_color(color, 0xff0000ff, 0), "Got unexpected color 0x%08x.\n", color);
     color = get_texture_color(test_context.backbuffer, 480, 120);
-    todo_wine
     ok(compare_color(color, 0xffff00ff, 0), "Got unexpected color 0x%08x.\n", color);
     color = get_texture_color(test_context.backbuffer, 160, 360);
-    todo_wine
     ok(compare_color(color, 0xffff0000, 0), "Got unexpected color 0x%08x.\n", color);
     color = get_texture_color(test_context.backbuffer, 480, 360);
-    todo_wine
     ok(compare_color(color, 0xff00ffff, 0), "Got unexpected color 0x%08x.\n", color);
 
-    ID3DX10Sprite_Release(sprite);
+    /* Immediate draws with sprites in the batch */
+    ID3D10Device_ClearRenderTargetView(device, test_context.backbuffer_rtv, clear);
+
+    hr = ID3DX10Sprite_Begin(sprite, 0);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    color = get_texture_color(test_context.backbuffer, 160, 120);
+    ok(compare_color(color, 0xffffffff, 0), "Got unexpected color 0x%08x.\n", color);
+    color = get_texture_color(test_context.backbuffer, 480, 120);
+    ok(compare_color(color, 0xffffffff, 0), "Got unexpected color 0x%08x.\n", color);
+    color = get_texture_color(test_context.backbuffer, 160, 360);
+    ok(compare_color(color, 0xffffffff, 0), "Got unexpected color 0x%08x.\n", color);
+    color = get_texture_color(test_context.backbuffer, 480, 360);
+    ok(compare_color(color, 0xffffffff, 0), "Got unexpected color 0x%08x.\n", color);
+
+    D3DXMatrixTranslation(&sprite_desc.matWorld, -0.5f, 0.5f, 0.0f);
+    sprite_desc.TexCoord.x = 0.0f;
+    sprite_desc.TexCoord.y = 0.0f;
+    sprite_desc.TexSize.x = 0.25f;
+    sprite_desc.TexSize.y = 0.25f;
+    hr = ID3DX10Sprite_DrawSpritesBuffered(sprite, &sprite_desc, 1);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    color = get_texture_color(test_context.backbuffer, 160, 120);
+    ok(compare_color(color, 0xffffffff, 0), "Got unexpected color 0x%08x.\n", color);
+    color = get_texture_color(test_context.backbuffer, 480, 120);
+    ok(compare_color(color, 0xffffffff, 0), "Got unexpected color 0x%08x.\n", color);
+    color = get_texture_color(test_context.backbuffer, 160, 360);
+    ok(compare_color(color, 0xffffffff, 0), "Got unexpected color 0x%08x.\n", color);
+    color = get_texture_color(test_context.backbuffer, 480, 360);
+    ok(compare_color(color, 0xffffffff, 0), "Got unexpected color 0x%08x.\n", color);
+
+    D3DXMatrixTranslation(&sprite_desc.matWorld, 0.5f, 0.5f, 0.0f);
+    sprite_desc.TexCoord.x = 0.7f;
+    sprite_desc.TexCoord.y = 0.0f;
+    sprite_desc.TexSize.x = 0.25f;
+    sprite_desc.TexSize.y = 0.25f;
+    hr = ID3DX10Sprite_DrawSpritesImmediate(sprite, &sprite_desc, 1, sizeof(sprite_desc), 0);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    color = get_texture_color(test_context.backbuffer, 160, 120);
+    ok(compare_color(color, 0xffffffff, 0), "Got unexpected color 0x%08x.\n", color);
+    color = get_texture_color(test_context.backbuffer, 480, 120);
+    ok(compare_color(color, 0xffff00ff, 0), "Got unexpected color 0x%08x.\n", color);
+    color = get_texture_color(test_context.backbuffer, 160, 360);
+    ok(compare_color(color, 0xffffffff, 0), "Got unexpected color 0x%08x.\n", color);
+    color = get_texture_color(test_context.backbuffer, 480, 360);
+    ok(compare_color(color, 0xffffffff, 0), "Got unexpected color 0x%08x.\n", color);
+
+    hr = ID3DX10Sprite_End(sprite);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
     ID3D10Texture2D_Release(texture);
     ID3D10ShaderResourceView_Release(srv);
+
+    /* Testing sampler filtering mode */
+    texture_desc.Width = 16;
+    texture_desc.Height = 16;
+
+    resource_data.pSysMem = a8r8g8b8_16_16;
+    resource_data.SysMemPitch = texture_desc.Width * 4;
+    resource_data.SysMemSlicePitch = 0;
+    hr = ID3D10Device_CreateTexture2D(device, &texture_desc, &resource_data, &texture);
+    ok(hr == S_OK, "Failed to create texture, hr %#lx.\n", hr);
+
+    hr = ID3D10Device_CreateShaderResourceView(device, (ID3D10Resource *)texture, NULL, &srv);
+    ok(hr == S_OK, "Failed to create srv, hr %#lx.\n", hr);
+
+    ID3D10Device_ClearRenderTargetView(device, test_context.backbuffer_rtv, clear);
+
+    sprite_desc.TexCoord.x = 0.0f;
+    sprite_desc.TexCoord.y = 0.0f;
+    sprite_desc.TexSize.x = 1.0f;
+    sprite_desc.TexSize.y = 1.0f;
+    sprite_desc.pTexture = srv;
+    sprite_desc.matWorld = identity;
+
+    hr = ID3DX10Sprite_Begin(sprite, 0);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = ID3DX10Sprite_DrawSpritesImmediate(sprite, &sprite_desc, 1, 0, 0);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = ID3DX10Sprite_End(sprite);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    color = get_texture_color(test_context.backbuffer, 320, 235);
+    ok(compare_color(color, 0x7b7b7b7b, 1), "Got unexpected color 0x%08x.\n", color);
+    color = get_texture_color(test_context.backbuffer, 320, 240);
+    ok(compare_color(color, 0x80808080, 1), "Got unexpected color 0x%08x.\n", color);
+    color = get_texture_color(test_context.backbuffer, 320, 245);
+    ok(compare_color(color, 0x85858585, 1), "Got unexpected color 0x%08x.\n", color);
+
+    ID3D10Texture2D_Release(texture);
+    ID3D10ShaderResourceView_Release(srv);
+    ID3DX10Sprite_Release(sprite);
     release_test_context(&test_context);
 }
 

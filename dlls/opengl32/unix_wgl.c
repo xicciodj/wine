@@ -569,7 +569,7 @@ static enum buffer_mask buffer_mask_from_enum( GLenum buffer )
     {
     case GL_BACK:           return MASK_BACK;
     case GL_BACK_LEFT:      return MASK_BACK_LEFT;
-    case GL_BACK_RIGHT:     return MASK_BACK_LEFT;
+    case GL_BACK_RIGHT:     return MASK_BACK_RIGHT;
     case GL_FRONT:          return MASK_FRONT;
     case GL_FRONT_LEFT:     return MASK_FRONT_LEFT;
     case GL_FRONT_RIGHT:    return MASK_FRONT_RIGHT;
@@ -1228,18 +1228,10 @@ NTSTATUS get_pixel_formats( void *args )
 
 static pthread_mutex_t wgl_lock = PTHREAD_MUTEX_INITIALIZER;
 
-struct wow64_string_entry
-{
-    const char *str;
-    PTR32 wow64_str;
-};
-static struct wow64_string_entry *wow64_strings;
-static SIZE_T wow64_strings_count;
-
 NTSTATUS return_wow64_string( const void *str, PTR32 *wow64_str )
 {
-    void *tmp;
-    SIZE_T i;
+    struct opengl_wow64_str *ret = CONTAINING_RECORD( UlongToPtr( *wow64_str ), struct opengl_wow64_str, ptr );
+    SIZE_T max = ret->len;
 
     if (!str)
     {
@@ -1247,30 +1239,11 @@ NTSTATUS return_wow64_string( const void *str, PTR32 *wow64_str )
         return STATUS_SUCCESS;
     }
 
-    pthread_mutex_lock( &wgl_lock );
+    ret->len = strlen( str ) + 1;
+    if (ret->len > max) return STATUS_BUFFER_TOO_SMALL;
 
-    for (i = 0; i < wow64_strings_count; i++) if (wow64_strings[i].str == str) break;
-    if (i == wow64_strings_count && (tmp = realloc( wow64_strings, (i + 1) * sizeof(*wow64_strings) )))
-    {
-        wow64_strings = tmp;
-        wow64_strings[i].str = str;
-        wow64_strings[i].wow64_str = 0;
-        wow64_strings_count += 1;
-    }
-
-    if (i == wow64_strings_count) ERR( "Failed to allocate memory for wow64 strings\n" );
-    else if (wow64_strings[i].wow64_str) *wow64_str = wow64_strings[i].wow64_str;
-    else if (*wow64_str)
-    {
-        strcpy( UlongToPtr(*wow64_str), str );
-        wow64_strings[i].wow64_str = *wow64_str;
-    }
-
-    pthread_mutex_unlock( &wgl_lock );
-
-    if (*wow64_str) return STATUS_SUCCESS;
-    *wow64_str = strlen( str ) + 1;
-    return STATUS_BUFFER_TOO_SMALL;
+    memcpy( ret->ptr, str, ret->len );
+    return STATUS_SUCCESS;
 }
 
 static GLuint get_target_name( TEB *teb, GLenum target )
@@ -1878,10 +1851,6 @@ NTSTATUS wow64_process_detach( void *args )
     NTSTATUS status;
 
     if ((status = process_detach( NULL ))) return status;
-
-    free( wow64_strings );
-    wow64_strings = NULL;
-    wow64_strings_count = 0;
 
     return STATUS_SUCCESS;
 }
