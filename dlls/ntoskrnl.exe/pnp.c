@@ -477,14 +477,46 @@ static void get_parent_id_prefix( DEVICE_OBJECT *parent, WCHAR *prefix_out )
     RegCloseKey( dev_hkey );
 }
 
+static INT32 cm_devcaps_from_device_capabalities(DEVICE_CAPABILITIES *caps)
+{
+    INT32 ret_val = 0;
+
+    if (caps->LockSupported)
+        ret_val |= CM_DEVCAP_LOCKSUPPORTED;
+    if (caps->EjectSupported)
+        ret_val |= CM_DEVCAP_EJECTSUPPORTED;
+    if (caps->Removable)
+        ret_val |= CM_DEVCAP_REMOVABLE;
+    if (caps->DockDevice)
+        ret_val |= CM_DEVCAP_DOCKDEVICE;
+    if (caps->UniqueID)
+        ret_val |= CM_DEVCAP_UNIQUEID;
+    if (caps->SilentInstall)
+        ret_val |= CM_DEVCAP_SILENTINSTALL;
+    if (caps->RawDeviceOK)
+        ret_val |= CM_DEVCAP_RAWDEVICEOK;
+    if (caps->SurpriseRemovalOK)
+        ret_val |= CM_DEVCAP_SURPRISEREMOVALOK;
+    if (caps->HardwareDisabled)
+        ret_val |= CM_DEVCAP_HARDWAREDISABLED;
+    if (caps->NonDynamic)
+        ret_val |= CM_DEVCAP_NONDYNAMIC;
+    if (caps->SecureDevice)
+        ret_val |= CM_DEVCAP_SECUREDEVICE;
+
+    return ret_val;
+}
+
 static void enumerate_new_device( DEVICE_OBJECT *device, HDEVINFO set, DEVICE_OBJECT *parent_device )
 {
     static const WCHAR infpathW[] = {'I','n','f','P','a','t','h',0};
 
     struct wine_device *wine_device = CONTAINING_RECORD(device, struct wine_device, device_obj);
+    WCHAR container_id_str[MAX_GUID_STRING_LEN] = { 0 };
     SP_DEVINFO_DATA sp_device = {sizeof(sp_device)};
     WCHAR device_instance_id[MAX_DEVICE_ID_LEN];
     WCHAR parent_id[MAX_DEVICE_ID_LEN];
+    INT32 cm_devcaps, cm_devcaps_prev;
     DEVICE_CAPABILITIES caps;
     BOOL need_driver = TRUE;
     NTSTATUS status;
@@ -555,11 +587,51 @@ static void enumerate_new_device( DEVICE_OBJECT *device, HDEVINFO set, DEVICE_OB
         RegCloseKey( key );
     }
 
+    if (!SetupDiGetDeviceRegistryPropertyW( set, &sp_device, SPDRP_CAPABILITIES, NULL, (BYTE *)&cm_devcaps_prev,
+            sizeof(cm_devcaps_prev), NULL ))
+        cm_devcaps_prev = 0;
+
+    cm_devcaps = cm_devcaps_from_device_capabalities(&caps);
+    SetupDiSetDeviceRegistryPropertyW( set, &sp_device, SPDRP_CAPABILITIES, (BYTE *)&cm_devcaps, sizeof(cm_devcaps) );
     if (!get_device_id(device, BusQueryContainerID, &id) && id)
     {
         SetupDiSetDeviceRegistryPropertyW( set, &sp_device, SPDRP_BASE_CONTAINERID, (BYTE *)id,
             (lstrlenW( id ) + 1) * sizeof(WCHAR) );
         ExFreePool( id );
+    }
+    else
+    {
+        if (!caps.Removable)
+        {
+            NTSTATUS ret;
+            ULONG needed;
+
+            if ((ret = IoGetDeviceProperty( parent_device, DevicePropertyContainerID,
+                                sizeof(container_id_str), container_id_str, &needed )))
+                ERR( "Failed to get parent container ID, status %#lx.\n", ret );
+        }
+        else
+        {
+            /*
+             * If there isn't a preexisting container ID value, or the device
+             * _was_ removable but now is not, generate a container ID for
+             * this device.
+             */
+            if (!SetupDiGetDeviceRegistryPropertyW( set, &sp_device, SPDRP_BASE_CONTAINERID, NULL,
+                            (BYTE *)container_id_str, sizeof(container_id_str), NULL )
+                    || !(cm_devcaps_prev & CM_DEVCAP_REMOVABLE))
+            {
+                UUID uuid;
+
+                UuidCreateSequential(&uuid);
+                swprintf( container_id_str, ARRAY_SIZE(container_id_str), L"{%08lx-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}",
+                        uuid.Data1, uuid.Data2, uuid.Data3, uuid.Data4[0], uuid.Data4[1], uuid.Data4[2], uuid.Data4[3],
+                        uuid.Data4[4], uuid.Data4[5], uuid.Data4[6], uuid.Data4[7]);
+            }
+        }
+        if (container_id_str[0])
+            SetupDiSetDeviceRegistryPropertyW( set, &sp_device, SPDRP_BASE_CONTAINERID, (BYTE *)container_id_str,
+                (wcslen( container_id_str ) + 1) * sizeof(WCHAR) );
     }
 
     if (!get_device_text(device, DeviceTextDescription, &id) && id)
@@ -970,6 +1042,9 @@ NTSTATUS WINAPI IoGetDeviceProperty( DEVICE_OBJECT *device, DEVICE_REGISTRY_PROP
             break;
         case DevicePropertyRemovalPolicy:
             sp_property = SPDRP_REMOVAL_POLICY;
+            break;
+        case DevicePropertyContainerID:
+            sp_property = SPDRP_BASE_CONTAINERID;
             break;
         default:
             FIXME("Unhandled property %u.\n", property);
@@ -1727,6 +1802,7 @@ void pnp_manager_stop(void)
 
 void CDECL wine_enumerate_root_devices( const WCHAR *driver_name )
 {
+    static const WCHAR root_container_id[] = L"{00000000-0000-0000-FFFF-FFFFFFFFFFFF}";
     static const WCHAR driverW[] = {'\\','D','r','i','v','e','r','\\',0};
     static const WCHAR rootW[] = {'R','O','O','T',0};
     WCHAR buffer[MAX_SERVICE_NAME + ARRAY_SIZE(driverW)], id[MAX_DEVICE_ID_LEN];
@@ -1784,6 +1860,9 @@ void CDECL wine_enumerate_root_devices( const WCHAR *driver_name )
         list_add_tail( &new_list, &pnp_device->entry );
         device->Flags |= DO_BUS_ENUMERATED_DEVICE;
         CONTAINING_RECORD(device, struct wine_device, device_obj)->level = 1;
+        if (!SetupDiSetDeviceRegistryPropertyW( set, &sp_device, SPDRP_BASE_CONTAINERID, (BYTE *)root_container_id,
+                sizeof(root_container_id) ))
+            ERR("Failed to set container ID on root device %s.\n", debugstr_w(id));
 
         start_device( device, set, &sp_device );
     }

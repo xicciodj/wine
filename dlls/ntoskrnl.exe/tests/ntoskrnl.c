@@ -2154,19 +2154,16 @@ static void test_pnp_devices(void)
 
     ret = SetupDiGetDeviceRegistryPropertyA(set, &device, SPDRP_CAPABILITIES,
             &type, (BYTE *)&dword, sizeof(dword), NULL);
-    todo_wine ok(ret, "got error %#lx\n", GetLastError());
-    if (ret)
-    {
-        ok(dword == (CM_DEVCAP_EJECTSUPPORTED | CM_DEVCAP_UNIQUEID
-                | CM_DEVCAP_RAWDEVICEOK | CM_DEVCAP_SURPRISEREMOVALOK), "got flags %#lx\n", dword);
-        ok(type == REG_DWORD, "got type %lu\n", type);
-    }
+    ok(ret, "got error %#lx\n", GetLastError());
+    ok(dword == (CM_DEVCAP_EJECTSUPPORTED | CM_DEVCAP_UNIQUEID
+            | CM_DEVCAP_RAWDEVICEOK | CM_DEVCAP_SURPRISEREMOVALOK), "got flags %#lx\n", dword);
+    ok(type == REG_DWORD, "got type %lu\n", type);
 
     ret = SetupDiGetDeviceRegistryPropertyA(set, &device, SPDRP_CLASSGUID,
             &type, (BYTE *)buffer, sizeof(buffer), NULL);
     todo_wine ok(!ret, "expected failure\n");
     if (ret)
-        ok(GetLastError() == ERROR_INVALID_DATA, "got error %#lx\n", GetLastError());
+        todo_wine ok(GetLastError() == ERROR_INVALID_DATA, "got error %#lx\n", GetLastError());
 
     ret = SetupDiGetDeviceRegistryPropertyA(set, &device, SPDRP_CONFIGFLAGS,
             &type, (BYTE *)&dword, sizeof(dword), NULL);
@@ -3085,10 +3082,10 @@ static void test_pnp_device_ids(void)
         size = sizeof(parent_container_id);
         cr = CM_Get_DevNode_PropertyW(parent_dev.dev_node, &DEVPKEY_Device_ContainerId, &type,
                 (BYTE *)&parent_container_id, &size, 0);
-        todo_wine_if(test_devices[i].dev_level == 1) ok(!cr, "Unexpected cr %#lx.\n", cr);
+        ok(!cr, "Unexpected cr %#lx.\n", cr);
         if (test_devices[i].dev_level == 1)
         {
-            todo_wine ok(IsEqualGUID(&parent_container_id, &expected_root_container_id), "Expected GUID %s, got %s.\n",
+            ok(IsEqualGUID(&parent_container_id, &expected_root_container_id), "Expected GUID %s, got %s.\n",
                     debugstr_guid(&expected_root_container_id), debugstr_guid(&parent_container_id));
         }
 
@@ -3100,7 +3097,7 @@ static void test_pnp_device_ids(void)
         swprintf(tmp_buf2, ARRAY_SIZE(tmp_buf2), L"%s\\%s", desc.device_id_str, desc.instance_id_str);
         /* Delete value created by earlier tests. */
         status = RegDeleteKeyValueW(enum_hkey, tmp_buf2, L"ContainerId");
-        todo_wine ok(status == STATUS_SUCCESS, "Unexpected status %#lx.\n", status);
+        ok(status == STATUS_SUCCESS, "Unexpected status %#lx.\n", status);
         desc.unique_id = TRUE;
         desc.removable = FALSE;
         pnp_bus_test_device_add_child(parent_dev.handle, &desc, test_devices[i].dev_level);
@@ -3110,10 +3107,9 @@ static void test_pnp_device_ids(void)
         memset(&child_container_id, 0, sizeof(child_container_id));
         cr = CM_Get_DevNode_PropertyW(child_dev.dev_node, &DEVPKEY_Device_ContainerId, &type,
                 (BYTE *)&child_container_id, &size, 0);
-        todo_wine ok(!cr, "Unexpected cr %#lx.\n", cr);
-        if (!cr)
-            ok(IsEqualGUID(&parent_container_id, &child_container_id), "Expected GUID %s, got %s.\n",
-                debugstr_guid(&expected_root_container_id), debugstr_guid(&parent_container_id));
+        ok(!cr, "Unexpected cr %#lx.\n", cr);
+        ok(IsEqualGUID(&parent_container_id, &child_container_id), "Expected GUID %s, got %s.\n",
+            debugstr_guid(&expected_root_container_id), debugstr_guid(&parent_container_id));
 
         pnp_bus_device_data_close(&child_dev);
         pnp_bus_test_device_remove_child(parent_dev.handle, &desc, test_devices[i].dev_level);
@@ -3149,7 +3145,7 @@ static void test_pnp_device_ids(void)
         cr = CM_Get_DevNode_PropertyW(child_dev.dev_node, &DEVPKEY_Device_ContainerId, &type,
                 (BYTE *)&child_container_id, &size, 0);
         ok(!cr, "Unexpected cr %#lx.\n", cr);
-        todo_wine ok(IsEqualGUID(&parent_container_id, &child_container_id), "Expected GUID %s, got %s.\n",
+        ok(IsEqualGUID(&parent_container_id, &child_container_id), "Expected GUID %s, got %s.\n",
             debugstr_guid(&expected_root_container_id), debugstr_guid(&parent_container_id));
 
         pnp_bus_device_data_close(&child_dev);
@@ -3204,7 +3200,7 @@ static void test_pnp_device_ids(void)
         cr = CM_Get_DevNode_PropertyW(child_dev.dev_node, &DEVPKEY_Device_ContainerId, &type,
                 (BYTE *)&child_container_id, &size, 0);
         ok(!cr, "Unexpected cr %#lx.\n", cr);
-        todo_wine ok(!IsEqualGUID(&tmp_container_id, &child_container_id), "Expected GUID %s, got %s.\n",
+        ok(!IsEqualGUID(&tmp_container_id, &child_container_id), "Expected GUID %s, got %s.\n",
             debugstr_guid(&tmp_container_id), debugstr_guid(&parent_container_id));
 
         pnp_bus_device_data_close(&child_dev);

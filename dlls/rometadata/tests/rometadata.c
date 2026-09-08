@@ -1584,23 +1584,69 @@ static void test_IMetaDataImport(void)
     henum = NULL;
     buf_count = 0;
     hr = IMetaDataImport_EnumInterfaceImpls(md_import, &henum, typedef1, &impl, 1, &buf_count);
-    todo_wine ok(hr == S_OK, "got hr %#lx\n", hr);
-    todo_wine ok(buf_count == 1, "got buf_count %lu\n", buf_count);
-    todo_wine test_token(md_import, impl, mdtInterfaceImpl, FALSE);
+    ok(hr == S_OK, "got hr %#lx\n", hr);
+    ok(buf_count == 1, "got buf_count %lu\n", buf_count);
+    test_token(md_import, impl, mdtInterfaceImpl, FALSE);
     IMetaDataImport_CloseEnum(md_import, henum);
 
     token = typedef2 = mdTokenNil;
     hr = IMetaDataImport_GetInterfaceImplProps(md_import, impl, &typedef2, &token);
-    todo_wine ok(hr == S_OK, "got hr %#lx\n", hr);
-    todo_wine test_token(md_import, typedef2, mdtTypeDef, FALSE);
-    todo_wine test_token(md_import, token, mdtTypeRef, FALSE);
-    todo_wine ok(typedef2 == typedef1, "got typedef2 %s != %s\n", debugstr_mdToken(typedef2), debugstr_mdToken(typedef1));
+    ok(hr == S_OK, "got hr %#lx\n", hr);
+    test_token(md_import, typedef2, mdtTypeDef, FALSE);
+    test_token(md_import, token, mdtTypeRef, FALSE);
+    ok(typedef2 == typedef1, "got typedef2 %s != %s\n", debugstr_mdToken(typedef2), debugstr_mdToken(typedef1));
 
     hr = IMetaDataImport_FindTypeRef(md_import, mdtModule | 1, L"Wine.Test.ITest3", &typeref);
     todo_wine ok(hr == S_OK, "got hr %#lx\n", hr);
     todo_wine test_token(md_import, typeref, mdtTypeRef, FALSE);
     todo_wine_if(token != mdTokenNil)
     ok(token == typeref, "got token %s != %s\n", debugstr_mdToken(token), debugstr_mdToken(typeref));
+
+    henum = NULL;
+    typeref = mdTokenNil;
+    hr = IMetaDataImport_EnumTypeRefs(md_import, &henum, &typeref, 1, NULL);
+    ok(hr == S_OK, "got hr %#lx\n", hr);
+    buf_count = 0;
+    hr = IMetaDataImport_CountEnum(md_import, henum, &buf_count);
+    ok(hr == S_OK, "got hr %#lx\n", hr);
+    ok(buf_count, "got buf_count %lu\n", hr);
+
+    for (i = 0; i < buf_count && hr == S_OK; i++)
+    {
+        mdTypeRef typeref2 = mdTokenNil;
+        CorTokenType scope_type;
+        ULONG written, len;
+        mdToken scope;
+        WCHAR name[80];
+
+        winetest_push_context("i=%lu,typeref=%s", i, debugstr_mdToken(typeref));
+        test_token(md_import, typeref, mdtTypeRef, FALSE);
+
+        name[0] = L'\0';
+        scope = mdTokenNil;
+        hr = IMetaDataImport_GetTypeRefProps(md_import, typeref, &scope, name, ARRAY_SIZE(name), &written);
+        ok(hr == S_OK, "got hr %#lx\n", hr);
+
+        ok(name[0], "got name %s\n", debugstr_w(name));
+        len = wcslen(name);
+        ok(written == len + 1, "got written %lu != %lu\n", written, len + 1);
+
+        scope_type = TypeFromToken(scope);
+        if (scope_type == mdtModule)
+            ok(RidFromToken(scope) == 1, "got scope %s\n", debugstr_mdToken(scope));
+        else
+            test_token(md_import, scope, mdtAssemblyRef, FALSE);
+
+        hr = IMetaDataImport_FindTypeRef(md_import, scope, name, &typeref2);
+        todo_wine ok(hr == S_OK, "got hr %#lx\n", hr);
+        todo_wine ok(typeref == typeref2, "got hr %#lx\n", hr);
+
+        hr = IMetaDataImport_EnumTypeRefs(md_import, &henum, &typeref, 1, NULL);
+        ok(SUCCEEDED(hr), "got hr %#lx\n", hr);
+        winetest_pop_context();
+    }
+    ok(i == buf_count, "got i %lu != %lu\n", i, buf_count);
+    IMetaDataImport_CloseEnum(md_import, henum);
 
     IMetaDataImport_Release(md_import);
 }

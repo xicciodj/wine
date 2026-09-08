@@ -2,6 +2,7 @@
  * IMetaDataTables, IMetaDataImport implementation
  *
  * Copyright 2025-2026 Vibhav Pant
+ * Copyright 2026 Vibhav Pant for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -639,17 +640,67 @@ static HRESULT WINAPI import_EnumTypeDefs(IMetaDataImport *iface, HCORENUM *ret_
     return token_enum_get_entries(*ret_henum, typedefs, len, count);
 }
 
-static HRESULT WINAPI import_EnumInterfaceImpls(IMetaDataImport *iface, HCORENUM *henum, mdTypeDef type_def,
-                                                mdInterfaceImpl *impls, ULONG len, ULONG *count)
+static HRESULT WINAPI import_EnumInterfaceImpls(IMetaDataImport *iface, HCORENUM *ret_henum, mdTypeDef type_def,
+                                                mdInterfaceImpl *ret_impls, ULONG len, ULONG *count)
 {
-    FIXME("(%p, %p, %#x, %p, %lu, %p): stub!\n", iface, henum, type_def, impls, len, count);
-    return E_NOTIMPL;
+    struct metadata_tables *impl = impl_from_IMetaDataImport(iface);
+    ULONG typedef_row = RidFromToken(type_def);
+
+    TRACE("(%p, %p, %s, %p, %lu, %p)\n", iface, ret_henum, debugstr_mdToken(type_def), ret_impls, len, count);
+
+    if (count) *count = 0;
+
+    if (!*ret_henum)
+    {
+        struct token_array impls;
+        ULONG rows, row;
+        HRESULT hr;
+
+        if (FAILED((hr = table_get_num_rows(&impl->IMetaDataTables_iface, TABLE_INTERFACEIMPL, &rows)))) return hr;
+        if (!rows) return S_FALSE;
+        if (FAILED((hr = token_array_init(&impls)))) return hr;
+
+        for (row = 1; row <= rows; row++)
+        {
+            mdTypeDef cur_class;
+
+            hr = table_get_columns(&impl->IMetaDataTables_iface, TABLE_INTERFACEIMPL, row, 0, VAL_RAW, &cur_class, -1);
+            if (FAILED(hr)) break;
+            if (cur_class == typedef_row &&
+                FAILED((hr = token_array_append(&impls, TokenFromRid(row, mdtInterfaceImpl)))))
+                break;
+        }
+
+        if (SUCCEEDED(hr))
+            hr = token_array_to_enum(&impls, ret_henum);
+        token_array_free(impls);
+        if (hr != S_OK) return hr;
+    }
+
+    return token_enum_get_entries(*ret_henum, ret_impls, len, count);
 }
 
-static HRESULT WINAPI import_EnumTypeRefs(IMetaDataImport *iface, HCORENUM *henum, mdTypeRef *typerefs, ULONG len, ULONG *count)
+static HRESULT WINAPI import_EnumTypeRefs(IMetaDataImport *iface, HCORENUM *ret_henum, mdTypeRef *typerefs, ULONG len, ULONG *count)
 {
-    FIXME("(%p, %p, %p, %lu, %p): stub!\n", iface, henum, typerefs, len, count);
-    return E_NOTIMPL;
+    struct metadata_tables *impl = impl_from_IMetaDataImport(iface);
+    ULONG rows;
+    HRESULT hr;
+
+    TRACE("(%p, %p, %p, %lu, %p)\n", iface, ret_henum, typerefs, len, count);
+
+    if (count)
+        *count = 0;
+
+    if (!*ret_henum)
+    {
+        hr = table_get_num_rows(&impl->IMetaDataTables_iface, TABLE_TYPEREF, &rows);
+        if (FAILED(hr)) return hr;
+        /* Skip the <Module> row. */
+        if (!rows) return S_FALSE;
+        if (FAILED((hr = token_enum_range_create(ret_henum, mdtTypeRef, 1, rows)))) return hr;
+    }
+
+    return token_enum_get_entries(*ret_henum, typerefs, len, count);
 }
 
 struct clr_type_path
@@ -849,15 +900,54 @@ static HRESULT WINAPI import_GetTypeDefProps(IMetaDataImport *iface, mdTypeDef t
 static HRESULT WINAPI import_GetInterfaceImplProps(IMetaDataImport *iface, mdInterfaceImpl iface_impl,
                                                    mdTypeDef *class_token, mdToken *iface_token)
 {
-    FIXME("(%p, %#x, %p, %p): stub!\n", iface, iface_impl, class_token, iface_token);
-    return E_NOTIMPL;
+    struct metadata_tables *impl = impl_from_IMetaDataImport(iface);
+    ULONG impl_typedef;
+    mdToken impl_iface;
+    HRESULT hr;
+
+    TRACE("(%p, %s, %p, %p)\n", iface, debugstr_mdToken(iface_impl), class_token, iface_token);
+
+    hr = table_get_columns(&impl->IMetaDataTables_iface, TABLE_INTERFACEIMPL, RidFromToken(iface_impl), 0, VAL_RAW,
+                           &impl_typedef, 1, VAL_RAW, &impl_iface, -1);
+    if (FAILED(hr)) return hr;
+
+    if (class_token) *class_token = TokenFromRid(mdtTypeDef, impl_typedef);
+    if (iface_token) *iface_token = impl_iface;
+
+    return S_OK;
 }
 
-static HRESULT WINAPI import_GetTypeRefProps(IMetaDataImport *iface, mdTypeRef typeref, mdToken *resolution_scope,
+static HRESULT WINAPI import_GetTypeRefProps(IMetaDataImport *iface, mdTypeRef typeref, mdToken *ret_scope,
                                              WCHAR *name, ULONG len, ULONG *written)
 {
-    FIXME("(%p, %#x, %p, %p, %lu, %p): stub!\n", iface, typeref, resolution_scope, name, len, written);
-    return E_NOTIMPL;
+    struct metadata_tables *impl = impl_from_IMetaDataImport(iface);
+    ULONG needed = 0, scope = 0;
+
+    TRACE("(%p, %s, %p, %p, %lu, %p)\n", iface, debugstr_mdToken(typeref), ret_scope, name, len, written);
+
+    if (TypeFromToken(typeref) != mdtTypeRef) return S_FALSE;
+
+    if (name && len)
+        name[0] = L'\0';
+    if (!IsNilToken(typeref))
+    {
+        const ULONG row = RidFromToken(typeref);
+        struct clr_type_path type_path;
+        HRESULT hr;
+
+        hr = IMetaDataTables_GetColumn(&impl->IMetaDataTables_iface, TABLE_TYPEREF, 0, row, &scope);
+        if (FAILED(hr)) return hr;
+        hr = token_typedeforref_get_type_path(&impl->IMetaDataTables_iface, typeref, &type_path);
+        if (FAILED(hr)) return hr;
+        if (!clr_type_path_join(&type_path, name, len, &needed)) return E_OUTOFMEMORY;
+    }
+
+    if (written)
+        *written = needed;
+    if (ret_scope)
+        *ret_scope = scope;
+
+    return S_OK;
 }
 
 static HRESULT WINAPI import_ResolveTypeRef(IMetaDataImport *iface, mdTypeRef typeref, const GUID *iid,
