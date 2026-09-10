@@ -61,7 +61,7 @@ static DEVICE_OBJECT *lower_device, *upper_device;
 static IRP *queued_async_irps[2];
 static unsigned int queued_async_count;
 
-static POBJECT_TYPE *pExEventObjectType, *pIoFileObjectType, *pPsThreadType, *pIoDriverObjectType;
+static POBJECT_TYPE *pExEventObjectType, *pIoFileObjectType, *pPsThreadType, *pIoDriverObjectType, *pSeTokenObjectType;
 static PEPROCESS *pPsInitialSystemProcess;
 static void *create_caller_thread;
 
@@ -1850,6 +1850,45 @@ static void test_context_thread(const struct main_test_input *test_input)
     ObDereferenceObject(thread);
 }
 
+static void test_primary_token(const struct main_test_input *test_input)
+{
+    NTSTATUS (WINAPI *pZwQueryInformationToken)(HANDLE,TOKEN_INFORMATION_CLASS,void*,ULONG,ULONG*);
+    PACCESS_TOKEN token, token2;
+    TOKEN_STATISTICS stats;
+    NTSTATUS status;
+    HANDLE handle;
+    ULONG len;
+
+    pZwQueryInformationToken = get_proc_address("ZwQueryInformationToken");
+    if (!pZwQueryInformationToken) return;
+
+    token = PsReferencePrimaryToken(PsGetCurrentProcess());
+    ok(!!token, "PsReferencePrimaryToken returned NULL\n");
+    if (!token) return;
+
+    /* the same token object needs to be returned on every call */
+    token2 = PsReferencePrimaryToken(PsGetCurrentProcess());
+    ok(token2 == token, "got token %p, expected %p\n", token2, token);
+    if (token2) PsDereferencePrimaryToken(token2);
+
+    status = ObOpenObjectByPointer(token, OBJ_KERNEL_HANDLE, NULL, TOKEN_QUERY,
+                                   *pSeTokenObjectType, KernelMode, &handle);
+    ok(!status, "ObOpenObjectByPointer failed: %#lx\n", status);
+    if (!status)
+    {
+        memset(&stats, 0, sizeof(stats));
+        status = pZwQueryInformationToken(handle, TokenStatistics, &stats, sizeof(stats), &len);
+        ok(!status, "ZwQueryInformationToken failed: %#lx\n", status);
+        ok(!kmemcmp(&stats.TokenId, &test_input->token_id, sizeof(LUID)),
+           "got token id %08lx%08lx, expected %08lx%08lx\n",
+           stats.TokenId.HighPart, stats.TokenId.LowPart,
+           test_input->token_id.HighPart, test_input->token_id.LowPart);
+        ZwClose(handle);
+    }
+
+    PsDereferencePrimaryToken(token);
+}
+
 static void test_stack_limits(void)
 {
     ULONG_PTR low = 0, high = 0;
@@ -2131,6 +2170,36 @@ static void test_dir_kernel_object(void)
     }
 
     ZwClose(dir_handle);
+}
+
+static void test_token_kernel_object(void)
+{
+    NTSTATUS (WINAPI *pZwOpenProcessToken)(HANDLE,DWORD,HANDLE*);
+    HANDLE token_handle, handle;
+    void *token_obj;
+    NTSTATUS status;
+
+    pZwOpenProcessToken = get_proc_address("ZwOpenProcessToken");
+    if (!pZwOpenProcessToken) return;
+
+    status = pZwOpenProcessToken(NtCurrentProcess(), TOKEN_QUERY, &token_handle);
+    ok(!status, "ZwOpenProcessToken failed: %#lx\n", status);
+    if (status) return;
+
+    status = ObReferenceObjectByHandle(token_handle, TOKEN_QUERY, *pSeTokenObjectType, KernelMode,
+                                       &token_obj, NULL);
+    ok(!status, "ObReferenceObjectByHandle failed: %#lx\n", status);
+    if (!status)
+    {
+        status = ObOpenObjectByPointer(token_obj, OBJ_KERNEL_HANDLE, NULL, TOKEN_QUERY,
+                                       *pSeTokenObjectType, KernelMode, &handle);
+        ok(!status, "ObOpenObjectByPointer failed: %#lx\n", status);
+        if (!status)
+            ZwClose(handle);
+        ObDereferenceObject(token_obj);
+    }
+
+    ZwClose(token_handle);
 }
 
 static void test_fsrtl_get_file_size(void)
@@ -2721,6 +2790,9 @@ static NTSTATUS main_test(DEVICE_OBJECT *device, IRP *irp, IO_STACK_LOCATION *st
     pPsThreadType = get_proc_address("PsThreadType");
     ok(!!pPsThreadType, "IofileObjectType not found\n");
 
+    pSeTokenObjectType = get_proc_address("SeTokenObjectType");
+    ok(!!pSeTokenObjectType, "SeTokenObjectType not found\n");
+
     pPsInitialSystemProcess = get_proc_address("PsInitialSystemProcess");
     ok(!!pPsInitialSystemProcess, "PsInitialSystemProcess not found\n");
 
@@ -2739,9 +2811,11 @@ static NTSTATUS main_test(DEVICE_OBJECT *device, IRP *irp, IO_STACK_LOCATION *st
     test_resource();
     test_lookup_thread();
     test_context_thread(test_input);
+    test_primary_token(test_input);
     test_IoAttachDeviceToDeviceStack();
     test_object_name();
     test_dir_kernel_object();
+    test_token_kernel_object();
     test_fsrtl_get_file_size();
 #if defined(__i386__) || defined(__x86_64__)
     test_executable_pool();

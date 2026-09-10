@@ -1627,16 +1627,8 @@ static inline void put_unicode_string( WCHAR *src, WCHAR **dst, UNICODE_STRING *
     copy_unicode_string( &src, dst, str, wcslen(src) * sizeof(WCHAR) );
 }
 
-static void copy_dos_path_string( WCHAR **src, WCHAR **dst, UNICODE_STRING *str,
-                                  UNICODE_STRING *nt_str, UINT len )
+static void copy_dos_path_string( WCHAR **src, WCHAR **dst, UNICODE_STRING *str, UINT len )
 {
-    /* copy the original string into nt_str */
-    nt_str->Buffer = malloc( len + sizeof(WCHAR) );
-    memcpy( nt_str->Buffer, *src, len );
-    nt_str->Buffer[len / sizeof(WCHAR)] = 0;
-    nt_str->Length = len;
-    nt_str->MaximumLength = len + sizeof(WCHAR);
-
     if (len > 5 * sizeof(WCHAR) && (*src)[5] == ':') /* skip the \??\ prefix */
     {
         *src += 4;
@@ -2051,10 +2043,19 @@ void init_startup_info(void)
     is_prefix_bootstrap = !!find_env_var( env, env_pos, bootstrapW, ARRAY_SIZE(bootstrapW) );
     env[env_pos++] = 0;
 
+    nt_name.Buffer = (WCHAR *)(info + 1);
+    nt_name.Length = info->imagepath_len;
+    status = load_main_exe( &nt_name, machine, &module );
+    if (!NT_SUCCESS(status))
+    {
+        MESSAGE( "wine: failed to start %s: %x\n", debugstr_us(&nt_name), status );
+        NtTerminateProcess( GetCurrentProcess(), status );
+    }
+
     size = (sizeof(*params)
+            + info->imagepath_len + sizeof(WCHAR)
             + MAX_PATH * sizeof(WCHAR)  /* curdir */
             + info->dllpath_len + sizeof(WCHAR)
-            + info->imagepath_len + sizeof(WCHAR)
             + info->cmdline_len + sizeof(WCHAR)
             + info->title_len + sizeof(WCHAR)
             + info->desktop_len + sizeof(WCHAR)
@@ -2089,13 +2090,14 @@ void init_startup_info(void)
     src = (WCHAR *)(info + 1);
     dst = (WCHAR *)(params + 1);
 
+    copy_dos_path_string( &src, &dst, &params->ImagePathName, info->imagepath_len );
+
     /* curdir is special */
     copy_unicode_string( &src, &dst, &params->CurrentDirectory.DosPath, info->curdir_len );
+    dst += MAX_PATH - params->CurrentDirectory.DosPath.MaximumLength / sizeof(WCHAR);
     params->CurrentDirectory.DosPath.MaximumLength = MAX_PATH * sizeof(WCHAR);
-    dst = params->CurrentDirectory.DosPath.Buffer + MAX_PATH;
 
     if (info->dllpath_len) copy_unicode_string( &src, &dst, &params->DllPath, info->dllpath_len );
-    copy_dos_path_string( &src, &dst, &params->ImagePathName, &nt_name, info->imagepath_len );
     copy_unicode_string( &src, &dst, &params->CommandLine, info->cmdline_len );
     copy_unicode_string( &src, &dst, &params->WindowTitle, info->title_len );
     copy_unicode_string( &src, &dst, &params->Desktop, info->desktop_len );
@@ -2117,15 +2119,8 @@ void init_startup_info(void)
     free( env );
     free( info );
 
-    status = load_main_exe( &nt_name, machine, &module );
-    if (!NT_SUCCESS(status))
-    {
-        MESSAGE( "wine: failed to start %s: %x\n", debugstr_us(&params->ImagePathName), status );
-        NtTerminateProcess( GetCurrentProcess(), status );
-    }
     rebuild_argv();
     main_wargv = build_wargv( params->ImagePathName.Buffer );
-    free( nt_name.Buffer );
     init_peb( params, module, debugged );
 }
 
@@ -2189,9 +2184,9 @@ void *create_startup_info( const UNICODE_STRING *nt_image, ULONG process_flags,
     info->process_group_id = params->ProcessGroupId;
 
     ptr = info + 1;
+    info->imagepath_len = append_string( &ptr, params, nt_image );
     info->curdir_len = append_string( &ptr, params, &params->CurrentDirectory.DosPath );
     info->dllpath_len = append_string( &ptr, params, &params->DllPath );
-    info->imagepath_len = append_string( &ptr, params, nt_image );
     info->cmdline_len = append_string( &ptr, params, &params->CommandLine );
     info->title_len = append_string( &ptr, params, &params->WindowTitle );
     info->desktop_len = append_string( &ptr, params, &params->Desktop );
