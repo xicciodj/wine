@@ -51,6 +51,7 @@ static const WORD current_machine = IMAGE_FILE_MACHINE_ARMNT;
 static const WORD current_machine = IMAGE_FILE_MACHINE_ARM64;
 #endif
 extern WORD native_machine;
+extern ULONG cpu_count;
 
 static const BOOL is_win64 = (sizeof(void *) > sizeof(int));
 
@@ -97,6 +98,13 @@ static inline BOOL is_arm64ec(void)
     return (current_machine == IMAGE_FILE_MACHINE_ARM64 &&
             main_image_info.Machine == IMAGE_FILE_MACHINE_AMD64);
 }
+
+static inline ULONG_PTR get_system_affinity_mask(void)
+{
+    if (cpu_count >= sizeof(ULONG_PTR) * 8) return ~(ULONG_PTR)0;
+    return ((ULONG_PTR)1 << cpu_count) - 1;
+}
+
 
 /* per-thread data for the Unix side, stored at the bottom of the signal stack */
 
@@ -207,6 +215,7 @@ extern USHORT *uctable;
 extern USHORT *lctable;
 extern SIZE_T startup_info_size;
 extern BOOL is_prefix_bootstrap;
+extern ULONG session_id;
 extern int main_argc;
 extern char **main_argv;
 extern WCHAR **main_wargv;
@@ -253,7 +262,7 @@ extern int server_get_unix_fd( HANDLE handle, unsigned int wanted_access, int *u
                                int *needs_close, enum server_fd_type *type, unsigned int *options );
 extern int wine_server_receive_fd( obj_handle_t *handle );
 extern void process_exit_wrapper( int status ) DECLSPEC_NORETURN;
-extern size_t server_init_process(void);
+extern void server_init_process( struct thread_data *data );
 extern void server_init_process_done(void);
 extern void server_init_thread( struct thread_data *data );
 extern int server_pipe( int fd[2] );
@@ -278,14 +287,13 @@ extern void copy_xstate( XSAVE_AREA_HEADER *dst, XSAVE_AREA_HEADER *src, UINT64 
 extern void set_process_instrumentation_callback( void *callback );
 
 extern void *get_cpu_area( struct thread_data *data, USHORT machine );
-extern void set_thread_id( struct thread_data *data );
 extern NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE_T commit_size );
 extern void DECLSPEC_NORETURN abort_thread( int status );
 extern void DECLSPEC_NORETURN abort_process( int status );
 extern void DECLSPEC_NORETURN exit_process( int status );
 extern void wait_suspend( CONTEXT *context );
 extern NTSTATUS send_debug_event( struct thread_data *data, EXCEPTION_RECORD *rec,
-                                  CONTEXT *context, BOOL first_chance, BOOL exception );
+                                  CONTEXT *context, BOOL first_chance );
 extern NTSTATUS set_thread_context( HANDLE handle, const void *context, BOOL *self, USHORT machine );
 extern NTSTATUS get_thread_context( HANDLE handle, void *context, BOOL *self, USHORT machine );
 extern unsigned int alloc_object_attributes( const OBJECT_ATTRIBUTES *attr, struct object_attributes **ret,
@@ -307,7 +315,8 @@ extern NTSTATUS virtual_map_module( HANDLE mapping, void **module, SIZE_T *size,
 extern NTSTATUS virtual_create_builtin_view( void *module, const UNICODE_STRING *nt_name,
                                              struct pe_image_info *info, void *so_handle );
 extern NTSTATUS virtual_relocate_module( void *module );
-extern TEB *virtual_alloc_first_teb(void);
+extern struct thread_data *virtual_alloc_first_thread_data(void);
+extern void virtual_alloc_first_teb(void);
 extern NTSTATUS virtual_alloc_teb( struct thread_data *data );
 struct thread_data *virtual_alloc_thread_data(void);
 extern void virtual_free_thread_data( struct thread_data *data );

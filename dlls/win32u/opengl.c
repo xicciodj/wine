@@ -877,7 +877,7 @@ static void framebuffer_surface_destroy( struct opengl_drawable *drawable )
 
     TRACE( "%s\n", debugstr_opengl_drawable( drawable ) );
 
-    make_internal_context_current( NULL, surface->target );
+    make_internal_context_current( NULL, NULL );
 
     if (drawable->draw_fbo != drawable->read_fbo)
         destroy_framebuffer( drawable, &draw_desc, drawable->draw_fbo );
@@ -912,6 +912,7 @@ static void blit_framebuffer_surface( struct opengl_drawable *drawable )
     else
     {
         GLint front;
+        GLuint vao;
 
         pthread_once( &once, init_framebuffer_program );
         funcs->p_glUseProgram( framebuffer_program );
@@ -931,7 +932,12 @@ static void blit_framebuffer_surface( struct opengl_drawable *drawable )
         pthread_mutex_unlock( &gamma_lock );
 
         funcs->p_glViewport( 0, 0, dst.cx, dst.cy );
+
+        /* macOS OpenGL requires a VAO for glDrawArrays */
+        funcs->p_glGenVertexArrays( 1, &vao );
+        funcs->p_glBindVertexArray( vao );
         funcs->p_glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
+        funcs->p_glDeleteVertexArrays( 1, &vao );
     }
 
     if (drawable->srgb) funcs->p_glDisable( GL_FRAMEBUFFER_SRGB );
@@ -1066,7 +1072,7 @@ static struct opengl_drawable *framebuffer_surface_create( int format, struct cl
         if (surface->base.doublebuffer) opengl_drawable_map_buffer( &surface->base, GL_BACK_RIGHT, GL_COLOR_ATTACHMENT3 );
     }
 
-    make_internal_context_current( NULL, surface->target );
+    make_internal_context_current( NULL, NULL );
 
     read_desc.samples = read_desc.sample_buffers = 0;
     surface->base.read_fbo = create_framebuffer( &surface->base, &read_desc, surface->base.virtual_size );

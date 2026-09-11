@@ -1321,8 +1321,7 @@ static BOOL create_context(struct macdrv_context *context, int format, CGLContex
         attribs[n++] = kCGLRendererGenericFloatID;
     }
 
-    if (pf->double_buffer)
-        attribs[n++] = kCGLPFADoubleBuffer;
+    attribs[n++] = kCGLPFADoubleBuffer;
 
     if (!context->core)
     {
@@ -2202,6 +2201,8 @@ static BOOL macdrv_context_activate(struct opengl_context *base, struct opengl_d
     struct macdrv_context *context = macdrv_context_from_opengl_context(base);
 
     TRACE("context %p, draw %s, read %s\n", context, debugstr_opengl_drawable(draw), debugstr_opengl_drawable(read));
+
+    if (NtCurrentTeb()->glReserved2) funcs->p_glFlush();
 
     macdrv_context_select_drawable(context, draw);
     CGLSetCurrentContext(context->base.host_context);

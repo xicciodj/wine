@@ -350,6 +350,94 @@ static NTSTATUS seek_audio_msf( struct cdrom *cdrom, const CDROM_SEEK_AUDIO_MSF 
 #endif
 }
 
+static NTSTATUS play_audio_msf( struct cdrom *cdrom, const CDROM_PLAY_AUDIO_MSF *params )
+{
+#ifdef linux
+    struct cdrom_msf msf;
+
+    msf.cdmsf_min0 = params->StartingM;
+    msf.cdmsf_sec0 = params->StartingS;
+    msf.cdmsf_frame0 = params->StartingF;
+    msf.cdmsf_min1 = params->EndingM;
+    msf.cdmsf_sec1 = params->EndingS;
+    msf.cdmsf_frame1 = params->EndingF;
+
+    if (ioctl( cdrom->fd, CDROMSTART ) == -1)
+    {
+        WARN( "failed to start: %s\n", strerror( errno ));
+        return errno_to_status( errno );
+    }
+    if (ioctl( cdrom->fd, CDROMPLAYMSF, &msf ) == -1)
+    {
+        WARN( "failed to play: %s\n", strerror( errno ));
+        return errno_to_status( errno );
+    }
+    TRACE( "playing %d:%d:%d to %d:%d:%d\n",
+            msf.cdmsf_min0, msf.cdmsf_sec0, msf.cdmsf_frame0,
+            msf.cdmsf_min1, msf.cdmsf_sec1, msf.cdmsf_frame1 );
+    return STATUS_SUCCESS;
+#elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__NetBSD__) || defined(__DragonFly__)
+    struct ioc_play_msf msf;
+
+    msf.start_m = params->StartingM;
+    msf.start_s = params->StartingS;
+    msf.start_f = params->StartingF;
+    msf.end_m = params->EndingM;
+    msf.end_s = params->EndingS;
+    msf.end_f = params->EndingF;
+
+    if (ioctl( cdrom->fd, CDIOCSTART, NULL ) == -1)
+    {
+        WARN( "failed to start: %s\n", strerror( errno ));
+        return errno_to_status( errno );
+    }
+    if (ioctl( cdrom->fd, CDROMPLAYMSF, &msf ) == -1)
+    {
+        WARN( "failed to play: %s\n", strerror( errno ));
+        return errno_to_status( errno );
+    }
+    TRACE( "playing %d:%d:%d to %d:%d:%d\n",
+            msf.cdmsf_min0, msf.cdmsf_sec0, msf.cdmsf_frame0,
+            msf.cdmsf_min1, msf.cdmsf_sec1, msf.cdmsf_frame1 );
+    return STATUS_SUCCESS;
+#else
+    FIXME( "not implemented for this platform\n" );
+    return STATUS_NOT_SUPPORTED;
+#endif
+}
+
+static NTSTATUS pause_audio( struct cdrom *cdrom )
+{
+#ifdef linux
+    if (ioctl( cdrom->fd, CDROMPAUSE ))
+        return errno_to_status( errno );
+    return STATUS_SUCCESS;
+#elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__NetBSD__) || defined(__DragonFly__)
+    if (ioctl( cdrom->fd, CDIOCPAUSE, NULL ))
+        return errno_to_status( errno );
+    return STATUS_SUCCESS;
+#else
+    FIXME( "not implemented for this platform\n" );
+    return STATUS_NOT_SUPPORTED;
+#endif
+}
+
+static NTSTATUS resume_audio( struct cdrom *cdrom )
+{
+#ifdef linux
+    if (ioctl( cdrom->fd, CDROMRESUME ))
+        return errno_to_status( errno );
+    return STATUS_SUCCESS;
+#elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__NetBSD__) || defined(__DragonFly__)
+    if (ioctl( cdrom->fd, CDIOCRESUME, NULL ))
+        return errno_to_status( errno );
+    return STATUS_SUCCESS;
+#else
+    FIXME( "not implemented for this platform\n" );
+    return STATUS_NOT_SUPPORTED;
+#endif
+}
+
 static NTSTATUS stop_audio( struct cdrom *cdrom )
 {
     /* We might be about to change media. */
@@ -360,6 +448,64 @@ static NTSTATUS stop_audio( struct cdrom *cdrom )
     return STATUS_SUCCESS;
 #elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__NetBSD__) || defined(__DragonFly__)
     if (ioctl( cdrom->fd, CDIOCSTOP, NULL ))
+        return errno_to_status( errno );
+    return STATUS_SUCCESS;
+#else
+    FIXME( "not implemented for this platform\n" );
+    return STATUS_NOT_SUPPORTED;
+#endif
+}
+
+static NTSTATUS get_volume( struct cdrom *cdrom, VOLUME_CONTROL *vc )
+{
+#if defined(linux)
+    struct cdrom_volctrl volc;
+
+    if (ioctl( cdrom->fd, CDROMVOLREAD, &volc ) == -1)
+        return errno_to_status( errno );
+    vc->PortVolume[0] = volc.channel0;
+    vc->PortVolume[1] = volc.channel1;
+    vc->PortVolume[2] = volc.channel2;
+    vc->PortVolume[3] = volc.channel3;
+    return STATUS_SUCCESS;
+#elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__NetBSD__) || defined(__DragonFly__)
+    struct ioc_vol volc;
+
+    if (ioctl( cdrom->fd, CDIOCGETVOL, &volc ) == -1)
+        return errno_to_status( errno );
+    vc->PortVolume[0] = volc.vol[0];
+    vc->PortVolume[1] = volc.vol[1];
+    vc->PortVolume[2] = volc.vol[2];
+    vc->PortVolume[3] = volc.vol[3];
+    return STATUS_SUCCESS;
+#else
+    FIXME( "not implemented for this platform\n" );
+    return STATUS_NOT_SUPPORTED;
+#endif
+}
+
+static NTSTATUS set_volume( struct cdrom *cdrom, const VOLUME_CONTROL *vc )
+{
+#if defined(linux)
+    struct cdrom_volctrl volc;
+
+    cdrom->toc_valid = false;
+    volc.channel0 = vc->PortVolume[0];
+    volc.channel1 = vc->PortVolume[1];
+    volc.channel2 = vc->PortVolume[2];
+    volc.channel3 = vc->PortVolume[3];
+    if (ioctl( cdrom->fd, CDROMVOLCTRL, &volc ) == -1)
+        return errno_to_status( errno );
+    return STATUS_SUCCESS;
+#elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__NetBSD__) || defined(__DragonFly__)
+    struct ioc_vol volc;
+
+    cdrom->toc_valid = false;
+    volc.vol[0] = vc->PortVolume[0];
+    volc.vol[1] = vc->PortVolume[1];
+    volc.vol[2] = vc->PortVolume[2];
+    volc.vol[3] = vc->PortVolume[3];
+    if (ioctl( cdrom->fd, CDIOCSETVOL, &volc ) == -1)
         return errno_to_status( errno );
     return STATUS_SUCCESS;
 #else
@@ -379,16 +525,38 @@ NTSTATUS cdrom_ioctl( void *args )
 
     switch (code)
     {
+        case IOCTL_CDROM_GET_VOLUME:
+            if (params->output_size < sizeof(VOLUME_CONTROL))
+                return STATUS_BUFFER_TOO_SMALL;
+            params->ret_size = sizeof(VOLUME_CONTROL);
+            return get_volume( params->cdrom, params->output );
+
+        case IOCTL_CDROM_PAUSE_AUDIO:
+            return pause_audio( params->cdrom );
+
+        case IOCTL_CDROM_PLAY_AUDIO_MSF:
+            if (params->input_size < sizeof(CDROM_PLAY_AUDIO_MSF))
+                return STATUS_INFO_LENGTH_MISMATCH;
+            return play_audio_msf( params->cdrom, params->input );
+
         case IOCTL_CDROM_READ_TOC:
             if (params->output_size < sizeof(CDROM_TOC))
                 return STATUS_BUFFER_TOO_SMALL;
             params->ret_size = sizeof(CDROM_TOC);
             return read_toc( params->cdrom, params->output );
 
+        case IOCTL_CDROM_RESUME_AUDIO:
+            return resume_audio( params->cdrom );
+
         case IOCTL_CDROM_SEEK_AUDIO_MSF:
             if (params->input_size < sizeof(CDROM_SEEK_AUDIO_MSF))
                 return STATUS_INFO_LENGTH_MISMATCH;
             return seek_audio_msf( params->cdrom, params->input );
+
+        case IOCTL_CDROM_SET_VOLUME:
+            if (params->input_size < sizeof(VOLUME_CONTROL))
+                return STATUS_INFO_LENGTH_MISMATCH;
+            return set_volume( params->cdrom, params->input );
 
         case IOCTL_CDROM_STOP_AUDIO:
             return stop_audio( params->cdrom );

@@ -69,6 +69,7 @@ WOW_PEB *wow_peb = NULL;
 USHORT *uctable = NULL, *lctable = NULL;
 SIZE_T startup_info_size = 0;
 BOOL is_prefix_bootstrap = FALSE;
+ULONG session_id = 0;
 
 static const WCHAR bootstrapW[] = {'W','I','N','E','B','O','O','T','S','T','R','A','P','M','O','D','E'};
 
@@ -1829,8 +1830,12 @@ static void *build_wow64_parameters( const RTL_USER_PROCESS_PARAMETERS *params )
  */
 static void init_peb( RTL_USER_PROCESS_PARAMETERS *params, void *module, BOOL debugged )
 {
+    virtual_alloc_first_teb();
+    virtual_set_large_address_space();
+
     peb->ImageBaseAddress           = module;
     peb->ProcessParameters          = params;
+    peb->NumberOfProcessors         = cpu_count;
     peb->OSMajorVersion             = 10;
     peb->OSMinorVersion             = 0;
     peb->OSBuildNumber              = 19045;
@@ -1838,19 +1843,8 @@ static void init_peb( RTL_USER_PROCESS_PARAMETERS *params, void *module, BOOL de
     peb->ImageSubSystem             = main_image_info.SubSystemType;
     peb->ImageSubSystemMajorVersion = main_image_info.MajorSubsystemVersion;
     peb->ImageSubSystemMinorVersion = main_image_info.MinorSubsystemVersion;
+    peb->SessionId                  = session_id;
 
-#ifdef _WIN64
-    if (!is_machine_64bit( main_image_info.Machine ))
-    {
-        struct thread_data *data = get_thread_data();
-        data->teb->WowTebOffset = teb_offset;
-        data->teb->Tib.ExceptionList = (void *)((char *)data->teb + teb_offset);
-        wow_peb = (PEB32 *)((char *)peb + page_size);
-        set_thread_id( data );
-    }
-#endif
-
-    virtual_set_large_address_space();
     load_global_options( &params->ImagePathName, debugged );
 
     if (wow_peb)
@@ -1894,9 +1888,6 @@ static RTL_USER_PROCESS_PARAMETERS *build_initial_params( void **module )
     WCHAR *curdir = get_initial_directory();
     UNICODE_STRING nt_name;
     NTSTATUS status;
-    TEB64 *teb64 = get_teb64( NtCurrentTeb() );
-
-    if (teb64) teb64->TlsSlots[WOW64_TLS_FILESYSREDIR] = TRUE;
 
     /* store the initial PATH value */
     path = get_env_var( env, env_pos, pathW, 4 );
@@ -1951,7 +1942,6 @@ static RTL_USER_PROCESS_PARAMETERS *build_initial_params( void **module )
     else
     {
         rebuild_argv();
-        if (teb64) teb64->TlsSlots[WOW64_TLS_FILESYSREDIR] = FALSE;
     }
 
     main_wargv = build_wargv( get_dos_path( nt_name.Buffer ));
