@@ -1830,9 +1830,6 @@ static void *build_wow64_parameters( const RTL_USER_PROCESS_PARAMETERS *params )
  */
 static void init_peb( RTL_USER_PROCESS_PARAMETERS *params, void *module, BOOL debugged )
 {
-    virtual_alloc_first_teb();
-    virtual_set_large_address_space();
-
     peb->ImageBaseAddress           = module;
     peb->ProcessParameters          = params;
     peb->NumberOfProcessors         = cpu_count;
@@ -1948,6 +1945,8 @@ static RTL_USER_PROCESS_PARAMETERS *build_initial_params( void **module )
         data->filesys_redir = FALSE;
     }
 
+    virtual_alloc_first_teb();
+
     main_wargv = build_wargv( get_dos_path( nt_name.Buffer ));
     cmdline = build_command_line( main_wargv );
 
@@ -2045,6 +2044,8 @@ void init_startup_info(void)
         MESSAGE( "wine: failed to start %s: %x\n", debugstr_us(&nt_name), status );
         NtTerminateProcess( GetCurrentProcess(), status );
     }
+
+    virtual_alloc_first_teb();
 
     size = (sizeof(*params)
             + info->imagepath_len + sizeof(WCHAR)

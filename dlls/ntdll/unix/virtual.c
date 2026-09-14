@@ -208,6 +208,7 @@ struct _KUSER_SHARED_DATA *user_shared_data = (void *)0x7ffe0000;
 static void *teb_block;
 static void **next_free_teb;
 static int teb_block_pos;
+static size_t teb_block_size;
 static struct list teb_list = LIST_INIT( teb_list );
 
 #define ROUND_ADDR(addr,mask) ((void *)((UINT_PTR)(addr) & ~(UINT_PTR)(mask)))
@@ -259,6 +260,13 @@ static inline BOOL is_beyond_limit( const void *addr, size_t size, const void *l
 static inline BOOL is_vprot_exec_write( BYTE vprot )
 {
     return (vprot & VPROT_EXEC) && (vprot & (VPROT_WRITE | VPROT_WRITECOPY));
+}
+
+/* address-space layout randomization */
+static inline BOOL use_aslr(void)
+{
+    return (main_image_info.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA) &&
+           (main_image_info.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE);
 }
 
 /* mmap() anonymous memory at a fixed address */
@@ -1703,6 +1711,37 @@ static void remove_reserved_area( void *addr, size_t size )
 
 
 /***********************************************************************
+ *           free_reserved_memory
+ *
+ * Free reserved areas within a given range.
+ */
+static void free_reserved_memory( char *base, char *limit )
+{
+    struct reserved_area *area;
+
+    for (;;)
+    {
+        int removed = 0;
+
+        LIST_FOR_EACH_ENTRY( area, &reserved_areas, struct reserved_area, entry )
+        {
+            char *area_base = area->base;
+            char *area_end = area_base + area->size;
+
+            if (area_end <= base) continue;
+            if (area_base >= limit) return;
+            if (area_base < base) area_base = base;
+            if (area_end > limit) area_end = limit;
+            remove_reserved_area( area_base, area_end - area_base );
+            removed = 1;
+            break;
+        }
+        if (!removed) return;
+    }
+}
+
+
+/***********************************************************************
  *           unmap_area
  *
  * Unmap an area, or simply replace it by an empty mapping if it is
@@ -2765,7 +2804,7 @@ static void *get_host_addr_space_limit(void)
  */
 BOOL is_emulated_code( ULONG_PTR ptr )
 {
-    const UINT64 *map = (const UINT64 *)peb->EcCodeBitMap;
+    const UINT64 *map = arm64ec_view->base;
     ULONG_PTR page = ptr / page_size;
     if (!is_arm64ec() || ptr >= (ULONG_PTR)user_space_limit) return FALSE;
     return !((map[page / 64] >> (page & 63)) & 1);
@@ -2787,7 +2826,7 @@ static void alloc_arm64ec_map(void)
         ERR( "failed to allocate ARM64EC map: %08x\n", status );
         exit(1);
     }
-    peb->EcCodeBitMap = arm64ec_view->base;
+    if (peb) peb->EcCodeBitMap = arm64ec_view->base;
 }
 
 
@@ -3962,55 +4001,56 @@ NTSTATUS virtual_relocate_module( void *module )
 /* set some initial values in a new TEB */
 static void init_teb( struct thread_data *data, void *ptr )
 {
-    TEB *teb;
-    TEB64 *teb64 = ptr;
-    TEB32 *teb32 = (TEB32 *)((char *)ptr + teb_offset);
+    TEB *teb = ptr;
 
 #ifdef _WIN64
-    teb = (TEB *)teb64;
-    teb32->Peb = PtrToUlong( (char *)peb + page_size );
-    teb32->Tib.Self = PtrToUlong( teb32 );
-    teb32->Tib.ExceptionList = ~0u;
-    teb32->Tib.FiberData = 0x1e00;
-    teb32->ClientId.UniqueProcess = pid;
-    teb32->ClientId.UniqueThread  = data->tid;
-    teb32->ActivationContextStackPointer = PtrToUlong( &teb32->ActivationContextStack );
-    teb32->ActivationContextStack.FrameListCache.Flink =
-        teb32->ActivationContextStack.FrameListCache.Blink =
-            PtrToUlong( &teb32->ActivationContextStack.FrameListCache );
-    teb32->StaticUnicodeString.Buffer = PtrToUlong( teb32->StaticUnicodeBuffer );
-    teb32->StaticUnicodeString.MaximumLength = sizeof( teb32->StaticUnicodeBuffer );
-    teb32->RealClientId  = teb32->ClientId;
-    teb32->GdiBatchCount = PtrToUlong( teb64 );
-    teb32->WowTebOffset  = -teb_offset;
-    if (is_wow64())
+    if (wow_peb)
     {
-        teb64->Tib.ExceptionList = PtrToUlong( teb32 );
-        teb64->WowTebOffset = teb_offset;
+        TEB32 *teb32 = (TEB32 *)((char *)ptr + teb_offset);
+
+        teb32->Peb = PtrToUlong( wow_peb );
+        teb32->Tib.Self = PtrToUlong( teb32 );
+        teb32->Tib.ExceptionList = ~0u;
+        teb32->Tib.FiberData = 0x1e00;
+        teb32->ClientId.UniqueProcess = pid;
+        teb32->ClientId.UniqueThread  = data->tid;
+        teb32->ActivationContextStackPointer = PtrToUlong( &teb32->ActivationContextStack );
+        teb32->ActivationContextStack.FrameListCache.Flink =
+            teb32->ActivationContextStack.FrameListCache.Blink =
+                PtrToUlong( &teb32->ActivationContextStack.FrameListCache );
+        teb32->StaticUnicodeString.Buffer = PtrToUlong( teb32->StaticUnicodeBuffer );
+        teb32->StaticUnicodeString.MaximumLength = sizeof( teb32->StaticUnicodeBuffer );
+        teb32->RealClientId  = teb32->ClientId;
+        teb32->GdiBatchCount = PtrToUlong( teb );
+        teb32->WowTebOffset  = -teb_offset;
+        teb->Tib.ExceptionList = (void *)teb32;
+        teb->WowTebOffset = teb_offset;
     }
 #else
-    teb = (TEB *)teb32;
-    teb32->Tib.ExceptionList = ~0u;
-    teb64->Peb = PtrToUlong( (char *)peb - page_size );
-    teb64->Tib.Self = PtrToUlong( teb64 );
-    teb64->Tib.ExceptionList = PtrToUlong( teb32 );
-    teb64->Tib.FiberData = 0x1e00;
-    teb64->ClientId.UniqueProcess = pid;
-    teb64->ClientId.UniqueThread  = data->tid;
-    teb64->ActivationContextStackPointer = PtrToUlong( &teb64->ActivationContextStack );
-    teb64->ActivationContextStack.FrameListCache.Flink =
-        teb64->ActivationContextStack.FrameListCache.Blink =
-            PtrToUlong( &teb64->ActivationContextStack.FrameListCache );
-    teb64->StaticUnicodeString.Buffer = PtrToUlong( teb64->StaticUnicodeBuffer );
-    teb64->StaticUnicodeString.MaximumLength = sizeof( teb64->StaticUnicodeBuffer );
-    teb64->TlsSlots[WOW64_TLS_FILESYSREDIR] = data->filesys_redir;
-    teb64->RealClientId = teb64->ClientId;
-    teb64->WowTebOffset = teb_offset;
-    if (is_wow64())
+    if (wow_peb)
     {
-        teb32->GdiBatchCount = PtrToUlong( teb64 );
-        teb32->WowTebOffset  = -teb_offset;
+        TEB64 *teb64 = ptr;
+
+        teb = (TEB *)((char *)ptr + teb_offset);
+        teb64->Peb = PtrToUlong( wow_peb );
+        teb64->Tib.Self = PtrToUlong( teb64 );
+        teb64->Tib.ExceptionList = PtrToUlong( teb );
+        teb64->Tib.FiberData = 0x1e00;
+        teb64->ClientId.UniqueProcess = pid;
+        teb64->ClientId.UniqueThread  = data->tid;
+        teb64->ActivationContextStackPointer = PtrToUlong( &teb64->ActivationContextStack );
+        teb64->ActivationContextStack.FrameListCache.Flink =
+            teb64->ActivationContextStack.FrameListCache.Blink =
+                PtrToUlong( &teb64->ActivationContextStack.FrameListCache );
+        teb64->StaticUnicodeString.Buffer = PtrToUlong( teb64->StaticUnicodeBuffer );
+        teb64->StaticUnicodeString.MaximumLength = sizeof( teb64->StaticUnicodeBuffer );
+        teb64->TlsSlots[WOW64_TLS_FILESYSREDIR] = data->filesys_redir;
+        teb64->RealClientId = teb64->ClientId;
+        teb64->WowTebOffset = teb_offset;
+        teb->GdiBatchCount = PtrToUlong( teb64 );
+        teb->WowTebOffset  = -teb_offset;
     }
+    teb->Tib.ExceptionList = (void *)~0u;
 #endif
     teb->Peb = peb;
     teb->Tib.Self = &teb->Tib;
@@ -4039,6 +4079,35 @@ static struct thread_data *init_thread_data( void *ptr )
 #endif
     return data;
 }
+
+/* enable use of a large address space when allowed by the application */
+static void set_large_address_space(void)
+{
+    if (is_win64)
+    {
+        if (!is_wow64())
+        {
+            address_space_start = (void *)0x10000;
+#ifndef __APPLE__  /* don't free the zerofill section on macOS */
+            if (use_aslr()) free_reserved_memory( 0, (char *)0x7ffe0000 );
+#endif
+        }
+        else if (main_image_info.ImageCharacteristics & IMAGE_FILE_LARGE_ADDRESS_AWARE)
+        {
+            user_space_wow_limit = limit_4g - 1;
+            /* reserve space for top-down allocations; some apps break if the entire high 2G is available */
+            reserve_area( (void *)0xfff00000, (void *)0xffff0000 );
+        }
+        else user_space_wow_limit = limit_2g - 1;
+    }
+    else
+    {
+        if (!(main_image_info.ImageCharacteristics & IMAGE_FILE_LARGE_ADDRESS_AWARE)) return;
+        free_reserved_memory( (char *)0x80000000, address_space_limit );
+    }
+    user_space_limit = working_set_limit = address_space_limit;
+}
+
 
 /***********************************************************************
  *           virtual_alloc_first_thread_data
@@ -4073,23 +4142,38 @@ void virtual_alloc_first_teb(void)
 {
     void *ptr;
     unsigned int status;
-    SIZE_T block_size = 4 * page_size;
     struct file_view *view;
     struct thread_data *data = get_thread_data();
+    ULONG_PTR limit_low = 0, limit_high = 0;
 
-    status = map_view( &view, NULL, 32 * block_size, MEM_TOP_DOWN,
-                       VPROT_READ | VPROT_WRITE, 0, is_win64 ? limit_2g : 0, 0 );
+    set_large_address_space();
+
+    teb_block_size = ROUND_SIZE( 0, sizeof(TEB), page_mask );
+    if (is_wow64()) teb_block_size += ROUND_SIZE( 0, sizeof(WOW_TEB), page_mask );
+    teb_block_size += page_size;  /* for debug info */
+
+    if (user_space_wow_limit) limit_high = user_space_wow_limit & ~granularity_mask;
+    else if (use_aslr()) limit_low = limit_4g;
+
+    status = map_view( &view, NULL, 16 * teb_block_size, 0,
+                       VPROT_READ | VPROT_WRITE, limit_low, limit_high, 0 );
     assert( !status );
     teb_block = view->base;
-    teb_block_pos = 30;
-    ptr = (char *)teb_block + 30 * block_size;
-    peb = (PEB *)((char *)ptr + block_size + (is_win64 ? 0 : page_size));
+    teb_block_pos = 14;
+    ptr = (char *)teb_block + 14 * teb_block_size;
+    peb = (PEB *)((char *)ptr + teb_block_size);
+    if (is_wow64())
+    {
 #ifdef _WIN64
-    if (!is_machine_64bit( main_image_info.Machine )) wow_peb = (PEB32 *)((char *)peb + page_size);
+        wow_peb = (PEB32 *)((char *)peb + page_size);
 #else
-    if (is_machine_64bit( native_machine )) wow_peb = (PEB64 *)((char *)peb - page_size);
+        wow_peb = (PEB64 *)peb;
+        peb = (PEB *)((char *)peb + page_size);
 #endif
-    set_protection( view, ptr, 2 * block_size, PAGE_READWRITE );
+    }
+    set_protection( view, ptr, 2 * teb_block_size, PAGE_READWRITE );
+
+    if (arm64ec_view) peb->EcCodeBitMap = arm64ec_view->base;
     init_teb( data, ptr );
     VIRTUAL_DEBUG_DUMP_VIEW( view );
 }
@@ -4101,34 +4185,39 @@ void virtual_alloc_first_teb(void)
 NTSTATUS virtual_alloc_teb( struct thread_data *data )
 {
     sigset_t sigset;
-    void *ptr = NULL;
+    void *ptr;
+    SIZE_T size;
     NTSTATUS status = STATUS_SUCCESS;
-    SIZE_T block_size = 4 * page_size;
 
     server_enter_uninterrupted_section( &virtual_mutex, &sigset );
     if (next_free_teb)
     {
         ptr = next_free_teb;
         next_free_teb = *(void **)ptr;
-        memset( ptr, 0, block_size );
+        memset( ptr, 0, teb_block_size );
     }
     else
     {
         if (!teb_block_pos)
         {
-            SIZE_T total = 32 * block_size;
+            struct file_view *view;
+            ULONG_PTR limit_low = 0, limit_high = 0;
 
-            if ((status = NtAllocateVirtualMemory( NtCurrentProcess(), &ptr, user_space_wow_limit,
-                                                   &total, MEM_RESERVE, PAGE_READWRITE )))
+            if (user_space_wow_limit) limit_high = user_space_wow_limit & ~granularity_mask;
+            else if (use_aslr()) limit_low = limit_4g;
+
+            if ((status = map_view( &view, NULL, 32 * teb_block_size, 0,
+                                    VPROT_READ | VPROT_WRITE, limit_low, limit_high, 0 )))
             {
                 server_leave_uninterrupted_section( &virtual_mutex, &sigset );
                 return status;
             }
-            teb_block = ptr;
+            teb_block = view->base;
             teb_block_pos = 32;
         }
-        ptr = ((char *)teb_block + --teb_block_pos * block_size);
-        NtAllocateVirtualMemory( NtCurrentProcess(), (void **)&ptr, 0, &block_size,
+        ptr = ((char *)teb_block + --teb_block_pos * teb_block_size);
+        size = teb_block_size;
+        NtAllocateVirtualMemory( NtCurrentProcess(), (void **)&ptr, 0, &size,
                                  MEM_COMMIT, PAGE_READWRITE );
     }
     init_teb( data, ptr );
@@ -4201,7 +4290,7 @@ void virtual_free_thread_data( struct thread_data *data )
     signal_free_thread( teb );
     list_remove( &data->entry );
     ptr = teb;
-    if (!is_win64) ptr = (char *)ptr - teb_offset;
+    if (is_old_wow64()) ptr = (char *)ptr - teb_offset;
     *(void **)ptr = next_free_teb;
     next_free_teb = ptr;
     server_leave_uninterrupted_section( &virtual_mutex, &sigset );
@@ -5036,32 +5125,6 @@ void virtual_enable_write_exceptions( BOOL enable )
 }
 
 
-/* free reserved areas within a given range */
-static void free_reserved_memory( char *base, char *limit )
-{
-    struct reserved_area *area;
-
-    for (;;)
-    {
-        int removed = 0;
-
-        LIST_FOR_EACH_ENTRY( area, &reserved_areas, struct reserved_area, entry )
-        {
-            char *area_base = area->base;
-            char *area_end = area_base + area->size;
-
-            if (area_end <= base) continue;
-            if (area_base >= limit) return;
-            if (area_base < base) area_base = base;
-            if (area_end > limit) area_end = limit;
-            remove_reserved_area( area_base, area_end - area_base );
-            removed = 1;
-            break;
-        }
-        if (!removed) return;
-    }
-}
-
 #ifndef _WIN64
 
 /***********************************************************************
@@ -5078,41 +5141,6 @@ static void virtual_release_address_space(void)
 }
 
 #endif  /* _WIN64 */
-
-
-/***********************************************************************
- *           virtual_set_large_address_space
- *
- * Enable use of a large address space when allowed by the application.
- */
-void virtual_set_large_address_space(void)
-{
-    if (is_win64)
-    {
-        if (!is_wow64())
-        {
-            address_space_start = (void *)0x10000;
-#ifndef __APPLE__  /* don't free the zerofill section on macOS */
-            if ((main_image_info.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA) &&
-                (main_image_info.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE))
-                free_reserved_memory( 0, (char *)0x7ffe0000 );
-#endif
-        }
-        else if (main_image_info.ImageCharacteristics & IMAGE_FILE_LARGE_ADDRESS_AWARE)
-        {
-            user_space_wow_limit = limit_4g - 1;
-            /* reserve space for top-down allocations; some apps break if the entire high 2G is available */
-            reserve_area( (void *)0xfff00000, (void *)0xffff0000 );
-        }
-        else user_space_wow_limit = limit_2g - 1;
-    }
-    else
-    {
-        if (!(main_image_info.ImageCharacteristics & IMAGE_FILE_LARGE_ADDRESS_AWARE)) return;
-        free_reserved_memory( (char *)0x80000000, address_space_limit );
-    }
-    user_space_limit = working_set_limit = address_space_limit;
-}
 
 
 /***********************************************************************

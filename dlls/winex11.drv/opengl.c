@@ -520,7 +520,7 @@ static BOOL x11drv_egl_surface_create( struct client_surface *client, int format
     struct x11drv_client_surface *surface = impl_from_client_surface( client );
     struct gl_drawable *gl;
 
-    if (!(gl = opengl_drawable_create( sizeof(*gl), &x11drv_egl_surface_funcs, format, client ))) return FALSE;
+    if (!(gl = opengl_drawable_create( &x11drv_egl_surface_funcs, format, client, NULL ))) return FALSE;
 
     opengl_drawable_map_buffer( &gl->base, GL_FRONT_LEFT, GL_BACK_LEFT );
     opengl_drawable_map_buffer( &gl->base, GL_FRONT, GL_BACK );
@@ -943,7 +943,7 @@ static BOOL x11drv_surface_create( struct client_surface *client, int format, st
     struct glx_pixel_format *fmt = glx_pixel_format_from_format( format );
     struct gl_drawable *gl;
 
-    if (!(gl = opengl_drawable_create( sizeof(*gl), &x11drv_surface_funcs, format, client ))) return FALSE;
+    if (!(gl = opengl_drawable_create( &x11drv_surface_funcs, format, client, NULL ))) return FALSE;
     if (!(gl->drawable = pglXCreateWindow( gdi_display, fmt->fbconfig, surface->window, NULL )))
     {
         opengl_drawable_release( &gl->base );
@@ -1265,21 +1265,22 @@ static struct opengl_context *x11drv_context_create( int format, struct opengl_c
     return context;
 }
 
-static BOOL x11drv_pbuffer_create( HDC hdc, int format, BOOL largest, GLenum texture_format, GLenum texture_target,
-                                   GLint max_level, GLsizei *width, GLsizei *height, struct opengl_drawable **drawable )
+static BOOL x11drv_pbuffer_create( HDC hdc, int format, SIZE size, BOOL largest, GLenum texture_format, GLenum texture_target,
+                                   GLint max_level, struct opengl_drawable **drawable )
 {
     const struct glx_pixel_format *fmt = glx_pixel_format_from_format( format );
     int glx_attribs[7], count = 0;
     struct gl_drawable *gl;
+    GLXPbuffer pbuffer;
     RECT rect;
 
-    TRACE( "hdc %p, format %d, largest %u, texture_format %#x, texture_target %#x, max_level %#x, width %d, height %d, drawable %p\n",
-           hdc, format, largest, texture_format, texture_target, max_level, *width, *height, drawable );
+    TRACE( "hdc %p, format %d, size %s, largest %u, texture_format %#x, texture_target %#x, max_level %#x, drawable %p\n",
+           hdc, format, wine_dbgstr_point((POINT *)&size), largest, texture_format, texture_target, max_level, drawable );
 
     glx_attribs[count++] = GLX_PBUFFER_WIDTH;
-    glx_attribs[count++] = *width;
+    glx_attribs[count++] = size.cx;
     glx_attribs[count++] = GLX_PBUFFER_HEIGHT;
-    glx_attribs[count++] = *height;
+    glx_attribs[count++] = size.cy;
     if (largest)
     {
         glx_attribs[count++] = GLX_LARGEST_PBUFFER;
@@ -1287,20 +1288,20 @@ static BOOL x11drv_pbuffer_create( HDC hdc, int format, BOOL largest, GLenum tex
     }
     glx_attribs[count++] = 0;
 
-    if (!(gl = opengl_drawable_create( sizeof(*gl), &x11drv_pbuffer_funcs, format, NULL ))) return FALSE;
+    if (!(pbuffer = pglXCreatePbuffer( gdi_display, fmt->fbconfig, glx_attribs ))) return FALSE;
+    pglXQueryDrawable( gdi_display, pbuffer, GLX_WIDTH, (unsigned int *)&size.cx );
+    pglXQueryDrawable( gdi_display, pbuffer, GLX_HEIGHT, (unsigned int *)&size.cy );
 
-    gl->drawable = pglXCreatePbuffer( gdi_display, fmt->fbconfig, glx_attribs );
-    TRACE( "new Pbuffer drawable as %p (%lx)\n", gl, gl->drawable );
-    if (!gl->drawable)
+    if (!(gl = opengl_drawable_create( &x11drv_pbuffer_funcs, format, NULL, &size )))
     {
-        opengl_drawable_release( &gl->base );
+        pglXDestroyPbuffer( gdi_display, pbuffer );
         return FALSE;
     }
-    pglXQueryDrawable( gdi_display, gl->drawable, GLX_WIDTH, (unsigned int *)width );
-    pglXQueryDrawable( gdi_display, gl->drawable, GLX_HEIGHT, (unsigned int *)height );
-    SetRect( &rect, 0, 0, *width, *height );
+    gl->drawable = pbuffer;
+    SetRect( &rect, 0, 0, gl->base.virtual_size.cx, gl->base.virtual_size.cy );
     set_dc_drawable( hdc, gl->drawable, &rect, IncludeInferiors );
 
+    TRACE( "new Pbuffer drawable as %p (%lx)\n", gl, gl->drawable );
     *drawable = &gl->base;
     return TRUE;
 }
@@ -1329,14 +1330,15 @@ static BOOL x11drv_null_surface_create( int format, struct opengl_drawable **dra
     const struct glx_pixel_format *fmt = glx_pixel_format_from_format( format );
     int glx_attribs[7], count = 0;
     struct gl_drawable *gl;
+    SIZE size = {1, 1};
 
     glx_attribs[count++] = GLX_PBUFFER_WIDTH;
-    glx_attribs[count++] = 1;
+    glx_attribs[count++] = size.cx;
     glx_attribs[count++] = GLX_PBUFFER_HEIGHT;
-    glx_attribs[count++] = 1;
+    glx_attribs[count++] = size.cy;
     glx_attribs[count++] = 0;
 
-    if (!(gl = opengl_drawable_create( sizeof(*gl), &x11drv_pbuffer_funcs, format, NULL ))) return FALSE;
+    if (!(gl = opengl_drawable_create( &x11drv_pbuffer_funcs, format, NULL, &size ))) return FALSE;
     if (!(gl->drawable = pglXCreatePbuffer( gdi_display, fmt->fbconfig, glx_attribs )))
     {
         opengl_drawable_release( &gl->base );
@@ -1533,6 +1535,7 @@ static struct opengl_driver_funcs x11drv_driver_funcs =
 
 static const struct opengl_drawable_funcs x11drv_surface_funcs =
 {
+    .size = sizeof(struct gl_drawable),
     .destroy = x11drv_surface_destroy,
     .flush = x11drv_surface_flush,
     .swap = x11drv_surface_swap,
@@ -1540,11 +1543,13 @@ static const struct opengl_drawable_funcs x11drv_surface_funcs =
 
 static const struct opengl_drawable_funcs x11drv_pbuffer_funcs =
 {
+    .size = sizeof(struct gl_drawable),
     .destroy = x11drv_pbuffer_destroy,
 };
 
 static const struct opengl_drawable_funcs x11drv_egl_surface_funcs =
 {
+    .size = sizeof(struct gl_drawable),
     .destroy = x11drv_egl_surface_destroy,
     .flush = x11drv_egl_surface_flush,
     .swap = x11drv_egl_surface_swap,

@@ -60,8 +60,6 @@ struct pbuffer
     struct opengl_drawable *drawable;
 
     HDC hdc;
-    GLsizei width;
-    GLsizei height;
     GLenum texture_format;
     GLenum texture_target;
     GLint mipmap_level;
@@ -314,11 +312,12 @@ static void opengl_context_init( struct opengl_context *context )
     context->initialized = TRUE;
 }
 
-void *opengl_drawable_create( UINT size, const struct opengl_drawable_funcs *funcs, int format, struct client_surface *client )
+void *opengl_drawable_create( const struct opengl_drawable_funcs *funcs, int format,
+                              struct client_surface *client, const SIZE *size )
 {
     struct opengl_drawable *drawable;
 
-    if (!(drawable = calloc( 1, size ))) return NULL;
+    if (!(drawable = calloc( 1, funcs->size ))) return NULL;
     drawable->funcs = funcs;
     drawable->ref = 1;
 
@@ -328,7 +327,8 @@ void *opengl_drawable_create( UINT size, const struct opengl_drawable_funcs *fun
     drawable->stereo = !!(pixel_formats[format - 1].pfd.dwFlags & PFD_STEREO);
     drawable->srgb = !!(pixel_formats[format - 1].framebuffer_srgb_capable);
 
-    if ((drawable->client = client))
+    if (!(drawable->client = client)) drawable->virtual_size = drawable->monitor_size = *size;
+    else
     {
         client_surface_get_size( client, &drawable->virtual_size, &drawable->monitor_size );
         client_surface_add_ref( client );
@@ -1041,6 +1041,7 @@ static BOOL framebuffer_surface_swap( struct opengl_drawable *drawable )
 
 static const struct opengl_drawable_funcs framebuffer_surface_funcs =
 {
+    .size = sizeof(struct framebuffer_surface),
     .destroy = framebuffer_surface_destroy,
     .flush = framebuffer_surface_flush,
     .swap = framebuffer_surface_swap,
@@ -1051,7 +1052,7 @@ static struct opengl_drawable *framebuffer_surface_create( int format, struct cl
     struct wgl_pixel_format draw_desc = pixel_formats[format - 1], read_desc = draw_desc;
     struct framebuffer_surface *surface;
 
-    if (!(surface = opengl_drawable_create( sizeof(*surface), &framebuffer_surface_funcs, format, client ))) return NULL;
+    if (!(surface = opengl_drawable_create( &framebuffer_surface_funcs, format, client, NULL ))) return NULL;
     if ((surface->target = target)) opengl_drawable_add_ref( surface->target );
 
     opengl_drawable_map_buffer( &surface->base, GL_FRONT_LEFT, GL_COLOR_ATTACHMENT0 );
@@ -1314,21 +1315,22 @@ static BOOL egldrv_surface_create( struct client_surface *client, int format, st
     return !!*drawable;
 }
 
-static BOOL egldrv_pbuffer_create( HDC hdc, int format, BOOL largest, GLenum texture_format, GLenum texture_target,
-                                   GLint max_level, GLsizei *width, GLsizei *height, struct opengl_drawable **drawable )
+static BOOL egldrv_pbuffer_create( HDC hdc, int format, SIZE size, BOOL largest, GLenum texture_format, GLenum texture_target,
+                                   GLint max_level, struct opengl_drawable **drawable )
 {
     const struct opengl_funcs *funcs = &display_funcs;
     const struct egl_platform *egl = &display_egl;
     EGLint attribs[13], *attrib = attribs;
     struct opengl_drawable *gl;
+    EGLSurface pbuffer;
 
-    TRACE( "hdc %p, format %d, largest %u, texture_format %#x, texture_target %#x, max_level %#x, width %d, height %d, drawable %p\n",
-           hdc, format, largest, texture_format, texture_target, max_level, *width, *height, drawable );
+    TRACE( "hdc %p, format %d, size %s, largest %u, texture_format %#x, texture_target %#x, max_level %#x, drawable %p\n",
+           hdc, format, wine_dbgstr_point((POINT *)&size), largest, texture_format, texture_target, max_level, drawable );
 
     *attrib++ = EGL_WIDTH;
-    *attrib++ = *width;
+    *attrib++ = size.cx;
     *attrib++ = EGL_HEIGHT;
-    *attrib++ = *height;
+    *attrib++ = size.cy;
     if (largest)
     {
         *attrib++ = EGL_LARGEST_PBUFFER;
@@ -1371,15 +1373,16 @@ static BOOL egldrv_pbuffer_create( HDC hdc, int format, BOOL largest, GLenum tex
     }
     *attrib++ = EGL_NONE;
 
-    if (!(gl = opengl_drawable_create( sizeof(*gl), &egldrv_pbuffer_funcs, format, NULL ))) return FALSE;
-    if (!(gl->surface = funcs->p_eglCreatePbufferSurface( egl->display, egl_config_for_format( egl, gl->format ), attribs )))
+    if (!(pbuffer = funcs->p_eglCreatePbufferSurface( egl->display, egl_config_for_format( egl, format ), attribs )))
+    funcs->p_eglQuerySurface( egl->display, pbuffer, EGL_WIDTH, &size.cx );
+    funcs->p_eglQuerySurface( egl->display, pbuffer, EGL_HEIGHT, &size.cy );
+
+    if (!(gl = opengl_drawable_create( &egldrv_pbuffer_funcs, format, NULL, &size )))
     {
-        opengl_drawable_release( gl );
+        funcs->p_eglDestroySurface( egl->display, pbuffer );
         return FALSE;
     }
-
-    funcs->p_eglQuerySurface( egl->display, gl->surface, EGL_WIDTH, width );
-    funcs->p_eglQuerySurface( egl->display, gl->surface, EGL_HEIGHT, height );
+    gl->surface = pbuffer;
 
     *drawable = gl;
     return TRUE;
@@ -1509,6 +1512,7 @@ static void egldrv_pbuffer_destroy( struct opengl_drawable *drawable )
 
 static const struct opengl_drawable_funcs egldrv_pbuffer_funcs =
 {
+    .size = sizeof(struct opengl_drawable),
     .destroy = egldrv_pbuffer_destroy,
 };
 
@@ -1933,8 +1937,8 @@ static BOOL nulldrv_surface_create( struct client_surface *client, int format, s
     return TRUE;
 }
 
-static BOOL nulldrv_pbuffer_create( HDC hdc, int format, BOOL largest, GLenum texture_format, GLenum texture_target,
-                                    GLint max_level, GLsizei *width, GLsizei *height, struct opengl_drawable **drawable )
+static BOOL nulldrv_pbuffer_create( HDC hdc, int format, SIZE size, BOOL largest, GLenum texture_format, GLenum texture_target,
+                                    GLint max_level, struct opengl_drawable **drawable )
 {
     return FALSE;
 }
@@ -2128,11 +2132,11 @@ static void pbuffer_destroy( struct pbuffer *pbuffer )
     free( pbuffer );
 }
 
-static struct pbuffer *pbuffer_create( int format, int width, int height, const int *attribs )
+static struct pbuffer *pbuffer_create( int format, SIZE size, const int *attribs )
 {
     struct pbuffer *pbuffer;
-    UINT size, max_level = 0;
     BOOL largest = FALSE;
+    UINT max_level = 0;
 
     if (!(pbuffer = calloc( 1, sizeof(*pbuffer) )) || !(pbuffer->hdc = NtGdiOpenDCW( NULL, NULL, NULL, 0, TRUE, NULL, NULL, NULL )))
     {
@@ -2141,8 +2145,6 @@ static struct pbuffer *pbuffer_create( int format, int width, int height, const 
         return 0;
     }
     NtGdiSetPixelFormat( pbuffer->hdc, format );
-    pbuffer->width = width;
-    pbuffer->height = height;
     pbuffer->mipmap_level = -1;
 
     for (; attribs && attribs[0]; attribs += 2)
@@ -2194,11 +2196,11 @@ static struct pbuffer *pbuffer_create( int format, int width, int height, const 
                 pbuffer->texture_target = 0;
                 break;
             case WGL_TEXTURE_CUBE_MAP_ARB:
-                if (width != height) goto failed;
+                if (size.cx != size.cy) goto failed;
                 pbuffer->texture_target = GL_TEXTURE_CUBE_MAP;
                 break;
             case WGL_TEXTURE_1D_ARB:
-                if (height != 1) goto failed;
+                if (size.cy != 1) goto failed;
                 pbuffer->texture_target = GL_TEXTURE_1D;
                 break;
             case WGL_TEXTURE_2D_ARB:
@@ -2218,7 +2220,7 @@ static struct pbuffer *pbuffer_create( int format, int width, int height, const 
             if (attribs[1])
             {
                 pbuffer->mipmap_level = max_level = 0;
-                for (size = min( width, height ) / 2; size; size /= 2) max_level++;
+                for (UINT n = min( size.cx, size.cy ) / 2; n; n /= 2) max_level++;
             }
             break;
 
@@ -2228,9 +2230,8 @@ static struct pbuffer *pbuffer_create( int format, int width, int height, const 
         }
     }
 
-    if (driver_funcs->p_pbuffer_create( pbuffer->hdc, format, largest, pbuffer->texture_format,
-                                        pbuffer->texture_target, max_level, &pbuffer->width,
-                                        &pbuffer->height, &pbuffer->drawable ))
+    if (driver_funcs->p_pbuffer_create( pbuffer->hdc, format, size, largest, pbuffer->texture_format,
+                                        pbuffer->texture_target, max_level, &pbuffer->drawable ))
     {
         set_dc_opengl_drawable( pbuffer->hdc, pbuffer->drawable );
         return pbuffer;
@@ -2264,10 +2265,10 @@ static BOOL create_memory_pbuffer( HDC hdc )
 
     if (ret)
     {
-        int width = dib.rect.right - dib.rect.left, height = dib.rect.bottom - dib.rect.top;
+        SIZE size = { .cx = dib.rect.right - dib.rect.left, .cy = dib.rect.bottom - dib.rect.top };
         struct pbuffer *pbuffer;
 
-        if (!(pbuffer = pbuffer_create( format, width, height, NULL )))
+        if (!(pbuffer = pbuffer_create( format, size, NULL )))
             WARN( "Failed to create pbuffer for memory DC %p\n", hdc );
         else
         {
@@ -2558,14 +2559,14 @@ static void opengl_client_pbuffer_init( HPBUFFERARB client_pbuffer, struct pbuff
     client->unix_funcs = (UINT_PTR)funcs;
 }
 
-static BOOL win32u_pbuffer_create( HDC hdc, int format, int width, int height, const int *attribs,
+static BOOL win32u_pbuffer_create( HDC hdc, int format, SIZE size, const int *attribs,
                                    HPBUFFERARB client_pbuffer )
 {
     const struct opengl_funcs *funcs = &display_funcs;
     struct pbuffer *pbuffer;
     UINT total, onscreen;
 
-    TRACE( "(%p, %d, %d, %d, %p)\n", hdc, format, width, height, attribs );
+    TRACE( "(%p, %d, %s, %p)\n", hdc, format, wine_dbgstr_point((POINT *)&size), attribs );
 
     funcs->p_get_pixel_formats( NULL, 0, &total, &onscreen );
     if (format <= 0 || format > total)
@@ -2573,13 +2574,13 @@ static BOOL win32u_pbuffer_create( HDC hdc, int format, int width, int height, c
         RtlSetLastWin32Error( ERROR_INVALID_PIXEL_FORMAT );
         return FALSE;
     }
-    if (width <= 0 || height <= 0)
+    if (size.cx <= 0 || size.cy <= 0)
     {
         RtlSetLastWin32Error( ERROR_INVALID_DATA );
         return FALSE;
     }
 
-    if (!(pbuffer = pbuffer_create( format, width, height, attribs ))) return FALSE;
+    if (!(pbuffer = pbuffer_create( format, size, attribs ))) return FALSE;
     opengl_client_pbuffer_init( client_pbuffer, pbuffer, funcs );
     return TRUE;
 }
@@ -2623,10 +2624,10 @@ static BOOL win32u_wglQueryPbufferARB( HPBUFFERARB client_pbuffer, int attrib, i
     switch (attrib)
     {
     case WGL_PBUFFER_WIDTH_ARB:
-        *value = pbuffer->width;
+        *value = pbuffer->drawable->virtual_size.cx;
         break;
     case WGL_PBUFFER_HEIGHT_ARB:
-        *value = pbuffer->height;
+        *value = pbuffer->drawable->virtual_size.cy;
         break;
     case WGL_PBUFFER_LOST_ARB:
         *value = GL_FALSE;
@@ -2715,6 +2716,7 @@ static BOOL win32u_wglBindTexImageARB( HPBUFFERARB client_pbuffer, int buffer )
     const struct opengl_funcs *funcs = &display_funcs;
     struct pbuffer *pbuffer = pbuffer_from_client_pbuffer( client_pbuffer );
     int prev_texture = 0, format = win32u_wglGetPixelFormat( pbuffer->hdc );
+    SIZE size = pbuffer->drawable->virtual_size;
     struct wgl_pixel_format desc;
     GLenum source;
     UINT ret;
@@ -2782,8 +2784,7 @@ static BOOL win32u_wglBindTexImageARB( HPBUFFERARB client_pbuffer, int buffer )
     funcs->p_glBindTexture( pbuffer->texture_target, prev_texture );
     funcs->p_glBindFramebuffer( GL_READ_FRAMEBUFFER, 0 );
     funcs->p_glReadBuffer( source );
-    funcs->p_glCopyTexImage2D( pbuffer->texture_target, 0, pbuffer->texture_format, 0, 0,
-                                        pbuffer->width, pbuffer->height, 0 );
+    funcs->p_glCopyTexImage2D( pbuffer->texture_target, 0, pbuffer->texture_format, 0, 0, size.cx, size.cy, 0 );
 
     make_client_context_current();
     return GL_TRUE;
