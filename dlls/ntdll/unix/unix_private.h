@@ -75,6 +75,7 @@ static inline TEB64 *get_teb64( TEB *teb ) { return teb ? (TEB64 *)(ULONG_PTR)te
 
 extern WOW_PEB *wow_peb;
 extern ULONG_PTR user_space_wow_limit;
+extern void *main_module;
 extern SECTION_IMAGE_INFORMATION main_image_info;
 
 static inline WOW_TEB *get_wow_teb( TEB *teb )
@@ -245,8 +246,8 @@ extern NTSTATUS load_builtin( struct pe_mapping_info *pe_mapping, USHORT machine
                               ULONG_PTR limit_low, ULONG_PTR limit_high, off_t offset );
 extern NTSTATUS load_unixlib_by_name( const UNICODE_STRING *nt_name, void **handle_ret );
 extern BOOL is_system_dir_path( const UNICODE_STRING *path, WORD *machine );
-extern NTSTATUS load_main_exe( UNICODE_STRING *nt_name, USHORT load_machine, void **module );
-extern NTSTATUS load_start_exe( UNICODE_STRING *nt_name, void **module );
+extern NTSTATUS load_main_exe( UNICODE_STRING *nt_name, USHORT load_machine );
+extern NTSTATUS load_start_exe( UNICODE_STRING *nt_name );
 extern ULONG_PTR redirect_arm64ec_rva( void *module, ULONG_PTR rva, const IMAGE_ARM64EC_METADATA *metadata );
 extern void start_server( BOOL debug );
 
@@ -311,9 +312,7 @@ extern void virtual_get_system_info( SYSTEM_BASIC_INFORMATION *info, BOOL wow64 
 extern NTSTATUS virtual_map_builtin_module( HANDLE mapping, void **module, SIZE_T *size,
                                             SECTION_IMAGE_INFORMATION *info, ULONG_PTR limit_low,
                                             ULONG_PTR limit_high, WORD machine, BOOL prefer_native, off_t offset );
-extern NTSTATUS virtual_map_module( HANDLE mapping, void **module, SIZE_T *size,
-                                    SECTION_IMAGE_INFORMATION *info, ULONG_PTR limit_low,
-                                    ULONG_PTR limit_high, USHORT machine );
+extern NTSTATUS virtual_map_main_module( HANDLE mapping, USHORT machine );
 extern NTSTATUS virtual_create_builtin_view( void *module, const UNICODE_STRING *nt_name,
                                              struct pe_image_info *info, void *so_handle );
 extern NTSTATUS virtual_relocate_module( void *module );

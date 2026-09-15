@@ -514,6 +514,454 @@ static NTSTATUS set_volume( struct cdrom *cdrom, const VOLUME_CONTROL *vc )
 #endif
 }
 
+static NTSTATUS read_q_channel( struct cdrom *cdrom, const CDROM_SUB_Q_DATA_FORMAT *fmt,
+        unsigned int data_size, SUB_Q_CHANNEL_DATA *data, unsigned int *ret_size )
+{
+#ifdef linux
+    SUB_Q_HEADER *hdr = &data->CurrentPosition.Header;
+    struct cdrom_subchnl sc;
+
+    sc.cdsc_format = CDROM_MSF;
+    if (ioctl( cdrom->fd, CDROMSUBCHNL, &sc ) == -1)
+    {
+        hdr->AudioStatus = AUDIO_STATUS_NO_STATUS;
+        TRACE( "failed to read subchannel data: %s\n", strerror( errno ));
+        cdrom->toc_valid = false;
+        return errno_to_status( errno );
+    }
+
+    hdr->AudioStatus = AUDIO_STATUS_NOT_SUPPORTED;
+
+    switch (sc.cdsc_audiostatus)
+    {
+        case CDROM_AUDIO_INVALID:
+            cdrom->toc_valid = false;
+            hdr->AudioStatus = AUDIO_STATUS_NOT_SUPPORTED;
+            break;
+        case CDROM_AUDIO_NO_STATUS:
+            cdrom->toc_valid = false;
+            hdr->AudioStatus = AUDIO_STATUS_NO_STATUS;
+            break;
+        case CDROM_AUDIO_PLAY:
+            hdr->AudioStatus = AUDIO_STATUS_IN_PROGRESS;
+            break;
+        case CDROM_AUDIO_PAUSED:
+            hdr->AudioStatus = AUDIO_STATUS_PAUSED;
+            break;
+        case CDROM_AUDIO_COMPLETED:
+            hdr->AudioStatus = AUDIO_STATUS_PLAY_COMPLETE;
+            break;
+        case CDROM_AUDIO_ERROR:
+            hdr->AudioStatus = AUDIO_STATUS_PLAY_ERROR;
+            break;
+        default:
+            FIXME( "unhandled status %#x\n", sc.cdsc_audiostatus );
+            hdr->AudioStatus = AUDIO_STATUS_NO_STATUS;
+    }
+    switch (fmt->Format)
+    {
+        case IOCTL_CDROM_CURRENT_POSITION:
+            if (data_size < sizeof(SUB_Q_CURRENT_POSITION))
+                return STATUS_BUFFER_TOO_SMALL;
+
+            if (hdr->AudioStatus == AUDIO_STATUS_IN_PROGRESS)
+            {
+                data->CurrentPosition.FormatCode = IOCTL_CDROM_CURRENT_POSITION;
+                data->CurrentPosition.Control = sc.cdsc_ctrl;
+                data->CurrentPosition.ADR = sc.cdsc_adr;
+                data->CurrentPosition.TrackNumber = sc.cdsc_trk;
+                data->CurrentPosition.IndexNumber = sc.cdsc_ind;
+
+                data->CurrentPosition.AbsoluteAddress[0] = 0;
+                data->CurrentPosition.AbsoluteAddress[1] = sc.cdsc_absaddr.msf.minute;
+                data->CurrentPosition.AbsoluteAddress[2] = sc.cdsc_absaddr.msf.second;
+                data->CurrentPosition.AbsoluteAddress[3] = sc.cdsc_absaddr.msf.frame;
+
+                data->CurrentPosition.TrackRelativeAddress[0] = 0;
+                data->CurrentPosition.TrackRelativeAddress[1] = sc.cdsc_reladdr.msf.minute;
+                data->CurrentPosition.TrackRelativeAddress[2] = sc.cdsc_reladdr.msf.second;
+                data->CurrentPosition.TrackRelativeAddress[3] = sc.cdsc_reladdr.msf.frame;
+
+                cdrom->pos = data->CurrentPosition;
+            }
+            else
+            {
+                cdrom->pos.Header = *hdr;
+                data->CurrentPosition = cdrom->pos;
+            }
+            *ret_size = sizeof(SUB_Q_CURRENT_POSITION);
+            return STATUS_SUCCESS;
+
+        case IOCTL_CDROM_MEDIA_CATALOG:
+        {
+            struct cdrom_mcn mcn;
+
+            if (data_size < sizeof(SUB_Q_MEDIA_CATALOG_NUMBER))
+                return STATUS_BUFFER_TOO_SMALL;
+
+            data->MediaCatalog.FormatCode = IOCTL_CDROM_MEDIA_CATALOG;
+
+            if (ioctl( cdrom->fd, CDROM_GET_MCN, &mcn ) == -1)
+                return errno_to_status( errno );
+
+            data->MediaCatalog.FormatCode = IOCTL_CDROM_MEDIA_CATALOG;
+            data->MediaCatalog.Mcval = 0; /* FIXME */
+            memcpy( data->MediaCatalog.MediaCatalog, mcn.medium_catalog_number, 14 );
+            data->MediaCatalog.MediaCatalog[14] = 0;
+            *ret_size = sizeof(SUB_Q_MEDIA_CATALOG_NUMBER);
+            return STATUS_SUCCESS;
+        }
+
+        default:
+            FIXME( "unhandled format %#x\n", fmt->Format );
+            return STATUS_NOT_IMPLEMENTED;
+    }
+#elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__NetBSD__) || defined(__DragonFly__)
+    SUB_Q_HEADER *hdr = &data->CurrentPosition.Header;
+    struct ioc_read_subchannel read_sc;
+    struct cd_sub_channel_info sc;
+
+    read_sc.address_format = CD_MSF_FORMAT;
+    read_sc.track = 0;
+    read_sc.data_len = sizeof(sc);
+    read_sc.data = &sc;
+    switch (fmt->Format)
+    {
+        case IOCTL_CDROM_CURRENT_POSITION:
+            if (data_size < sizeof(SUB_Q_CURRENT_POSITION))
+                return STATUS_BUFFER_TOO_SMALL;
+            read_sc.data_format = CD_CURRENT_POSITION;
+            break;
+        case IOCTL_CDROM_MEDIA_CATALOG:
+            if (data_size < sizeof(SUB_Q_MEDIA_CATALOG_NUMBER))
+                return STATUS_BUFFER_TOO_SMALL;
+            read_sc.data_format = CD_MEDIA_CATALOG;
+            break;
+        case IOCTL_CDROM_TRACK_ISRC:
+            if (data_size < sizeof(SUB_Q_TRACK_ISRC))
+                return STATUS_BUFFER_TOO_SMALL;
+            read_sc.data_format = CD_TRACK_INFO;
+            sc.what.track_info.track_number = data->TrackIsrc.Track;
+            break;
+        default:
+            FIXME( "unhandled format %#x\n", fmt->Format );
+            return STATUS_NOT_IMPLEMENTED;
+    }
+    if (ioctl( cdrom->fd, CDIOCREADSUBCHANNEL, &read_sc ) == -1)
+    {
+        hdr->AudioStatus = AUDIO_STATUS_NO_STATUS;
+        TRACE( "failed to read subchannel data: %s\n", strerror( errno ));
+        cdrom->toc_valid = false;
+        return errno_to_status( errno );
+    }
+
+    hdr->AudioStatus = AUDIO_STATUS_NOT_SUPPORTED;
+
+    switch (sc.header.audio_status)
+    {
+        case CD_AS_AUDIO_INVALID:
+            cdrom->toc_valid = false;
+            hdr->AudioStatus = AUDIO_STATUS_NOT_SUPPORTED;
+            break;
+        case CD_AS_NO_STATUS:
+            cdrom->toc_valid = false;
+            hdr->AudioStatus = AUDIO_STATUS_NO_STATUS;
+            break;
+        case CD_AS_PLAY_IN_PROGRESS:
+            hdr->AudioStatus = AUDIO_STATUS_IN_PROGRESS;
+            break;
+        case CD_AS_PLAY_PAUSED:
+            hdr->AudioStatus = AUDIO_STATUS_PAUSED;
+            break;
+        case CD_AS_PLAY_COMPLETED:
+            hdr->AudioStatus = AUDIO_STATUS_PLAY_COMPLETE;
+            break;
+        case CD_AS_PLAY_ERROR:
+            hdr->AudioStatus = AUDIO_STATUS_PLAY_ERROR;
+            break;
+        default:
+            FIXME( "unhandled status %#x\n", sc.header.audio_status );
+            hdr->AudioStatus = AUDIO_STATUS_NO_STATUS;
+    }
+
+    switch (fmt->Format)
+    {
+        case IOCTL_CDROM_CURRENT_POSITION:
+            if (hdr->AudioStatus==AUDIO_STATUS_IN_PROGRESS)
+            {
+                data->CurrentPosition.FormatCode = IOCTL_CDROM_CURRENT_POSITION;
+                data->CurrentPosition.Control = sc.what.position.control;
+                data->CurrentPosition.ADR = sc.what.position.addr_type;
+                data->CurrentPosition.TrackNumber = sc.what.position.track_number;
+                data->CurrentPosition.IndexNumber = sc.what.position.index_number;
+
+                data->CurrentPosition.AbsoluteAddress[0] = 0;
+                data->CurrentPosition.AbsoluteAddress[1] = sc.what.position.absaddr.msf.minute;
+                data->CurrentPosition.AbsoluteAddress[2] = sc.what.position.absaddr.msf.second;
+                data->CurrentPosition.AbsoluteAddress[3] = sc.what.position.absaddr.msf.frame;
+                data->CurrentPosition.TrackRelativeAddress[0] = 0;
+                data->CurrentPosition.TrackRelativeAddress[1] = sc.what.position.reladdr.msf.minute;
+                data->CurrentPosition.TrackRelativeAddress[2] = sc.what.position.reladdr.msf.second;
+                data->CurrentPosition.TrackRelativeAddress[3] = sc.what.position.reladdr.msf.frame;
+                cdrom->pos = data->CurrentPosition;
+            }
+            else
+            {
+                cdrom->pos.Header = *hdr;
+                data->CurrentPosition = cdrom->pos;
+            }
+            *ret_size = sizeof(SUB_Q_CURRENT_POSITION);
+            return STATUS_SUCCESS;
+
+        case IOCTL_CDROM_MEDIA_CATALOG:
+            data->MediaCatalog.FormatCode = IOCTL_CDROM_MEDIA_CATALOG;
+            data->MediaCatalog.Mcval = sc.what.media_catalog.mc_valid;
+            memcpy( data->MediaCatalog.MediaCatalog, sc.what.media_catalog.mc_number, 15 );
+            *ret_size = sizeof(SUB_Q_MEDIA_CATALOG_NUMBER);
+            return STATUS_SUCCESS;
+
+        case IOCTL_CDROM_TRACK_ISRC:
+            data->TrackIsrc.FormatCode = IOCTL_CDROM_TRACK_ISRC;
+            data->TrackIsrc.Tcval = sc.what.track_info.ti_valid;
+            memcpy( data->TrackIsrc.TrackIsrc, sc.what.track_info.ti_number, 15 );
+            *ret_size = sizeof(SUB_Q_TRACK_ISRC);
+            break;
+    }
+#elif defined(__APPLE__)
+    SUB_Q_HEADER *hdr = &data->CurrentPosition.Header;
+
+    /* We need IOCDAudioControl for IOCTL_CDROM_CURRENT_POSITION */
+    if (fmt->Format == IOCTL_CDROM_CURRENT_POSITION)
+    {
+        FIXME( "IOCTL_CDROM_CURRENT_POSITION is not implemented\n" );
+        return STATUS_NOT_SUPPORTED;
+    }
+    /* No IOCDAudioControl support; just set the audio status to none */
+    hdr->AudioStatus = AUDIO_STATUS_NO_STATUS;
+    switch (fmt->Format)
+    {
+        case IOCTL_CDROM_MEDIA_CATALOG:
+        {
+            dk_cd_read_mcn_t mcn;
+
+            if (data_size < sizeof(SUB_Q_MEDIA_CATALOG_NUMBER))
+                return STATUS_BUFFER_TOO_SMALL;
+
+            if (ioctl( cdrom->fd, DKIOCCDREADMCN, &mcn ) == -1)
+                return errno_to_status( errno );
+            memcpy( data->MediaCatalog.MediaCatalog, mcn.mcn, kCDMCNMaxLength );
+            data->MediaCatalog.Mcval = 1;
+            *ret_size = sizeof(SUB_Q_MEDIA_CATALOG_NUMBER);
+            return STATUS_SUCCESS;
+        }
+        case IOCTL_CDROM_TRACK_ISRC:
+        {
+            dk_cd_read_isrc_t isrc;
+
+            if (data_size < sizeof(SUB_Q_TRACK_ISRC))
+                return STATUS_BUFFER_TOO_SMALL;
+
+            isrc.track = fmt->Track;
+            if (ioctl( cdrom->fd, DKIOCCDREADISRC, &isrc ) == -1)
+                return errno_to_status( errno );
+            memcpy( data->TrackIsrc.TrackIsrc, isrc.isrc, kCDISRCMaxLength );
+            data->TrackIsrc.Tcval = 1;
+            data->TrackIsrc.Track = isrc.track;
+            *ret_size = sizeof(SUB_Q_TRACK_ISRC);
+            return STATUS_SUCCESS;
+        }
+        default:
+            FIXME( "unhandled format %#x\n", fmt->Format );
+            return STATUS_NOT_IMPLEMENTED;
+    }
+#else
+    FIXME( "not implemented for this platform\n" );
+    return STATUS_NOT_SUPPORTED;
+#endif
+}
+
+/* Some features of this IOCTL are rather poorly documented and
+ * not really intuitive either:
+ *
+ *   1. Although the DiskOffset parameter is meant to be a
+ *      byte offset into the disk, it is in fact the sector
+ *      number multiplied by 2048 regardless of the actual
+ *      sector size.
+ *
+ *   2. The least significant 11 bits of DiskOffset are ignored.
+ *
+ *   3. The TrackMode parameter has no effect on the sector
+ *      size. The entire info sector (i.e. 2352 bytes of data)
+ *      is always returned. IMO the TrackMode is only used
+ *      to check the correct sector type.
+ */
+static NTSTATUS raw_read( struct cdrom *cdrom, const RAW_READ_INFO *info,
+        unsigned int size, void *buffer, unsigned int *ret_size )
+{
+#ifdef __APPLE__
+    dk_cd_read_t cdrd;
+#endif
+
+    TRACE( "DiskOffset=%s SectorCount=%u TrackMode=%#x\n",
+            wine_dbgstr_longlong(info->DiskOffset.QuadPart), info->SectorCount, info->TrackMode );
+
+    if (size < info->SectorCount * 2352)
+        return STATUS_BUFFER_TOO_SMALL;
+
+#if defined(linux)
+    if (info->DiskOffset.u.HighPart & ~2047)
+    {
+        WARN( "DiskOffset points to a sector >= 2**32\n" );
+        return STATUS_NOT_SUPPORTED;
+    }
+
+    switch (info->TrackMode)
+    {
+        case YellowMode2:
+        case XAForm2:
+        {
+            unsigned int lba = info->DiskOffset.QuadPart >> 11;
+            struct cdrom_msf *msf;
+            BYTE **bp = buffer;
+
+            if ((lba + info->SectorCount) >
+                ((1 << 8 * sizeof(msf->cdmsf_min0)) * CD_SECS * CD_FRAMES - CD_MSF_OFFSET))
+            {
+                FIXME( "DiskOffset not accessible with MSF\n" );
+                return STATUS_NOT_SUPPORTED;
+            }
+
+            /* Linux reads only one sector at a time.
+             * ioctl CDROMREADRAW takes struct cdrom_msf as an argument
+             * on the contrary to what header comments state.
+             */
+            lba += CD_MSF_OFFSET;
+            for (unsigned int i = 0; i < info->SectorCount; i++, lba++, bp += 2352)
+            {
+                msf = (struct cdrom_msf *)bp;
+                msf->cdmsf_min0 = lba / CD_FRAMES / CD_SECS;
+                msf->cdmsf_sec0 = lba / CD_FRAMES % CD_SECS;
+                msf->cdmsf_frame0 = lba % CD_FRAMES;
+                if (ioctl( cdrom->fd, CDROMREADRAW, msf ))
+                {
+                    *ret_size = 2352 * i;
+                    return errno_to_status( errno );
+                }
+            }
+            break;
+        }
+
+        case CDDA:
+        {
+            struct cdrom_read_audio cdra;
+
+            cdra.addr.lba = info->DiskOffset.QuadPart >> 11;
+            TRACE("reading at %u\n", cdra.addr.lba);
+            cdra.addr_format = CDROM_LBA;
+            cdra.nframes = info->SectorCount;
+            cdra.buf = buffer;
+            if (ioctl( cdrom->fd, CDROMREADAUDIO, &cdra ))
+                return errno_to_status( errno );
+            break;
+        }
+
+        default:
+            FIXME( "unhandled mode %#x\n", info->TrackMode );
+            return STATUS_NOT_IMPLEMENTED;
+    }
+#elif defined(__APPLE__)
+    /* Mac OS lets us read multiple parts of the sector at a time.
+     * We can read all the sectors in at once, unlike Linux. */
+    memset( &cdrd, 0, sizeof(cdrd) );
+    cdrd.offset = (info->DiskOffset.QuadPart >> 11) * kCDSectorSizeWhole;
+    cdrd.buffer = buffer;
+    cdrd.bufferLength = info->SectorCount * kCDSectorSizeWhole;
+    switch (info->TrackMode)
+    {
+        case YellowMode2:
+            cdrd.sectorType = kCDSectorTypeMode2;
+            cdrd.sectorArea = kCDSectorAreaSync | kCDSectorAreaHeader | kCDSectorAreaUser;
+            break;
+
+        case XAForm2:
+            cdrd.sectorType = kCDSectorTypeMode2Form2;
+            cdrd.sectorArea = kCDSectorAreaSync | kCDSectorAreaHeader | kCDSectorAreaSubHeader | kCDSectorAreaUser;
+            break;
+
+        case CDDA:
+            cdrd.sectorType = kCDSectorTypeCDDA;
+            cdrd.sectorArea = kCDSectorAreaUser;
+            break;
+
+        default:
+            FIXME( "unhandled mode %#x\n", info->TrackMode );
+            return STATUS_NOT_IMPLEMENTED;
+    }
+    if (ioctl( cdrom->fd, DKIOCCDREAD, &cdrd ))
+    {
+        *ret_size = cdrd.bufferLength;
+        return errno_to_status( errno );
+    }
+#else
+    FIXME( "not implemented for this platform\n" );
+    return STATUS_NOT_SUPPORTED;
+#endif
+
+    *ret_size = 2352 * info->SectorCount;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS disk_type( struct cdrom *cdrom, CDROM_DISK_DATA *data )
+{
+    NTSTATUS status;
+
+    if (!cdrom->toc_valid && (status = update_toc_cache( cdrom )))
+        return status;
+
+    data->DiskData = 0;
+    for (unsigned int i = cdrom->toc.FirstTrack; i <= cdrom->toc.LastTrack; ++i)
+    {
+        if (cdrom->toc.TrackData[i - cdrom->toc.FirstTrack].Control & 0x04)
+            data->DiskData |= CDROM_DISK_DATA_TRACK;
+        else
+            data->DiskData |= CDROM_DISK_AUDIO_TRACK;
+    }
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS get_drive_geometry( struct cdrom *cdrom, DISK_GEOMETRY *geometry )
+{
+    unsigned int frame_size;
+    NTSTATUS status;
+
+    if (!cdrom->toc_valid && (status = update_toc_cache( cdrom )))
+        return status;
+
+    frame_size = track_to_frame( &cdrom->toc, cdrom->toc.LastTrack + 1 ) - track_to_frame( &cdrom->toc, 1 );
+    geometry->Cylinders.QuadPart = frame_size / (64 * 32);
+    geometry->MediaType = RemovableMedia;
+    geometry->TracksPerCylinder = 64;
+    geometry->SectorsPerTrack = 32;
+    geometry->BytesPerSector= 2048;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS media_removal( struct cdrom *cdrom, const PREVENT_MEDIA_REMOVAL *prevent_removal )
+{
+#if defined(linux)
+    if (ioctl( cdrom->fd, CDROM_LOCKDOOR, prevent_removal->PreventMediaRemoval ))
+        return errno_to_status( errno );
+    return STATUS_SUCCESS;
+#elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__NetBSD__) || defined(__DragonFly__)
+    if (ioctl( cdrom->fd, (prevent_removal->PreventMediaRemoval ? CDIOCPREVENT : CDIOCALLOW), NULL ))
+        return errno_to_status( errno );
+    return STATUS_SUCCESS;
+#else
+    FIXME( "not implemented for this platform\n" );
+    return STATUS_NOT_SUPPORTED;
+#endif
+}
+
 NTSTATUS cdrom_ioctl( void *args )
 {
     struct cdrom_ioctl_params *params = args;
@@ -525,11 +973,34 @@ NTSTATUS cdrom_ioctl( void *args )
 
     switch (code)
     {
+        case IOCTL_CDROM_DISK_TYPE:
+            if (params->output_size < sizeof(CDROM_DISK_DATA))
+                return STATUS_BUFFER_TOO_SMALL;
+            params->ret_size = sizeof(CDROM_DISK_DATA);
+            return disk_type( params->cdrom, params->output );
+
+        case IOCTL_CDROM_GET_DRIVE_GEOMETRY:
+            if (params->output_size < sizeof(DISK_GEOMETRY))
+                return STATUS_BUFFER_TOO_SMALL;
+            params->ret_size = sizeof(DISK_GEOMETRY);
+            return get_drive_geometry( params->cdrom, params->output );
+
         case IOCTL_CDROM_GET_VOLUME:
             if (params->output_size < sizeof(VOLUME_CONTROL))
                 return STATUS_BUFFER_TOO_SMALL;
             params->ret_size = sizeof(VOLUME_CONTROL);
             return get_volume( params->cdrom, params->output );
+
+        case IOCTL_CDROM_MEDIA_REMOVAL:
+        case IOCTL_DISK_MEDIA_REMOVAL:
+        case IOCTL_STORAGE_EJECTION_CONTROL:
+        case IOCTL_STORAGE_MEDIA_REMOVAL:
+            /* FIXME: IOCTL_STORAGE_EJECTION_CONTROL is supposed to track the
+             * file object which has requested to prevent ejection, and ignore
+             * requests from other file objects. We don't handle that yet. */
+            if (params->input_size < sizeof(PREVENT_MEDIA_REMOVAL))
+                return STATUS_INFO_LENGTH_MISMATCH;
+            return media_removal( params->cdrom, params->input );
 
         case IOCTL_CDROM_PAUSE_AUDIO:
             return pause_audio( params->cdrom );
@@ -538,6 +1009,16 @@ NTSTATUS cdrom_ioctl( void *args )
             if (params->input_size < sizeof(CDROM_PLAY_AUDIO_MSF))
                 return STATUS_INFO_LENGTH_MISMATCH;
             return play_audio_msf( params->cdrom, params->input );
+
+        case IOCTL_CDROM_RAW_READ:
+            if (params->input_size < sizeof(RAW_READ_INFO))
+                return STATUS_BUFFER_TOO_SMALL;
+            return raw_read( params->cdrom, params->input, params->output_size, params->output, &params->ret_size );
+
+        case IOCTL_CDROM_READ_Q_CHANNEL:
+            if (params->input_size < sizeof(CDROM_SUB_Q_DATA_FORMAT))
+                return STATUS_INFO_LENGTH_MISMATCH;
+            return read_q_channel( params->cdrom, params->input, params->output_size, params->output, &params->ret_size );
 
         case IOCTL_CDROM_READ_TOC:
             if (params->output_size < sizeof(CDROM_TOC))
