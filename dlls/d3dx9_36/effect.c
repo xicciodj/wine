@@ -5285,6 +5285,12 @@ static HRESULT d3dx_parse_value(struct d3dx_effect *effect, struct d3dx_paramete
                 case D3DXPT_VERTEXSHADER:
                     param->object_id = read_u32(ptr);
                     TRACE("Id: %u\n", param->object_id);
+                    if (param->object_id >= effect->object_count)
+                    {
+                        WARN("Object index out of bounds: index %u >= object count %u.\n",
+                                param->object_id, effect->object_count);
+                        return D3DXERR_INVALIDDATA;
+                    }
                     effect->objects[param->object_id].param = param;
                     param->data = value;
                     break;
@@ -6197,7 +6203,7 @@ static HRESULT d3dx_parse_resource(struct d3dx_effect *effect, const char *data,
 
         if (index >= effect->params.count)
         {
-            FIXME("Index out of bounds: index %u >= parameter count %u.\n", index, effect->params.count);
+            WARN("Index out of bounds: index %u >= parameter count %u.\n", index, effect->params.count);
             return E_FAIL;
         }
 
@@ -6206,7 +6212,7 @@ static HRESULT d3dx_parse_resource(struct d3dx_effect *effect, const char *data,
         {
             if (element_index >= parameter->element_count && parameter->element_count != 0)
             {
-                FIXME("Index out of bounds: element_index %u >= element_count %u.\n", element_index, parameter->element_count);
+                WARN("Index out of bounds: element_index %u >= element_count %u.\n", element_index, parameter->element_count);
                 return E_FAIL;
             }
 
@@ -6217,7 +6223,7 @@ static HRESULT d3dx_parse_resource(struct d3dx_effect *effect, const char *data,
         sampler = parameter->data;
         if (state_index >= sampler->state_count)
         {
-            FIXME("Index out of bounds: state_index %u >= state_count %u.\n", state_index, sampler->state_count);
+            WARN("Index out of bounds: state_index %u >= state_count %u.\n", state_index, sampler->state_count);
             return E_FAIL;
         }
 
@@ -6230,7 +6236,7 @@ static HRESULT d3dx_parse_resource(struct d3dx_effect *effect, const char *data,
 
         if (technique_index >= effect->technique_count)
         {
-            FIXME("Index out of bounds: technique_index %u >= technique_count %u.\n", technique_index,
+            WARN("Index out of bounds: technique_index %u >= technique_count %u.\n", technique_index,
                   effect->technique_count);
             return E_FAIL;
         }
@@ -6238,14 +6244,14 @@ static HRESULT d3dx_parse_resource(struct d3dx_effect *effect, const char *data,
         technique = &effect->techniques[technique_index];
         if (index >= technique->pass_count)
         {
-            FIXME("Index out of bounds: index %u >= pass_count %u.\n", index, technique->pass_count);
+            WARN("Index out of bounds: index %u >= pass_count %u.\n", index, technique->pass_count);
             return E_FAIL;
         }
 
         pass = &technique->passes[index];
         if (state_index >= pass->state_count)
         {
-            FIXME("Index out of bounds: state_index %u >= state_count %u.\n", state_index, pass->state_count);
+            WARN("Index out of bounds: state_index %u >= state_count %u.\n", state_index, pass->state_count);
             return E_FAIL;
         }
 
