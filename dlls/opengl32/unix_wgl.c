@@ -480,7 +480,7 @@ static BOOL initialize_vk_device( TEB *teb, const struct opengl_context *ctx )
 static void init_client_context( TEB *teb, struct opengl_client_context *client, const struct opengl_context *ctx )
 {
 #define USE_GL_EXT(x) #x,
-    static const char *extension_names[] = { ALL_GL_EXTS ALL_WGL_EXTS };
+    static const char *extension_names[] = { ALL_EGL_EXTS ALL_GL_EXTS ALL_WGL_EXTS };
 #undef USE_GL_EXT
     const char *vendor, *device, *version, *rest = "";
     const struct opengl_funcs *funcs = teb->glTable;
@@ -528,7 +528,7 @@ static void init_client_context( TEB *teb, struct opengl_client_context *client,
         }
     }
 
-    for (i = 0; i < WGL_FIRST_EXTENSION; i++) if (client->extensions[i]) client->extension_array[count++] = i;
+    for (i = MIN_GL_EXTENSION; i <= MAX_GL_EXTENSION; i++) if (client->extensions[i]) client->extension_array[count++] = i;
     if (client->extensions[WGL_EXT_extensions_string]) client->extension_array[count++] = WGL_EXT_extensions_string;
     if (client->extensions[WGL_EXT_swap_control])      client->extension_array[count++] = WGL_EXT_swap_control;
     client->extension_count = count;

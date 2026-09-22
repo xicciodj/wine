@@ -65,7 +65,7 @@ struct extension_entry
 };
 
 #define USE_GL_EXT(x) [x] = { .name = #x, .len = sizeof(#x) - 1 },
-static const struct extension_entry all_extensions[] = { ALL_GL_EXTS ALL_WGL_EXTS };
+static const struct extension_entry all_extensions[] = { ALL_EGL_EXTS ALL_GL_EXTS ALL_WGL_EXTS };
 #undef USE_GL_EXT
 #define USE_GL_EXT(x) + sizeof(#x)
 static const UINT MAX_EXTENSION_STR = 1 ALL_GL_EXTS ALL_WGL_EXTS;
@@ -138,12 +138,12 @@ static void init_wgl_extensions( const BOOLEAN extensions[GL_EXTENSION_COUNT] )
     UINT pos = 0, len = 0, ext;
     char *str;
 
-    for (ext = WGL_FIRST_EXTENSION; ext < GL_EXTENSION_COUNT; ext++)
+    for (ext = MIN_WGL_EXTENSION; ext <= MAX_WGL_EXTENSION; ext++)
         if (extensions[ext]) len += all_extensions[ext].len + 1;
 
     if (!(str = malloc( len + 1 ))) return;
 
-    for (ext = WGL_FIRST_EXTENSION; ext < GL_EXTENSION_COUNT; ext++)
+    for (ext = MIN_WGL_EXTENSION; ext <= MAX_WGL_EXTENSION; ext++)
         if (extensions[ext]) pos += sprintf( str + pos, "%s ", all_extensions[ext].name );
     str[pos - 1] = 0;
 
