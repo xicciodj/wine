@@ -48,7 +48,7 @@ struct gl_info {
 
     GLint max_viewport_dims[2];
 
-    unsigned int max_major, max_minor;
+    int max_major, max_minor;
 };
 
 static struct gl_info gl_info;
@@ -57,7 +57,6 @@ static struct gl_info gl_info;
 struct macdrv_context
 {
     struct opengl_context   base;
-    BOOL                    core;
     WineOpenGLContext      *context;
     GLenum                  draw_pbuffer_face;
     GLint                   draw_pbuffer_level;
@@ -226,116 +225,6 @@ C_ASSERT(sizeof(((pixel_format_or_code*)0)->format) <= sizeof(((pixel_format_or_
 static pixel_format *pixel_formats;
 static int nb_formats, nb_displayable_formats;
 static CGLOpenGLProfile core_profile;
-
-
-static const char* debugstr_attrib(int attrib, int value)
-{
-    static const struct {
-        int attrib;
-        const char *name;
-    } attrib_names[] = {
-#define ATTRIB(a) { a, #a }
-        ATTRIB(WGL_ACCELERATION_ARB),
-        ATTRIB(WGL_ACCUM_ALPHA_BITS_ARB),
-        ATTRIB(WGL_ACCUM_BITS_ARB),
-        ATTRIB(WGL_ACCUM_BLUE_BITS_ARB),
-        ATTRIB(WGL_ACCUM_GREEN_BITS_ARB),
-        ATTRIB(WGL_ACCUM_RED_BITS_ARB),
-        ATTRIB(WGL_ALPHA_BITS_ARB),
-        ATTRIB(WGL_ALPHA_SHIFT_ARB),
-        ATTRIB(WGL_AUX_BUFFERS_ARB),
-        ATTRIB(WGL_BIND_TO_TEXTURE_RECTANGLE_RGB_NV),
-        ATTRIB(WGL_BIND_TO_TEXTURE_RECTANGLE_RGBA_NV),
-        ATTRIB(WGL_BIND_TO_TEXTURE_RGB_ARB),
-        ATTRIB(WGL_BIND_TO_TEXTURE_RGBA_ARB),
-        ATTRIB(WGL_BLUE_BITS_ARB),
-        ATTRIB(WGL_BLUE_SHIFT_ARB),
-        ATTRIB(WGL_COLOR_BITS_ARB),
-        ATTRIB(WGL_DEPTH_BITS_ARB),
-        ATTRIB(WGL_DOUBLE_BUFFER_ARB),
-        ATTRIB(WGL_DRAW_TO_BITMAP_ARB),
-        ATTRIB(WGL_DRAW_TO_PBUFFER_ARB),
-        ATTRIB(WGL_DRAW_TO_WINDOW_ARB),
-        ATTRIB(WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB),
-        ATTRIB(WGL_GREEN_BITS_ARB),
-        ATTRIB(WGL_GREEN_SHIFT_ARB),
-        ATTRIB(WGL_NEED_PALETTE_ARB),
-        ATTRIB(WGL_NEED_SYSTEM_PALETTE_ARB),
-        ATTRIB(WGL_NUMBER_OVERLAYS_ARB),
-        ATTRIB(WGL_NUMBER_PIXEL_FORMATS_ARB),
-        ATTRIB(WGL_NUMBER_UNDERLAYS_ARB),
-        ATTRIB(WGL_PIXEL_TYPE_ARB),
-        ATTRIB(WGL_RED_BITS_ARB),
-        ATTRIB(WGL_RED_SHIFT_ARB),
-        ATTRIB(WGL_SAMPLE_BUFFERS_ARB),
-        ATTRIB(WGL_SAMPLES_ARB),
-        ATTRIB(WGL_SHARE_ACCUM_ARB),
-        ATTRIB(WGL_SHARE_DEPTH_ARB),
-        ATTRIB(WGL_SHARE_STENCIL_ARB),
-        ATTRIB(WGL_STENCIL_BITS_ARB),
-        ATTRIB(WGL_STEREO_ARB),
-        ATTRIB(WGL_SUPPORT_GDI_ARB),
-        ATTRIB(WGL_SUPPORT_OPENGL_ARB),
-        ATTRIB(WGL_SWAP_LAYER_BUFFERS_ARB),
-        ATTRIB(WGL_SWAP_METHOD_ARB),
-        ATTRIB(WGL_TRANSPARENT_ALPHA_VALUE_ARB),
-        ATTRIB(WGL_TRANSPARENT_ARB),
-        ATTRIB(WGL_TRANSPARENT_BLUE_VALUE_ARB),
-        ATTRIB(WGL_TRANSPARENT_GREEN_VALUE_ARB),
-        ATTRIB(WGL_TRANSPARENT_INDEX_VALUE_ARB),
-        ATTRIB(WGL_TRANSPARENT_RED_VALUE_ARB),
-#undef ATTRIB
-    };
-    int i;
-    const char *attrib_name = NULL;
-    const char *value_name = NULL;
-
-    for (i = 0; i < ARRAY_SIZE(attrib_names); i++)
-    {
-        if (attrib_names[i].attrib == attrib)
-        {
-            attrib_name = attrib_names[i].name;
-            break;
-        }
-    }
-
-    if (!attrib_name)
-        attrib_name = wine_dbg_sprintf("Attrib 0x%04x", attrib);
-
-    switch (attrib)
-    {
-        case WGL_ACCELERATION_ARB:
-            switch (value)
-            {
-                case WGL_FULL_ACCELERATION_ARB:     value_name = "WGL_FULL_ACCELERATION_ARB"; break;
-                case WGL_GENERIC_ACCELERATION_ARB:  value_name = "WGL_GENERIC_ACCELERATION_ARB"; break;
-                case WGL_NO_ACCELERATION_ARB:       value_name = "WGL_NO_ACCELERATION_ARB"; break;
-            }
-            break;
-        case WGL_PIXEL_TYPE_ARB:
-            switch (value)
-            {
-                case WGL_TYPE_COLORINDEX_ARB:           value_name = "WGL_TYPE_COLORINDEX_ARB"; break;
-                case WGL_TYPE_RGBA_ARB:                 value_name = "WGL_TYPE_RGBA_ARB"; break;
-                case WGL_TYPE_RGBA_FLOAT_ARB:           value_name = "WGL_TYPE_RGBA_FLOAT_ARB"; break;
-                case WGL_TYPE_RGBA_UNSIGNED_FLOAT_EXT:  value_name = "WGL_TYPE_RGBA_UNSIGNED_FLOAT_EXT"; break;
-            }
-            break;
-        case WGL_SWAP_METHOD_ARB:
-            switch (value)
-            {
-                case WGL_SWAP_COPY_ARB:         value_name = "WGL_SWAP_COPY_ARB"; break;
-                case WGL_SWAP_EXCHANGE_ARB:     value_name = "WGL_SWAP_EXCHANGE_ARB"; break;
-                case WGL_SWAP_UNDEFINED_ARB:    value_name = "WGL_SWAP_UNDEFINED_ARB"; break;
-            }
-            break;
-    }
-
-    if (!value_name)
-        value_name = wine_dbg_sprintf("%d / 0x%04x", value, value);
-
-    return wine_dbg_sprintf("%40s: %s", attrib_name, value_name);
-}
 
 
 /**********************************************************************
@@ -1259,7 +1148,7 @@ static BOOL init_gl_info(void)
     pglGetIntegerv(GL_MAX_VIEWPORT_DIMS, gl_info.max_viewport_dims);
 
     str = (const char*)pglGetString(GL_VERSION);
-    sscanf(str, "%u.%u", &gl_info.max_major, &gl_info.max_minor);
+    sscanf(str, "%d.%d", &gl_info.max_major, &gl_info.max_minor);
     TRACE("GL version   : %s\n", str);
     TRACE("GL renderer  : %s\n", pglGetString(GL_RENDERER));
 
@@ -1270,7 +1159,7 @@ static BOOL init_gl_info(void)
     if (!(context = init_context(kCGLOGLPVersion_GL3_Core))) return TRUE;
     str = (const char*)pglGetString(GL_VERSION);
     TRACE("GL3_Core context version: %s\n", str);
-    sscanf(str, "%u.%u", &gl_info.max_major, &gl_info.max_minor);
+    sscanf(str, "%d.%d", &gl_info.max_major, &gl_info.max_minor);
     CGLSetCurrentContext(old_context);
     CGLReleaseContext(context);
     core_profile = kCGLOGLPVersion_GL3_Core;
@@ -1278,144 +1167,10 @@ static BOOL init_gl_info(void)
     if (!(context = init_context(kCGLOGLPVersion_GL4_Core))) return TRUE;
     str = (const char*)pglGetString(GL_VERSION);
     TRACE("GL4_Core context version: %s\n", str);
-    sscanf(str, "%u.%u", &gl_info.max_major, &gl_info.max_minor);
+    sscanf(str, "%d.%d", &gl_info.max_major, &gl_info.max_minor);
     CGLSetCurrentContext(old_context);
     CGLReleaseContext(context);
     core_profile = kCGLOGLPVersion_GL4_Core;
-
-    return TRUE;
-}
-
-
-/**********************************************************************
- *              create_context
- */
-static BOOL create_context(struct macdrv_context *context, int format, CGLContextObj share, BOOL *shared)
-{
-    const pixel_format *pf;
-    CGLPixelFormatAttribute attribs[64];
-    int n = 0;
-    CGLPixelFormatObj pix;
-    GLint virtualScreens;
-    CGLError err;
-
-    pf = get_pixel_format(format, TRUE /* non-displayable */);
-    if (!pf)
-    {
-        ERR("Invalid pixel format %d, expect problems!\n", format);
-        RtlSetLastWin32Error(ERROR_INVALID_PIXEL_FORMAT);
-        return FALSE;
-    }
-
-    attribs[n++] = kCGLPFAMinimumPolicy;
-    attribs[n++] = kCGLPFAClosestPolicy;
-
-    if (pf->accelerated)
-    {
-        attribs[n++] = kCGLPFAAccelerated;
-        attribs[n++] = kCGLPFANoRecovery;
-    }
-    else
-    {
-        attribs[n++] = kCGLPFARendererID;
-        attribs[n++] = kCGLRendererGenericFloatID;
-    }
-
-    attribs[n++] = kCGLPFADoubleBuffer;
-
-    if (!context->core)
-    {
-        attribs[n++] = kCGLPFAAuxBuffers;
-        attribs[n++] = pf->aux_buffers;
-    }
-
-    attribs[n++] = kCGLPFAColorSize;
-    attribs[n++] = color_modes[pf->color_mode].color_bits;
-    attribs[n++] = kCGLPFAAlphaSize;
-    attribs[n++] = color_modes[pf->color_mode].alpha_bits;
-    if (color_modes[pf->color_mode].is_float)
-        attribs[n++] = kCGLPFAColorFloat;
-
-    attribs[n++] = kCGLPFADepthSize;
-    attribs[n++] = pf->depth_bits;
-
-    attribs[n++] = kCGLPFAStencilSize;
-    attribs[n++] = pf->stencil_bits;
-
-    if (pf->stereo)
-        attribs[n++] = kCGLPFAStereo;
-
-    if (pf->accum_mode && !context->core)
-    {
-        attribs[n++] = kCGLPFAAccumSize;
-        attribs[n++] = color_modes[pf->accum_mode - 1].color_bits;
-    }
-
-    if (pf->pbuffer && !context->core)
-        attribs[n++] = kCGLPFAPBuffer;
-
-    if (pf->sample_buffers && pf->samples)
-    {
-        attribs[n++] = kCGLPFASampleBuffers;
-        attribs[n++] = pf->sample_buffers;
-        attribs[n++] = kCGLPFASamples;
-        attribs[n++] = pf->samples;
-    }
-
-    if (pf->backing_store)
-        attribs[n++] = kCGLPFABackingStore;
-
-    if (context->core)
-    {
-        attribs[n++] = kCGLPFAOpenGLProfile;
-        attribs[n++] = (CGLPixelFormatAttribute)core_profile;
-    }
-
-    attribs[n] = 0;
-
-    err = CGLChoosePixelFormat(attribs, &pix, &virtualScreens);
-    if (err != kCGLNoError || !pix)
-    {
-        WARN("CGLChoosePixelFormat() failed with error %d %s\n", err, CGLErrorString(err));
-        RtlSetLastWin32Error(ERROR_INVALID_OPERATION);
-        return FALSE;
-    }
-
-    err = CGLCreateContext(pix, share, (CGLContextObj *)&context->base.host_context);
-    CGLReleasePixelFormat(pix);
-    if (err != kCGLNoError || !context->base.host_context)
-    {
-        context->base.host_context = NULL;
-        WARN("CGLCreateContext() failed with error %d %s\n", err, CGLErrorString(err));
-        RtlSetLastWin32Error(ERROR_INVALID_OPERATION);
-        return FALSE;
-    }
-
-    if (gl_surface_mode == GL_SURFACE_IN_FRONT_TRANSPARENT)
-    {
-        GLint opacity = 0;
-        err = CGLSetParameter(context->base.host_context, kCGLCPSurfaceOpacity, &opacity);
-        if (err != kCGLNoError)
-            WARN("CGLSetParameter(kCGLCPSurfaceOpacity) failed with error %d %s; leaving opaque\n", err, CGLErrorString(err));
-    }
-    else if (gl_surface_mode == GL_SURFACE_BEHIND)
-    {
-        GLint order = -1;
-        err = CGLSetParameter(context->base.host_context, kCGLCPSurfaceOrder, &order);
-        if (err != kCGLNoError)
-            WARN("CGLSetParameter(kCGLCPSurfaceOrder) failed with error %d %s; leaving in front\n", err, CGLErrorString(err));
-    }
-
-    if (!(context->context = macdrv_create_opengl_context(context->base.host_context)))
-    {
-        WARN("macdrv_create_opengl_context() failed\n");
-        RtlSetLastWin32Error(ERROR_INVALID_OPERATION);
-        CGLReleaseContext(context->base.host_context);
-        return FALSE;
-    }
-    context->swap_interval = INT_MIN;
-
-    TRACE("created context %p/%p/%p\n", context, context->context, context->base.host_context);
 
     return TRUE;
 }
@@ -1487,7 +1242,7 @@ static BOOL set_swap_interval(struct macdrv_context *context, long interval)
     /* In theory, for single-buffered contexts, there's no such thing as a swap
        so the swap interval shouldn't matter.  But OS X will synchronize flushes
        of single-buffered contexts if the interval is set to non-zero. */
-    if (interval && !pixel_formats[context->base.format - 1].double_buffer)
+    if (interval && !pixel_formats[context->base.attrs.format - 1].double_buffer)
         interval = 0;
 
     err = CGLSetParameter(context->base.host_context, kCGLCPSwapInterval, (GLint*)&interval);
@@ -2042,117 +1797,147 @@ static UINT macdrv_pbuffer_bind(HDC hdc, struct opengl_drawable *base, GLenum so
  *
  * WGL_ARB_create_context: wglCreateContextAttribsARB
  */
-static struct opengl_context *macdrv_context_create(int format, struct opengl_context *share, const int *attrib_list, BOOL *shared)
+static struct opengl_context *macdrv_context_create(const struct opengl_context_attrs *attrs, struct opengl_context *share, BOOL *shared)
 {
     CGLContextObj host_share = share ? share->host_context : NULL;
+    CGLPixelFormatAttribute attribs[64], *attrib = attribs;
     struct macdrv_context *context;
-    const int *iptr;
-    int major = 1, minor = 0, profile = WGL_CONTEXT_CORE_PROFILE_BIT_ARB, flags = 0;
-    BOOL core = FALSE;
+    const pixel_format *pf;
+    CGLPixelFormatObj pix;
+    GLint virtualScreens;
+    CGLError err;
 
-    TRACE("format %d, share %p, attrib_list %p\n", format, share, attrib_list);
+    TRACE("attrs %s, share %p, shared %p\n", debugstr_opengl_context_attrs( attrs ), share, shared);
 
-    for (iptr = attrib_list; iptr && *iptr; iptr += 2)
+    if (attrs->major > gl_info.max_major || (attrs->major == gl_info.max_major && attrs->minor > gl_info.max_minor))
     {
-        int attr = iptr[0];
-        int value = iptr[1];
-
-        TRACE("%s\n", debugstr_attrib(attr, value));
-
-        switch (attr)
-        {
-            case WGL_CONTEXT_MAJOR_VERSION_ARB:
-                major = value;
-                break;
-
-            case WGL_CONTEXT_MINOR_VERSION_ARB:
-                minor = value;
-                break;
-
-            case WGL_CONTEXT_LAYER_PLANE_ARB:
-                WARN("WGL_CONTEXT_LAYER_PLANE_ARB attribute ignored\n");
-                break;
-
-            case WGL_CONTEXT_FLAGS_ARB:
-                flags = value;
-                if (flags & ~WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB)
-                    WARN("WGL_CONTEXT_FLAGS_ARB attributes %#x ignored\n",
-                         flags & ~WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB);
-                break;
-
-            case WGL_CONTEXT_PROFILE_MASK_ARB:
-                if (value != WGL_CONTEXT_CORE_PROFILE_BIT_ARB &&
-                    value != WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB)
-                {
-                    WARN("WGL_CONTEXT_PROFILE_MASK_ARB bits %#x invalid\n", value);
-                    RtlSetLastWin32Error(ERROR_INVALID_PROFILE_ARB);
-                    return NULL;
-                }
-                core = value == WGL_CONTEXT_CORE_PROFILE_BIT_ARB;
-                profile = value;
-                break;
-
-            default:
-                WARN("Unknown attribute %s.\n", debugstr_attrib(attr, value));
-                RtlSetLastWin32Error(ERROR_INVALID_PARAMETER);
-                return NULL;
-        }
-    }
-
-    if (major > gl_info.max_major || (major == gl_info.max_major && minor > gl_info.max_minor))
-    {
-        WARN("Profile version %u.%u not supported\n", major, minor);
+        WARN("Profile version %u.%u not supported\n", attrs->major, attrs->minor);
         RtlSetLastWin32Error(ERROR_INVALID_VERSION_ARB);
         return NULL;
     }
 
-    if ((major == 3 && (minor == 2 || minor == 3)) ||
-        (major == 4 && (minor == 0 || minor == 1)))
-    {
-        if (!(flags & WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB))
-        {
-            WARN("OS X only supports forward-compatible 3.2+ contexts\n");
-            RtlSetLastWin32Error(ERROR_INVALID_VERSION_ARB);
-            return NULL;
-        }
-        if (profile != WGL_CONTEXT_CORE_PROFILE_BIT_ARB)
-        {
-            WARN("Compatibility profiles for GL version >= 3.2 not supported\n");
-            RtlSetLastWin32Error(ERROR_INVALID_PROFILE_ARB);
-            return NULL;
-        }
-        core = TRUE;
-    }
-    else if (major < 1 || (major == 1 && (minor < 0 || minor > 5)) ||
-             (major == 2 && (minor < 0 || minor > 1)))
-    {
-        WARN("Invalid GL version requested\n");
-        RtlSetLastWin32Error(ERROR_INVALID_VERSION_ARB);
-        return NULL;
-    }
-    if (!core && flags & WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB)
-    {
-        WARN("Forward compatible context requested for GL version < 3\n");
-        RtlSetLastWin32Error(ERROR_INVALID_VERSION_ARB);
-        return NULL;
-    }
-
-    if (share && macdrv_context_from_opengl_context(share)->core != core)
+    if (share && share->attrs.profile != attrs->profile)
     {
         WARN("Cannot share core context with compatibility context\n");
         host_share = NULL;
         *shared = FALSE;
     }
 
-    if (!(context = calloc(1, sizeof(*context)))) return NULL;
-    context->core = core;
-
-    if (!create_context(context, format, host_share, shared))
+    if (!(pf = get_pixel_format(attrs->format, TRUE /* non-displayable */)))
     {
-        free(context);
+        ERR("Invalid pixel format %d, expect problems!\n", attrs->format);
+        RtlSetLastWin32Error(ERROR_INVALID_PIXEL_FORMAT);
         return NULL;
     }
 
+    *attrib++ = kCGLPFAMinimumPolicy;
+    *attrib++ = kCGLPFAClosestPolicy;
+
+    if (pf->accelerated)
+    {
+        *attrib++ = kCGLPFAAccelerated;
+        *attrib++ = kCGLPFANoRecovery;
+    }
+    else
+    {
+        *attrib++ = kCGLPFARendererID;
+        *attrib++ = kCGLRendererGenericFloatID;
+    }
+
+    *attrib++ = kCGLPFADoubleBuffer;
+
+    if (attrs->profile & WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB)
+    {
+        *attrib++ = kCGLPFAAuxBuffers;
+        *attrib++ = pf->aux_buffers;
+    }
+
+    *attrib++ = kCGLPFAColorSize;
+    *attrib++ = color_modes[pf->color_mode].color_bits;
+    *attrib++ = kCGLPFAAlphaSize;
+    *attrib++ = color_modes[pf->color_mode].alpha_bits;
+
+    if (color_modes[pf->color_mode].is_float) *attrib++ = kCGLPFAColorFloat;
+
+    *attrib++ = kCGLPFADepthSize;
+    *attrib++ = pf->depth_bits;
+
+    *attrib++ = kCGLPFAStencilSize;
+    *attrib++ = pf->stencil_bits;
+
+    if (pf->stereo) *attrib++ = kCGLPFAStereo;
+
+    if (pf->accum_mode && attrs->profile & WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB)
+    {
+        *attrib++ = kCGLPFAAccumSize;
+        *attrib++ = color_modes[pf->accum_mode - 1].color_bits;
+    }
+
+    if (pf->pbuffer && attrs->profile & WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB)
+        *attrib++ = kCGLPFAPBuffer;
+
+    if (pf->sample_buffers && pf->samples)
+    {
+        *attrib++ = kCGLPFASampleBuffers;
+        *attrib++ = pf->sample_buffers;
+        *attrib++ = kCGLPFASamples;
+        *attrib++ = pf->samples;
+    }
+
+    if (pf->backing_store) *attrib++ = kCGLPFABackingStore;
+
+    if (attrs->profile & WGL_CONTEXT_CORE_PROFILE_BIT_ARB)
+    {
+        *attrib++ = kCGLPFAOpenGLProfile;
+        *attrib++ = (CGLPixelFormatAttribute)core_profile;
+    }
+
+    *attrib++ = 0;
+
+    if ((err = CGLChoosePixelFormat(attribs, &pix, &virtualScreens)) || !pix)
+    {
+        WARN("CGLChoosePixelFormat() failed with error %d %s\n", err, CGLErrorString(err));
+        RtlSetLastWin32Error(ERROR_INVALID_OPERATION);
+        return FALSE;
+    }
+
+    if (!(context = calloc(1, sizeof(*context)))) return NULL;
+
+    err = CGLCreateContext(pix, host_share, (CGLContextObj *)&context->base.host_context);
+    CGLReleasePixelFormat(pix);
+    if (err || !context->base.host_context)
+    {
+        context->base.host_context = NULL;
+        WARN("CGLCreateContext() failed with error %d %s\n", err, CGLErrorString(err));
+        RtlSetLastWin32Error(ERROR_INVALID_OPERATION);
+        free(context);
+        return FALSE;
+    }
+
+    if (gl_surface_mode == GL_SURFACE_IN_FRONT_TRANSPARENT)
+    {
+        GLint opacity = 0;
+        err = CGLSetParameter(context->base.host_context, kCGLCPSurfaceOpacity, &opacity);
+        if (err) WARN("CGLSetParameter(kCGLCPSurfaceOpacity) failed with error %d %s; leaving opaque\n", err, CGLErrorString(err));
+    }
+    else if (gl_surface_mode == GL_SURFACE_BEHIND)
+    {
+        GLint order = -1;
+        err = CGLSetParameter(context->base.host_context, kCGLCPSurfaceOrder, &order);
+        if (err) WARN("CGLSetParameter(kCGLCPSurfaceOrder) failed with error %d %s; leaving in front\n", err, CGLErrorString(err));
+    }
+
+    if (!(context->context = macdrv_create_opengl_context(context->base.host_context)))
+    {
+        WARN("macdrv_create_opengl_context() failed\n");
+        RtlSetLastWin32Error(ERROR_INVALID_OPERATION);
+        CGLReleaseContext(context->base.host_context);
+        free(context);
+        return NULL;
+    }
+    context->swap_interval = INT_MIN;
+
+    TRACE("created context %p/%p/%p\n", context, context->context, context->base.host_context);
     return &context->base;
 }
 
