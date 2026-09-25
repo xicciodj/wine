@@ -121,7 +121,6 @@ struct macdrv_event;
 struct macdrv_query;
 
 /* main */
-extern bool macdrv_err_on;
 extern int topmost_float_inactive;
 extern bool capture_displays_for_fullscreen;
 extern bool left_option_is_alt;
@@ -226,10 +225,6 @@ extern int macdrv_clip_cursor(CGRect rect);
 
 
 /* display */
-
-/* Used DISPLAY_DEVICE.StateFlags for adapters */
-#define DISPLAY_DEVICE_ATTACHED_TO_DESKTOP      0x00000001
-#define DISPLAY_DEVICE_PRIMARY_DEVICE           0x00000004
 
 /* Represent a physical GPU in the PCI slots */
 struct macdrv_gpu
@@ -568,7 +563,7 @@ extern CFDataRef macdrv_copy_pasteboard_data(CFTypeRef pasteboard, CFStringRef t
 extern bool macdrv_is_pasteboard_owner(WineWindow *window);
 extern bool macdrv_has_pasteboard_changed(void);
 extern void macdrv_clear_pasteboard(WineWindow *window);
-extern int macdrv_set_pasteboard_data(CFStringRef type, CFDataRef data, WineWindow *window);
+extern bool macdrv_set_pasteboard_data(CFStringRef type, CFDataRef data, WineWindow *window);
 
 
 /* opengl */

@@ -18,7 +18,8 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
+#import "config.h"
+#import "macdrv.h"
 
 #define GL_SILENCE_DEPRECATION
 #import <Metal/Metal.h>
@@ -27,13 +28,13 @@
 
 #import "cocoa_window.h"
 
-#include "macdrv_cocoa.h"
 #import "cocoa_app.h"
 #import "cocoa_event.h"
 #import "cocoa_opengl.h"
 
 #pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
 
+WINE_DEFAULT_DEBUG_CHANNEL(macdrv);
 
 @interface NSWindow (PrivatePreventsActivation)
 
@@ -1443,7 +1444,7 @@ static inline BOOL stage_manager_enabled(void)
                         reordered = TRUE;
                     }
                     else
-                        ERR(@"shouldn't happen: %@ thinks %@ is a latent child, but it doesn't agree\n", self, child);
+                        ERR("shouldn't happen: %s thinks %s is a latent child, but it doesn't agree\n", debugstr_cf(self), debugstr_cf(child));
                     [indexesToRemove addIndex:i];
                 }
             }
