@@ -119,6 +119,17 @@ sub testOctalLiteralErrors()
 end sub
 call testOctalLiteralErrors()
 
+Call ok(&HFFFFFFFF = -1, "&HFFFFFFFF <> -1")
+Call ok(&O37777777777 = -1, "&O37777777777 <> -1")
+
+sub testLiteralOverflowErrors()
+    on error resume next
+    Err.Clear : call Eval("&H100000000") : call ok(Err.number = 1002, "&H100000000 should be syntax error, got err=" & Err.number)
+    Err.Clear : call Eval("&O40000000000") : call ok(Err.number = 1002, "&O40000000000 should be syntax error, got err=" & Err.number)
+    Err.Clear : call Eval("&40000000000") : call ok(Err.number = 1002, "&40000000000 should be syntax error, got err=" & Err.number)
+end sub
+call testLiteralOverflowErrors()
+
 ' Test concat when no space and var begins with h
 hi = "y"
 x = "x" &hi
@@ -2004,6 +2015,26 @@ CheckParseErr "ReDim 5",                    1010
 CheckParseErr "Dim 5",                      1010
 CheckParseErr "Dim 1.5",                    1010
 
+Class ReservedMembersCls
+    Public [type]
+    Public [event]
+End Class
+Dim reservedObj, reservedWord
+Set reservedObj = New ReservedMembersCls
+reservedObj.type = 1
+reservedObj.event = 2
+Call ok(reservedObj.type = 1, "reservedObj.type = " & reservedObj.type)
+Call ok(reservedObj.event = 2, "reservedObj.event = " & reservedObj.event)
+
+For Each reservedWord In Array("as", "boolean", "byte", "currency", "double", "endif", "enum", "event", _
+        "implements", "integer", "like", "long", "lset", "optional", "paramarray", "raiseevent", "rset", _
+        "shared", "single", "static", "type", "typeof", "variant")
+    CheckParseErr "Dim " & reservedWord, 1010
+    CheckParseErr "Sub " & reservedWord & "() : End Sub", 1010
+    CheckParseErr "npArg = " & reservedWord, 1002
+    CheckParseErr reservedWord & " = 1", 1024
+Next
+
 Function ParenId(a)
     ParenId = a
 End Function
@@ -3622,6 +3653,31 @@ sub test_identifiers
     Call ok(property = "xx", "property = " & property & " expected ""xx""")
 end sub
 call test_identifiers()
+
+sub test_redim_identifiers
+    Dim default, error, explicit, property, step
+
+    ReDim default(3)
+    ReDim Preserve default(4)
+    Call ok(UBound(default) = 4, "UBound(default) = " & UBound(default))
+
+    ReDim error(3)
+    ReDim Preserve error(4)
+    Call ok(UBound(error) = 4, "UBound(error) = " & UBound(error))
+
+    ReDim explicit(3)
+    ReDim Preserve explicit(4)
+    Call ok(UBound(explicit) = 4, "UBound(explicit) = " & UBound(explicit))
+
+    ReDim property(3)
+    ReDim Preserve property(4)
+    Call ok(UBound(property) = 4, "UBound(property) = " & UBound(property))
+
+    ReDim step(3)
+    ReDim Preserve step(4)
+    Call ok(UBound(step) = 4, "UBound(step) = " & UBound(step))
+end sub
+call test_redim_identifiers()
 
 Class class_test_identifiers_as_function_name
     Sub Property ( par )

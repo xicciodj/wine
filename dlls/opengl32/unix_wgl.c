@@ -107,6 +107,7 @@ static void opengl_client_context_init( HGLRC client_context, struct opengl_cont
     struct opengl_client_context *client = opengl_client_context_from_client( client_context );
     client->unix_handle = (UINT_PTR)context;
     client->unix_funcs = (UINT_PTR)funcs;
+    client->root_context = (UINT_PTR)context->root_context;
     client->attrs = context->attrs;
 }
 
@@ -159,11 +160,6 @@ static void free_buffer( const struct opengl_funcs *funcs, struct buffer *buffer
     if (buffer->gl_memory && funcs) funcs->p_glDeleteMemoryObjectsEXT( 1, &buffer->gl_memory );
     if (buffer->vm_ptr) NtFreeVirtualMemory( GetCurrentProcess(), &buffer->vm_ptr, &buffer->vm_size, MEM_RELEASE );
     free( buffer );
-}
-
-static struct opengl_context *context_from_client_context( HGLRC client_context )
-{
-    return opengl_context_from_handle( client_context );
 }
 
 static void set_gl_error( TEB *teb, GLenum error )
@@ -515,7 +511,7 @@ static void init_client_context( TEB *teb, struct opengl_client_context *client,
 BOOL wrap_wglDeleteContext( TEB *teb, HGLRC client_context )
 {
     const struct opengl_funcs *funcs = get_context_funcs( client_context );
-    funcs->p_context_destroy( context_from_client_context( client_context ) );
+    funcs->p_context_destroy( opengl_context_from_handle( client_context ) );
     return TRUE;
 }
 
@@ -680,17 +676,29 @@ BOOL wrap_wglSwapBuffers( TEB *teb, HDC hdc )
 
 HGLRC wrap_wglCreateContextAttribsARB( TEB *teb, HDC hdc, HGLRC client_shared, const int *attribs, HGLRC client_context )
 {
-    struct opengl_client_context *client = opengl_client_context_from_client( client_context );
+    struct opengl_context *context, *shared = opengl_context_from_handle( client_shared );
     const struct opengl_funcs *funcs = get_dc_funcs( hdc );
-    struct opengl_context *context;
 
     if (!funcs->p_context_create) return 0;
 
-    if (!(context = funcs->p_context_create( hdc, attribs, &client->broken_sharing ))) return 0;
+    if (!(context = funcs->p_context_create( hdc, shared, attribs ))) return 0;
     opengl_client_context_init( client_context, context, funcs );
     context->client_context = client_context;
 
     return client_context;
+}
+
+NTSTATUS set_root_context( void *args )
+{
+    const struct opengl_funcs *funcs = __wine_get_opengl_driver( WINE_OPENGL_DRIVER_VERSION );
+    struct set_root_context_params *params = args;
+    struct opengl_context *root = (struct opengl_context *)(UINT_PTR)params->root_context;
+    TEB *teb = params->teb;
+
+    funcs->p_set_root_context( root );
+    teb->glTable = root || teb->glContext ? (void *)funcs : (void *)&null_opengl_funcs;
+
+    return STATUS_SUCCESS;
 }
 
 BOOL wrap_wglMakeContextCurrentARB( TEB *teb, HDC draw_hdc, HDC read_hdc, HGLRC client_context )
@@ -698,17 +706,11 @@ BOOL wrap_wglMakeContextCurrentARB( TEB *teb, HDC draw_hdc, HDC read_hdc, HGLRC 
     struct opengl_client_context *client;
     struct opengl_context *ctx;
 
-    if (HandleToULong( client_context ) == (UINT)-1)
-    {
-        const struct opengl_funcs *funcs = __wine_get_opengl_driver( WINE_OPENGL_DRIVER_VERSION );
-        if (!funcs->p_make_current( NULL, NULL, NULL )) return FALSE;
-        teb->glTable = (void *)funcs;
-    }
-    else if (client_context)
+    if (client_context)
     {
         const struct opengl_funcs *funcs = get_context_funcs( client_context );
         if (!(client = opengl_client_context_from_client( client_context ))) return FALSE;
-        if (!(ctx = context_from_client_context( client_context ))) return FALSE;
+        if (!(ctx = opengl_context_from_handle( client_context ))) return FALSE;
         if (!funcs->p_make_current( draw_hdc, read_hdc, ctx )) return FALSE;
         teb->glReserved1[0] = draw_hdc;
         teb->glReserved1[1] = read_hdc;
@@ -1837,6 +1839,21 @@ NTSTATUS wow64_process_detach( void *args )
     if ((status = process_detach( NULL ))) return status;
 
     return STATUS_SUCCESS;
+}
+
+NTSTATUS wow64_set_root_context( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        UINT64 root_context;
+    } *params32 = args;
+    struct set_root_context_params params =
+    {
+        .teb = get_teb64(params32->teb),
+        .root_context = params32->root_context,
+    };
+    return set_root_context( &params );
 }
 
 NTSTATUS wow64_get_pixel_formats( void *args )

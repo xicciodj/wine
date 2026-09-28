@@ -1062,11 +1062,14 @@ NTSTATUS WINAPI NtQuerySemaphore( HANDLE handle, SEMAPHORE_INFORMATION_CLASS cla
 /******************************************************************************
  *              NtReleaseSemaphore (NTDLL.@)
  */
-NTSTATUS WINAPI NtReleaseSemaphore( HANDLE handle, ULONG count, ULONG *previous )
+NTSTATUS WINAPI NtReleaseSemaphore( HANDLE handle, LONG count, ULONG *previous )
 {
     unsigned int ret;
 
     TRACE( "handle %p, count %u, prev_count %p\n", handle, count, previous );
+
+    if (count <= 0)
+        return STATUS_INVALID_PARAMETER;
 
     if ((ret = inproc_release_semaphore( handle, count, previous )) != STATUS_NOT_IMPLEMENTED)
         return ret;
