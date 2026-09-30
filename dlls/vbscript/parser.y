@@ -53,7 +53,6 @@ static statement_t *new_assign_statement(parser_ctx_t*,unsigned,expression_t*,ex
 static statement_t *new_set_statement(parser_ctx_t*,unsigned,expression_t*,expression_t*);
 static statement_t *new_dim_statement(parser_ctx_t*,unsigned,dim_decl_t*);
 static statement_t *new_redim_statement(parser_ctx_t*,unsigned,BOOL,redim_decl_t*);
-static statement_t *new_erase_statement(parser_ctx_t*,unsigned,const WCHAR*);
 static statement_t *new_while_statement(parser_ctx_t*,unsigned,statement_type_t,expression_t*,statement_t*);
 static statement_t *new_forto_statement(parser_ctx_t*,unsigned,const WCHAR*,expression_t*,expression_t*,expression_t*,statement_t*);
 static statement_t *new_foreach_statement(parser_ctx_t*,unsigned,const WCHAR*,expression_t*,statement_t*);
@@ -132,7 +131,7 @@ static statement_t *link_statements(statement_t*,statement_t*);
 %token <string> tNOT tAND tOR tXOR tEQV tIMP
 %token <string> tIS tMOD
 %token <string> tCALL tSUB tFUNCTION tGET tLET tCONST
-%token <string> tDIM tREDIM tPRESERVE tERASE
+%token <string> tDIM tREDIM tPRESERVE
 %token <string> tIF tELSE tELSEIF tEND tTHEN tEXIT
 %token <string> tWHILE tWEND tDO tLOOP tUNTIL tFOR tTO tEACH tIN
 %token <string> tSELECT tCASE tWITH
@@ -252,10 +251,10 @@ SimpleStatement
                                               $$ = new_call_statement(ctx, @$, &call_expr->expr); CHECK_ERROR; }
     | tCALL UnaryExpression                 { $$ = new_call_statement(ctx, @$, $2); CHECK_ERROR; }
     | CallExpression '=' Expression
-                                            { $$ = new_assign_statement(ctx, @$, $1, $3); CHECK_ERROR; }
+                                            { if($1->type == EXPR_BRACKETS) { ctx->error_loc = @1; ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_STATEMENT); YYABORT; }
+                                              $$ = new_assign_statement(ctx, @$, $1, $3); CHECK_ERROR; }
     | tDIM DimDeclList                      { $$ = new_dim_statement(ctx, @$, $2); CHECK_ERROR; }
     | tREDIM Preserve_opt ReDimDeclList     { $$ = new_redim_statement(ctx, @$, $2, $3); CHECK_ERROR; }
-    | tERASE Identifier                    { $$ = new_erase_statement(ctx, @$, $2); CHECK_ERROR; }
     | IfStatement                           { $$ = $1; }
     | tWHILE Expression StSep StatementsNl_opt tWEND
                                             { $$ = new_while_statement(ctx, @$, STAT_WHILE, $2, $4); CHECK_ERROR; }
@@ -284,7 +283,8 @@ SimpleStatement
     | tEXIT tFUNCTION                       { $$ = new_statement(ctx, STAT_EXITFUNC, 0, @2); CHECK_ERROR; }
     | tEXIT tPROPERTY                       { $$ = new_statement(ctx, STAT_EXITPROP, 0, @2); CHECK_ERROR; }
     | tEXIT tSUB                            { $$ = new_statement(ctx, STAT_EXITSUB, 0, @2); CHECK_ERROR; }
-    | tSET CallExpression '=' Expression    { if($2->type == EXPR_ME) { ctx->error_loc = @3; ctx->hres = MAKE_VBSERROR(VBSE_INVALID_USE_OF_ME); YYABORT; }
+    | tSET CallExpression '=' Expression    { while($2->type == EXPR_BRACKETS) $2 = ((unary_expression_t*)$2)->subexpr;
+                                              if($2->type == EXPR_ME) { ctx->error_loc = @3; ctx->hres = MAKE_VBSERROR(VBSE_INVALID_USE_OF_ME); YYABORT; }
                                              $$ = new_set_statement(ctx, @$, $2, $4); CHECK_ERROR; }
     | tSTOP                                 { $$ = new_statement(ctx, STAT_STOP, 0, @$); CHECK_ERROR; }
     | tON tERROR tRESUME tNEXT              { $$ = new_onerror_statement(ctx, @$, TRUE); CHECK_ERROR; }
@@ -1102,18 +1102,6 @@ static statement_t *new_redim_statement(parser_ctx_t *ctx, unsigned loc, BOOL pr
 
     stat->preserve = preserve;
     stat->redim_decls = decls;
-    return &stat->stat;
-}
-
-static statement_t *new_erase_statement(parser_ctx_t *ctx, unsigned loc, const WCHAR *identifier)
-{
-    erase_statement_t *stat;
-
-    stat = new_statement(ctx, STAT_ERASE, sizeof(*stat), loc);
-    if(!stat)
-        return NULL;
-
-    stat->identifier = identifier;
     return &stat->stat;
 }
 

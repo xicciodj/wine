@@ -1345,8 +1345,24 @@ static HRESULT compile_assignment(compile_ctx_t *ctx, expression_t *left, expres
         member_expr = (member_expression_t*)call_expr->call_expr;
         break;
     default:
-        assert(0);
-        return E_FAIL;
+        /* Assigning to an expression that is not assignable, like Me, is not
+         * a compile error. It fails when executed. */
+        hres = compile_expression(ctx, value_expr);
+        if(FAILED(hres))
+            return hres;
+
+        hres = push_instr_uint(ctx, OP_pop, 1);
+        if(FAILED(hres))
+            return hres;
+
+        hres = push_instr_uint(ctx, OP_throw, MAKE_VBSERROR(VBSE_ILLEGAL_ASSIGNMENT));
+        if(FAILED(hres))
+            return hres;
+
+        if(!emit_catch(ctx, 0))
+            return E_OUTOFMEMORY;
+
+        return S_OK;
     }
 
     if(member_expr->obj_expr) {
@@ -1492,21 +1508,6 @@ static HRESULT compile_redim_statement(compile_ctx_t *ctx, redim_statement_t *st
             break;
         decl = decl->next;
     }
-
-    return S_OK;
-}
-
-static HRESULT compile_erase_statement(compile_ctx_t *ctx, erase_statement_t *stat)
-{
-    HRESULT hres;
-
-    hres = push_instr_bstr(ctx, OP_erase, stat->identifier);
-    if(FAILED(hres))
-        return hres;
-
-    if(!emit_catch(ctx, 0))
-        return E_OUTOFMEMORY;
-
 
     return S_OK;
 }
@@ -1845,9 +1846,6 @@ static HRESULT compile_statement(compile_ctx_t *ctx, statement_ctx_t *stat_ctx, 
             break;
         case STAT_ONERROR:
             hres = compile_onerror_statement(ctx, (onerror_statement_t*)stat);
-            break;
-        case STAT_ERASE:
-            hres = compile_erase_statement(ctx, (erase_statement_t*)stat);
             break;
         case STAT_REDIM:
             hres = compile_redim_statement(ctx, (redim_statement_t*)stat);
